@@ -6,6 +6,9 @@ import numpy as np
 import shutil
 import hashlib
 import pysam
+from src.commands import (
+    RSCRIPTPATH, run_command
+)
 
 #!/usr/bin/env python3
 # SQANTI_Single_Cell: Structural and Quality Annotation of Novel Transcripts in reads at the single cell level
@@ -14,10 +17,10 @@ import pysam
 __author__  = "carlos.blanco@csic.es"
 __version__ = '1.0'  # Python 3.11
 
-utilitiesPath = os.path.join(os.path.dirname(os.path.realpath(__file__)), "utilities")
+utilitiesPath = os.path.join(os.path.dirname(os.path.realpath(__file__)), "src/utilities")
 sys.path.insert(0, utilitiesPath)
 
-utilitiesPath = os.path.join(os.path.dirname(os.path.realpath(__file__)), "utilities")
+utilitiesPath = os.path.join(os.path.dirname(os.path.realpath(__file__)), "src/utilities")
 sqantiqcPath = os.path.join(os.path.dirname(os.path.realpath(__file__)))
 
 
@@ -97,12 +100,16 @@ def convert_and_runSQANTI3(args, df):
         # Run SQANTI3
         cmd_sqanti = (
             f"python {sqantiqcPath}/sqanti3_qc.py {fastq_file} {args.annotation} {args.genome} "
-            f"--skipORF --min_ref_len {args.min_ref_len} --aligner_choice {args.aligner_choice} "
+            f"--min_ref_len {args.min_ref_len} --aligner_choice {args.aligner_choice} "
             f"-t {args.mapping_cpus} -n {args.chunks} -d {args.input_dir}/{file_acc} "
-            f"-o {sampleID} -s {args.sites} --fasta --report {args.report}"
+            f"-o {sampleID} -s {args.sites} --fasta --report skip"
         )
         if args.force_id_ignore:
             cmd_sqanti += " --force_id_ignore"
+        if args.skipORF:
+            cmd_sqanti += " --skipORF"
+        if args.saturation:
+            cmd_sqanti += " --saturation"
 
         try:
             subprocess.run(cmd_sqanti, shell=True, check=True)
@@ -174,7 +181,7 @@ def make_UJC_hash(args, df):
         os.remove(f"{outputPathPrefix}_temp.txt")
 
 
-def make_metadata(args, df):
+def add_cell_data(args, df):
     """
     Parse the BAM file to extract isoform, UMI, and cell barcode information 
     and generate a df to add the UMI and cell barcode information to the classification.
@@ -197,7 +204,7 @@ def make_metadata(args, df):
             print(f"[ERROR] BAM file {bam_file} is not accessible. Skipping...", file=sys.stderr)
             continue
 
-        metadata_list = []
+        metadata_dict = {}
 
         try:
             with pysam.AlignmentFile(bam_file, "rb", check_sq=False) as bam:
@@ -206,107 +213,61 @@ def make_metadata(args, df):
                         umi = read.get_tag("XM")
                         cell_barcode = read.get_tag("CB")
                         isoform = read.query_name
-                        metadata_list.append({
-                            "isoform": isoform,
-                            "XM": umi,
-                            "CB": cell_barcode
-                        })
+                        metadata_dict[isoform] = {"UMI": umi, "CB": cell_barcode}
         except Exception as e:
             print(f"[ERROR] Failed to parse BAM file {bam_file}: {str(e)}", file=sys.stderr)
             continue
 
-        # Create a DataFrame from the metadata list
-        metadata_df = pd.DataFrame(metadata_list)
-
-        if metadata_df.empty:
+        if not metadata_dict:
             print(f"[INFO] No valid reads found in the BAM file for {file_acc} for metadata creation.", file=sys.stdout)
             return None
 
-        # Merge the metadata_df with the classification file
+        # Load the classification file
         classification_path = f"{outputPathPrefix}_classification_tmp.txt"
         if os.path.isfile(classification_path):
             try:
-                classification_df = pd.read_csv(classification_path, sep='\t')
-                merged_df = pd.merge(classification_df, metadata_df, on="isoform", how="left")
-                merged_df.to_csv(f"{outputPathPrefix}_classification.txt", index = False, sep = "\t")
+                classification_df = pd.read_csv(classification_path, sep='\t', low_memory=False)
+                
+                # Add UMI and CB information
+                classification_df['UMI'] = classification_df['isoform'].map(lambda x: metadata_dict.get(x, {}).get("UMI", None))
+                classification_df['CB'] = classification_df['isoform'].map(lambda x: metadata_dict.get(x, {}).get("CB", None))
+                
+                # Fill _dup2 reads with their primary alignment's UMI and CB
+                for index, row in classification_df.iterrows():
+                    match = re.match(r"(.+)_dup\d+$", row['isoform'])  # Match _dup<number>
+                    if match:
+                        primary_isoform = match.group(1)  # Extract the original molecule ID
+                        if primary_isoform in metadata_dict:
+                            classification_df.at[index, 'UMI'] = metadata_dict[primary_isoform]['UMI']
+                            classification_df.at[index, 'CB'] = metadata_dict[primary_isoform]['CB']
+                            
+                classification_df.to_csv(f"{outputPathPrefix}_classification.txt", index=False, sep="\t")
 
             except Exception as e:
                 print(f"[ERROR] Could not merge metadata with classification table: {str(e)}", file=sys.stderr)
         else:
             print(f"[INFO] Classification file for {file_acc} not found.", file=sys.stdout)
 
-        print(f"**** UMI and cell barcode information successfully added to {file_acc} classification", file=sys.stdout)
+        print(f"**** UMI and cell barcode information successfully added to {file_acc} reads classification", file=sys.stdout)
 
         os.remove(f"{outputPathPrefix}_classification_tmp.txt")
 
 
-def make_cell_summary(args, df):
-    """
-    Create a classification-like file with the information at the cell level from the SQANTI3 classification file.
-
-    Args:
-        args: A namespace object containing input_dir (directory with the classification files).
-        df: A pandas DataFrame with metadata containing 'file_acc' and 'sampleID' columns.
-
-    Output:
-        A new cell-level summary table saved as a .txt file.
-    """
+def generate_report(args, df):
     for index, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
         outputPathPrefix = os.path.join(args.input_dir, file_acc, sampleID)
 
         classification_path = f"{outputPathPrefix}_classification.txt"
-
         if os.path.isfile(classification_path):
             try:
-                # Read the classification file
-                classification_df = pd.read_csv(classification_path, sep="\t")
-
-                # Group by cell barcode
-                grouped = classification_df.groupby('CB')
-
-                # Aggregating metrics for each cell
-                cell_summary = grouped.agg(
-                    total_reads=('CB', 'size'),
-                    total_umi=('XM', lambda x: x.nunique()),
-                    total_genes=('associated_gene', lambda x: x[classification_df.loc[x.index, 'structural_category'].isin(['genic_intron', 'intergenic']) == False].nunique()),
-                    unique_junction_chains=('jxn_string', lambda x: x[classification_df.loc[x.index, 'exons'] > 1].nunique()),
-                    median_read_length=('length', 'median'),
-                    median_exons=('exons', 'median'),
-                    mitochondrial_proportion=('chrom', lambda x: (x == 'MT').mean()),
-                    fsm_proportion=('structural_category', lambda x: (x == 'full-splice_match').mean()),
-                    ism_proportion=('structural_category', lambda x: (x == 'incomplete-splice_match').mean()),
-                    nic_proportion=('structural_category', lambda x: (x == 'novel_in_catalog').mean()),
-                    nnc_proportion=('structural_category', lambda x: (x == 'novel_not_in_catalog').mean()),
-                    genic_proportion=('structural_category', lambda x: (x == 'genic').mean()),
-                    genic_intron_proportion=('structural_category', lambda x: (x == 'genic_intron').mean()),
-                    intergenic_proportion=('structural_category', lambda x: (x == 'intergenic').mean()),
-                    antisense_proportion=('structural_category', lambda x: (x == 'antisense').mean()),
-                    fusion_proportion=('structural_category', lambda x: (x == 'fusion').mean()),
-                    rts_artifact_proportion = ('RTS_stage', lambda x: (x.astype(str) == 'True').mean()),
-                    intrapriming_proportion=('perc_A_downstream_TTS', lambda x: (x >= 60).mean()),
-                    all_canonical_proportion=(
-                        'all_canonical', 
-                        lambda x: (
-                            x[
-                                classification_df.loc[x.index, 'subcategory']
-                                .isin(['mono-exon', 'mono-exon_by_intron_retention']) == False
-                            ]
-                            .eq('non_canonical')
-                            .mean()
-                        )
-                    ),
-                    monoexon_proportion=('exons', lambda x: (x == 1).mean())
-                ).reset_index()
-
-                # Save to output file
-                output_file = f"{outputPathPrefix}_cell_summary.txt"
-                cell_summary.to_csv(output_file, sep='\t', index=False)
-                print(f"Cell-level summary table saved to {output_file}")
+                print("**** Generating SQANTI3 report....", file=sys.stderr)
+                cmd = f"{RSCRIPTPATH} {utilitiesPath}/SQANTI-sc_reads_2.R {classification_path} {utilitiesPath} {args.report}"
+                run_command(cmd,"SQANTI3 report")
 
             except Exception as e:
-                print(f"Error processing {classification_path}: {e}")
+                print(f"Error generating report for {classification_path}: {e}")
 
 
 def main():
@@ -318,25 +279,19 @@ def main():
     parser.add_argument('--genome', type=str, help='\t\tReference genome (Fasta format).', default = False, required = False)
     parser.add_argument('--annotation', type=str, help='\t\tReference annotation file (GTF format).', default = False, required = True)
     parser.add_argument('-de', '--design', type=str, dest="inDESIGN" ,required=True, help='Path to design file, must have sampleID and file_acc column.')
-    parser.add_argument('-i', '--input_dir', type=str, default = './', help = '\t\tPath to directory where fastq/GTF files are stored. Or path to parent directory with children directories of SQANTI3 runs. Default: Directory where the script was run.')
+    parser.add_argument('-i', '--input_dir', type=str, default = './', help = '\t\tPath to directory where fastq files are stored. Or path to parent directory with children directories of SQANTI3 runs. Default: Directory where the script was run.')
     parser.add_argument('-f', '--factor', type=str, dest="inFACTOR" ,required=False, help='This is the column name that plots are to be faceted by. Default: None')
     parser.add_argument('-p','--prefix', type=str, dest="PREFIX", required=False, help='SQANTI-sc output filename prefix. Default: sqantiSingleCell')
     parser.add_argument('-d','--dir', type=str, help='\t\tDirectory for output sqanti_sc files. Default: Directory where the script was run.', default = "./", required=False)
     parser.add_argument('--min_ref_len', type=int, default=0, help="\t\tMinimum reference transcript length. Default: 0 bp")
     parser.add_argument('--force_id_ignore', action="store_true", default=False, help="\t\t Allow the usage of transcript IDs non related with PacBio's nomenclature (PB.X.Y)")
+    parser.add_argument('--skipORF', action="store_true", default=False, help="\t\t Skip ORF prediction to save time.")
     parser.add_argument('--aligner_choice', type=str, choices=['minimap2', "uLTRA"], default='minimap2', help="\t\tDefault: minimap2")
     parser.add_argument('-@', '--samtools_cpus', default=10, type=int, help='\t\tNumber of threads used during conversion from bam to fastq. Default: 10')    
     parser.add_argument('-t', '--mapping_cpus', default=10, type=int, help='\t\tNumber of threads used during alignment by aligners. Default: 10')
     parser.add_argument('-n', '--chunks', default=10, type=int, help='\t\tNumber of chunks to split SQANTI3 analysis in for speed up. Default: 10')
     parser.add_argument('-s','--sites', type=str, default="ATAC,GCAG,GTAG", help='\t\tSet of splice sites to be considered as canonical (comma-separated list of splice sites). Default: GTAG,GCAG,ATAC.', required=False)
-    parser.add_argument('-ge','--gene_expression', type=int, dest="ANNOTEXP", required=False, help='Expression cut off level for determining underannotated genes. Default = 100', default = 100)
-    parser.add_argument('-je','--jxn_expression', type=int, dest="JXNEXP", required=False, help='Coverage threshold for detected reference donors and acceptor. Default = 10', default = 10)
-    parser.add_argument('-pc','--perc_coverage', type=int, dest="PERCCOV", required=False, help='Percent gene coverage of UJC for determining well-covered unannotated transcripts. Default = 20', default = 20)
-    parser.add_argument('-pj','--perc_junctions', type=int, dest="PERCMAXJXN", required=False, help='Percent of the max junctions in gene for determining near full-length putative novel transcripts. Default = 80', default = 80)
-    parser.add_argument('-fl','--factor_level', type=str, dest="FACTORLVL", required=False, help='Factor level to evaluate for underannotation', default = None)
-    parser.add_argument('--all_tables', dest="ALLTABLES", action='store_true', help='Export all output tables. Default tables are gene counts, ujc counts, length_summary, cv and and underannotated gene tables')
-    parser.add_argument('--pca_tables', dest="PCATABLES", action='store_true', help='Export table for making PCA plots')
-    parser.add_argument('--report', type=str, choices = ["pdf", "html", "both", "skip"], default = "skip", help = "\t\tDefault: skip")
+    parser.add_argument('--report', type=str, choices = ["pdf", "skip"], default = "pdf", help = "\t\tDefault: pdf")
     parser.add_argument('--verbose', help = 'If verbose is run, it will print all steps, by default it is FALSE', action="store_true")
     parser.add_argument('-v', '--version', help="Display program version number.", action='version', version='sqanti-sc '+str(__version__))
 
@@ -352,30 +307,10 @@ def main():
     make_UJC_hash(args, df)
 
     # Make metadata table
-    make_metadata(args, df)
-
-    # Make cell summary
-    make_cell_summary(args, df)
+    add_cell_data(args, df)
 
     # Run plotting script
-    # plotting_script_path = os.path.join(os.path.dirname(__file__), 'utilities', 'sqanti_reads_tables_and_plots_02ndk.py')
-
-    #cmd_plotting = f"python {plotting_script_path} --ref {args.annotation} --design {args.inDESIGN} -o {args.dir} --gene-expression {args.ANNOTEXP} --jxn-expression {args.JXNEXP} --perc-coverage {args.PERCCOV} --perc-junctions {args.PERCMAXJXN} --report {args.report}"
-    #if args.inFACTOR:
-    #    cmd_plotting = cmd_plotting + f" --factor {args.inFACTOR}"
-    #if args.FACTORLVL != None:
-    #    cmd_plotting = cmd_plotting + f" --factor-level {args.FACTORLVL}"
-    #if args.PREFIX:
-    #    cmd_plotting = cmd_plotting + f" --prefix {args.PREFIX}"
-    #else:
-    #    cmd_plotting = cmd_plotting + " --prefix sqantiSingleCell"
-    #if args.ALLTABLES:
-    #    cmd_plotting = cmd_plotting + " --all-tables"
-    #if args.PCATABLES:
-    #    cmd_plotting = cmd_plotting + "--pca-tables"
-    
-    #subprocess.call(cmd_plotting, shell = True)
-
+    generate_report(args, df)
 
 if __name__ == "__main__":
     main()
