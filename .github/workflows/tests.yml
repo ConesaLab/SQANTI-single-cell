@@ -24,7 +24,10 @@ jobs:
           environment-name: SQANTI3.env
           cache-environment: true
 
-      - name: Run tests inside Conda environment
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=$PYTHONPATH:$(pwd)/src" >> $GITHUB_ENV
+
+      - name: Run tests
         shell: bash -l {0}
         run: |
           micromamba activate SQANTI3.env
