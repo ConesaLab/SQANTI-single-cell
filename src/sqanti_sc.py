@@ -6,7 +6,12 @@ import numpy as np
 import shutil
 import hashlib
 import pysam
-from src.commands import (
+
+sqanti3_src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../SQANTI3/src"))
+if sqanti3_src_path not in sys.path:
+    sys.path.insert(0, sqanti3_src_path)
+
+from commands import (
     RSCRIPTPATH, run_command
 )
 
@@ -17,11 +22,10 @@ from src.commands import (
 __author__  = "carlos.blanco@csic.es"
 __version__ = '1.0'  # Python 3.11
 
-utilitiesPath = os.path.join(os.path.dirname(os.path.realpath(__file__)), "src/utilities")
+utilitiesPath = os.path.abspath(os.path.join(os.path.dirname(__file__), "../SQANTI3/src/utilities"))
 sys.path.insert(0, utilitiesPath)
 
-utilitiesPath = os.path.join(os.path.dirname(os.path.realpath(__file__)), "src/utilities")
-sqantiqcPath = os.path.join(os.path.dirname(os.path.realpath(__file__)))
+sqantiqcPath = os.path.abspath(os.path.join(os.path.dirname(__file__), "../SQANTI3"))
 
 
 FIELDS_JUNC = ['isoform', 'chrom', 'strand', 'junction_number', 'genomic_start_coord',
@@ -50,79 +54,131 @@ def fill_design_table(args):
     return(df)
 
 
-def convert_and_runSQANTI3(args, df):
+def get_files_runSQANTI3(args, df):
     for index, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
 
-        bam_pattern = os.path.join(args.input_dir, f"{file_acc}*.bam")
-        bam_files = glob.glob(bam_pattern)
-
-        if not bam_files:
-            print(
-                f"ERROR: The file_acc {file_acc} you included in your design file does not correspond to any .bam file in the {args.input_dir} directory",
-                file=sys.stderr,
-            )
-            continue
-
-        bam_file = bam_files[0]
-
-        if not os.path.isfile(bam_file):
-            print(f"[ERROR] BAM file {bam_file} is not accessible. Skipping...", file=sys.stderr)
-            continue
-
-        # Check required files
-        if not os.path.isfile(args.genome):
-            print("[ERROR] You inputted bam files to map but no reference genome FASTA", file=sys.stderr)
-            sys.exit(-1)
-
-        if not os.path.isfile(args.annotation):
-            print("[ERROR] You inputted bam files to map but no reference annotation GTF", file=sys.stderr)
-            sys.exit(-1)
-
-        # Convert unmapped BAM to FASTQ
-        cmd_tofastq = f"samtools fastq -@ {args.samtools_cpus} {bam_file} -n > {args.input_dir}/{file_acc}_tmp.fastq"
+        # Check for .gtf or .gff file
+        gtf_pattern = os.path.join(args.input_dir, f"{file_acc}*.g*f")
         try:
-            subprocess.run(cmd_tofastq, shell=True, check=True)
-        except subprocess.CalledProcessError:
-            print(f"ERROR running command: {0}\n Missing SAMTOOLS".format(cmd_tofastq), file=sys.stderr)
-            sys.exit(-1)
+            gtf_files = glob.glob(gtf_pattern)[0]
+        except IndexError:
+            pass
+        else:
+            if os.path.isfile(gtf_files):
+                if os.path.isfile(args.genome) is False:
+                    print(f'[ERROR] You inputted gtf files to run SQANTI3 but no reference genome FASTA', file=sys.stdout)
+                    sys.exit(-1)
+                if os.path.isfile(args.annotation) is False:
+                    print(f'[ERROR] You inputted gtf files to run SQANTI3 but no reference annotation GTF', file=sys.stdout)
+                    sys.exit(-1)
+                if args.verbose:
+                    print(f'[INFO] You inputted gtf files, we will run SQANTI-sc qc for sample {gtf_files}', file=sys.stdout)
+                cmd_sqanti = (
+                    f"python {sqantiqcPath}/sqanti3_qc.py {gtf_files} {args.annotation} {args.genome} "
+                    f"--min_ref_len {args.min_ref_len} --aligner_choice {args.aligner_choice} "
+                    f"-t {args.cpus} -n {args.chunks} -d {args.out_dir}/{file_acc} -o {sampleID} -s {args.sites} --report skip"
+                )
+                if args.force_id_ignore:
+                    cmd_sqanti = cmd_sqanti + " --force_id_ignore"
+                if args.skipORF:
+                    cmd_sqanti += " --skipORF"
+                print(cmd_sqanti, file=sys.stdout)
+                subprocess.call(cmd_sqanti, shell = True)
+                continue
 
-        # Locate generated FASTQ
-        fastq_pattern = os.path.join(args.input_dir, f"{file_acc}*.fastq")
-        fastq_files = glob.glob(fastq_pattern)
-        if not fastq_files:
-            print(f"[ERROR] FASTQ file not generated for {file_acc}", file=sys.stderr)
-            continue
-
-        fastq_file = fastq_files[0]
-
-        # Run SQANTI3
-        cmd_sqanti = (
-            f"python {sqantiqcPath}/sqanti3_qc.py {fastq_file} {args.annotation} {args.genome} "
-            f"--min_ref_len {args.min_ref_len} --aligner_choice {args.aligner_choice} "
-            f"-t {args.mapping_cpus} -n {args.chunks} -d {args.input_dir}/{file_acc} "
-            f"-o {sampleID} -s {args.sites} --fasta --report skip"
-        )
-        if args.force_id_ignore:
-            cmd_sqanti += " --force_id_ignore"
-        if args.skipORF:
-            cmd_sqanti += " --skipORF"
-        if args.saturation:
-            cmd_sqanti += " --saturation"
-
+        # Check for .fastq or .fasta files
+        fastq_pattern = os.path.join(args.input_dir, f"{file_acc}*.fast*")
         try:
-            subprocess.run(cmd_sqanti, shell=True, check=True)
-        except subprocess.CalledProcessError:
-            print(f"[ERROR] Failed to run SQANTI3: {cmd_sqanti}", file=sys.stderr)
-            sys.exit(-1)
+            fastq_files = glob.glob(fastq_pattern)[0]
+        except IndexError:
+            pass
+        else:
+            if os.path.isfile(fastq_files):
+                if os.path.isfile(args.genome) is False:
+                    print(f'[ERROR] You inputted FASTA/FASTQ files to map but no reference genome FASTA', file=sys.stdout)
+                    sys.exit(-1)
+                if os.path.isfile(args.annotation) is False:
+                    print(f'[ERROR] You inputted FASTA/FASTQ files to map but no reference annotation GTF', file=sys.stdout)
+                    sys.exit(-1)
+                if args.verbose:
+                    print(f'[INFO] You inputted FASTA/FASTQ files, we will run SQANTI-sc qc for sample {fastq_files}', file=sys.stdout)
 
-        # Cleanup
-        try:
-            os.remove(f"{fastq_file}")
-            os.remove(f"{file_acc}_tmp.renamed.fasta")
-        except FileNotFoundError:
-            print(f"[WARNING] Failed to remove temporary file: {fastq_file}", file=sys.stderr)
+                cmd_sqanti = f"python {sqantiqcPath}/sqanti3_qc.py \
+                                {fastq_files} {args.annotation} {args.genome} \
+                                --skipORF --min_ref_len {args.min_ref_len} \
+                                --aligner_choice {args.aligner_choice} \
+                                -t {args.cpus} -d {args.out_dir}/{file_acc} \
+                                -o {sampleID} -s {args.sites} -n {args.chunks} \
+                                --fasta"
+                if args.force_id_ignore:
+                    cmd_sqanti = cmd_sqanti + " --force_id_ignore"
+                if args.skipORF:
+                    cmd_sqanti += " --skipORF"
+                print(cmd_sqanti, file=sys.stdout)
+                subprocess.call(cmd_sqanti, shell = True)
+                continue
+
+        if args.mode == "reads":
+            bam_pattern = os.path.join(args.input_dir, f"{file_acc}*.bam")
+            try:
+                bam_files = glob.glob(bam_pattern)[0]
+            except IndexError:
+                pass
+            else:
+                if os.path.isfile(bam_files):
+                    if os.path.sifle(args.genome) is False:
+                        print(f'[ERROR] You inputted BAM files to map but no reference genome FASTA', file=sys.stdout)
+                        sys.exit(-1)
+                    if os.path.isfile(args.annotation) is False:
+                        print(f'[ERROR] You inputted BAM files to map but no reference annotation GTF', file=sys.stdout)
+                        sys.exit(-1)
+                    if args.verbose:
+                        print(f'[INFO] You inputted BAM files, we will run SQANTI-sc qc for sample {fastq_files}', file=sys.stdout)
+                    
+                    # Convert unmapped BAM to FASTQ
+                    cmd_tofastq = f"samtools fastq -@ {args.samtools_cpus} {bam_file} -n > {args.input_dir}/{file_acc}_tmp.fastq"
+                    try:
+                        subprocess.run(cmd_tofastq, shell=True, check=True)
+                    except subprocess.CalledProcessError:
+                        print(f"ERROR running command: {0}\n Missing SAMTOOLS".format(cmd_tofastq), file=sys.stderr)
+                        sys.exit(-1)
+
+                    # Locate generated FASTQ
+                    fastq_pattern = os.path.join(args.input_dir, f"{file_acc}*.fastq")
+                    fastq_files = glob.glob(fastq_pattern)
+                    if not fastq_files:
+                        print(f"[ERROR] FASTQ file not generated for {file_acc}", file=sys.stderr)
+                        continue
+
+                    fastq_file = fastq_files[0]
+
+                    # Run SQANTI3
+                    cmd_sqanti = f"python {sqantiqcPath}/sqanti3_qc.py \
+                                {fastq_files} {args.annotation} {args.genome} \
+                                --skipORF --min_ref_len {args.min_ref_len} \
+                                --aligner_choice {args.aligner_choice} \
+                                -t {args.cpus} -d {args.out_dir}/{file_acc} \
+                                -o {sampleID} -s {args.sites} -n {args.chunks} \
+                                --fasta"
+                    if args.force_id_ignore:
+                        cmd_sqanti = cmd_sqanti + " --force_id_ignore"
+                    if args.skipORF:
+                        cmd_sqanti += " --skipORF"
+                    print(cmd_sqanti, file=sys.stdout)
+                    subprocess.call(cmd_sqanti, shell = True)
+                    continue
+        
+            # If none of the conditions are met, raise an error
+            print(f"ERROR: The file_acc you included in your design file does not correspond to .fastq, .gtf or directories with junctions and classification files in the {args.input_dir} directory", file=sys.stdout)
+
+    # Cleanup
+    try:
+        os.remove(f"{fastq_file}")
+        os.remove(f"{file_acc}_tmp.renamed.fasta")
+    except FileNotFoundError:
+        print(f"[WARNING] Failed to remove temporary file: {fastq_file}", file=sys.stderr)
 
 
 def make_UJC_hash(args, df):
@@ -232,7 +288,7 @@ def add_cell_data(args, df):
                 classification_df['UMI'] = classification_df['isoform'].map(lambda x: metadata_dict.get(x, {}).get("UMI", None))
                 classification_df['CB'] = classification_df['isoform'].map(lambda x: metadata_dict.get(x, {}).get("CB", None))
                 
-                # Fill _dup2 reads with their primary alignment's UMI and CB
+                # Fill _dup2 supplementary alignments with their respective primary alignment's UMI and CB
                 for index, row in classification_df.iterrows():
                     match = re.match(r"(.+)_dup\d+$", row['isoform'])  # Match _dup<number>
                     if match:
@@ -263,7 +319,7 @@ def generate_report(args, df):
         if os.path.isfile(classification_path):
             try:
                 print("**** Generating SQANTI3 report....", file=sys.stderr)
-                cmd = f"{RSCRIPTPATH} {utilitiesPath}/SQANTI-sc_reads_2.R {classification_path} {utilitiesPath} {args.report}"
+                cmd = f"{RSCRIPTPATH} {utilitiesPath}/SQANTI-sc_reads.R {classification_path} {utilitiesPath} {args.report}"
                 run_command(cmd,"SQANTI3 report")
 
             except Exception as e:
@@ -276,13 +332,19 @@ def main():
 
     #arguments
     parser = argparse.ArgumentParser(description="Structural and Quality Annotation of Novel Transcript Isoforms")
-    parser.add_argument('--genome', type=str, help='\t\tReference genome (Fasta format).', default = False, required = False)
-    parser.add_argument('--annotation', type=str, help='\t\tReference annotation file (GTF format).', default = False, required = True)
-    parser.add_argument('-de', '--design', type=str, dest="inDESIGN" ,required=True, help='Path to design file, must have sampleID and file_acc column.')
+    # Positional arguments
+    apr = ap.add_argument_group("Required arguments")
+    parser.add_argument('--genome', type=str, required=True, help='\t\tReference genome (Fasta format).')
+    parser.add_argument('--annotation', type=str, required=True, help='\t\tReference annotation file (GTF format).')
+    parser.add_argument('-de', '--design', type=str, dest="inDESIGN", required=True, help='Path to design file, must have sampleID and file_acc column.')
+    parser.add_argument('-m', '--mode', type=str, choices = ["isoforms", "reads"], required=True, help = '\t\tType of data to run SQANTI3 on (reads or isoforms)')
+
+    # Optional arguments
+    apr = ap.add_argument_group("Optional arguments")
     parser.add_argument('-i', '--input_dir', type=str, default = './', help = '\t\tPath to directory where fastq files are stored. Or path to parent directory with children directories of SQANTI3 runs. Default: Directory where the script was run.')
     parser.add_argument('-f', '--factor', type=str, dest="inFACTOR" ,required=False, help='This is the column name that plots are to be faceted by. Default: None')
     parser.add_argument('-p','--prefix', type=str, dest="PREFIX", required=False, help='SQANTI-sc output filename prefix. Default: sqantiSingleCell')
-    parser.add_argument('-d','--dir', type=str, help='\t\tDirectory for output sqanti_sc files. Default: Directory where the script was run.', default = "./", required=False)
+    parser.add_argument('-o','--out_dir', type=str, help='\t\tDirectory for output sqanti_sc files. Default: Directory where the script was run.', default = "./", required=False)
     parser.add_argument('--min_ref_len', type=int, default=0, help="\t\tMinimum reference transcript length. Default: 0 bp")
     parser.add_argument('--force_id_ignore', action="store_true", default=False, help="\t\t Allow the usage of transcript IDs non related with PacBio's nomenclature (PB.X.Y)")
     parser.add_argument('--skipORF', action="store_true", default=False, help="\t\t Skip ORF prediction to save time.")
@@ -291,8 +353,10 @@ def main():
     parser.add_argument('-t', '--mapping_cpus', default=10, type=int, help='\t\tNumber of threads used during alignment by aligners. Default: 10')
     parser.add_argument('-n', '--chunks', default=10, type=int, help='\t\tNumber of chunks to split SQANTI3 analysis in for speed up. Default: 10')
     parser.add_argument('-s','--sites', type=str, default="ATAC,GCAG,GTAG", help='\t\tSet of splice sites to be considered as canonical (comma-separated list of splice sites). Default: GTAG,GCAG,ATAC.', required=False)
-    parser.add_argument('--report', type=str, choices = ["pdf", "skip"], default = "pdf", help = "\t\tDefault: pdf")
-    parser.add_argument('--verbose', help = 'If verbose is run, it will print all steps, by default it is FALSE', action="store_true")
+    parser.add_argument('--skip_hash', dest="SKIPHASH", action='store_true', help='Skip the hashing step')
+    parser.add_argument('--report', type=str, choices = ["pdf", "html", "both", "skip"], default = "pdf", help = "\t\tDefault: pdf")
+    parser.add_argument('-c' '--ignore_cell_summary', action="store_true", default=False, help="\t\t Add this flag to not save the cell summary table generated during the report to save space. Do not add if running the cell filter module afterwards, as this table is used to inform the cell filtering.")
+    parser.add_argument('--verbose', help = 'If verbose is run, it will print all steps, by default it is FALSE', action="store_true", default=False)
     parser.add_argument('-v', '--version', help="Display program version number.", action='version', version='sqanti-sc '+str(__version__))
 
     args = parser.parse_args()
@@ -300,17 +364,23 @@ def main():
     # Check and read design file
     df = fill_design_table(args)
 
-    # Check method and run SQANTI3
-    convert_and_runSQANTI3(args, df)
+    # Run SQANTI3 for reads
+    if args.reads:
+        get_files_runSQANTI3(args, df)
+
+    if args.isoforms:
+        get_files_runSQANTI3(args, df)
 
     # Make UJC and hash
-    make_UJC_hash(args, df)
+    if not args.SKIPHASH:
+        make_UJC_hash(args, df)
 
     # Make metadata table
     add_cell_data(args, df)
 
     # Run plotting script
     generate_report(args, df)
+
 
 if __name__ == "__main__":
     main()
