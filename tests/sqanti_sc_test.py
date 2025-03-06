@@ -39,7 +39,7 @@ def test_fill_design_table_correct_format(mock_csv_data, mock_args):
 
 def test_fill_design_table_incorrect_format(mock_args):
     """Test function with incorrectly formatted CSV design file."""
-    bad_csv_data = "sampleID\nS1\nS2"  # Only one column
+    bad_csv_data = "sampleID\nwtc11_PBcDNA\nwtc11_ONTdRNA"  # Only one column
     
     with patch("builtins.open", mock_open(read_data=bad_csv_data)):
         with patch("pandas.read_csv", return_value=pd.read_csv(StringIO(bad_csv_data))):
@@ -52,3 +52,8 @@ def test_fill_design_table_incorrect_format(mock_args):
                     
                     # Ensure the function exits
                     mock_exit.assert_called_once_with(-1)
+
+
+
+
+
