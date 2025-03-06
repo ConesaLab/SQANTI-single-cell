@@ -11,15 +11,18 @@ class MockArgs:
         self.inDESIGN = inDESIGN
         self.input_dir = input_dir
 
+
 @pytest.fixture
 def mock_csv_data():
     """Mock valid CSV data with required columns."""
-    return "sampleID,file_acc\nwtc11_PBcDNA,ENCFF003QZT\nwtc11_ONTdRNA,ENCFF104BNW"
+    return "sampleID,file_acc\nsample_1,file_acc_1\nsample_2,file_acc_2"
+
 
 @pytest.fixture
 def mock_args(tmp_path):
     """Mock arguments object."""
     return MockArgs(inDESIGN=tmp_path / "design.csv", input_dir="/mock/input")
+
 
 def test_fill_design_table_correct_format(mock_csv_data, mock_args):
     """Test function with correctly formatted CSV design file."""
@@ -31,29 +34,23 @@ def test_fill_design_table_correct_format(mock_csv_data, mock_args):
                 # Check if new columns are created correctly
                 assert "classification_file" in df.columns
                 assert "junction_file" in df.columns
-                assert df["classification_file"].iloc[0] == "/mock/input/ENCFF003QZT/wtc11_PBcDNA_classification.txt"
-                assert df["junction_file"].iloc[1] == "/mock/input/ENCFF104BNW/wtc11_ONTdRNA_junctions.txt"
+                assert df["classification_file"].iloc[0] == "/mock/input/file_acc_1/sample_1_classification.txt"
+                assert df["junction_file"].iloc[1] == "/mock/input/file_acc_2/sample_2_junctions.txt"
                 
                 # Ensure DataFrame is written back to CSV
                 mock_to_csv.assert_called_once_with(mock_args.inDESIGN, sep=',', index=False)
 
+
 def test_fill_design_table_incorrect_format(mock_args):
     """Test function with incorrectly formatted CSV design file."""
-    bad_csv_data = "sampleID\nwtc11_PBcDNA\nwtc11_ONTdRNA"  # Only one column
+    bad_csv_data = "sampleID\nsample_1\nsample_2"  # Only one column
     
     with patch("builtins.open", mock_open(read_data=bad_csv_data)):
         with patch("pandas.read_csv", return_value=pd.read_csv(StringIO(bad_csv_data))):
             with patch("sys.exit") as mock_exit:
                 with patch("sys.stderr", new_callable=StringIO) as mock_stderr:
                     fill_design_table(mock_args)
-                    
+                    mock_exit.assert_called_once_with(1) 
+
                     # Ensure error message is printed
-                    assert "ERROR: is incorrectly formatted" in mock_stderr.getvalue()
-                    
-                    # Ensure the function exits
-                    mock_exit.assert_called_once_with(-1)
-
-
-
-
-
+                    assert "Missing required columns: file_acc" in mock_stderr.getvalue()
