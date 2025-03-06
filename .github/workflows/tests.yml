@@ -31,7 +31,6 @@ jobs:
         shell: bash -l {0}
         run: |
           micromamba activate SQANTI3.env
-          python -m pip install --upgrade pip
           pip install -r requirements.txt
           echo "Current Conda environment: $(micromamba info --envs)"
           pytest tests/
