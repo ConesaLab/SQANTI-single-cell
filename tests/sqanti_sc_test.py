@@ -49,8 +49,10 @@ def test_fill_design_table_incorrect_format(mock_args):
         with patch("pandas.read_csv", return_value=pd.read_csv(StringIO(bad_csv_data))):
             with patch("sys.exit") as mock_exit:
                 with patch("sys.stderr", new_callable=StringIO) as mock_stderr:
-                    fill_design_table(mock_args)
-                    mock_exit.assert_called_once_with(1) 
+                    try:
+                        fill_design_table(mock_args)
+                    except SystemExit:  # Ensure test doesn't stop execution
+                        pass
 
-                    # Ensure error message is printed
+                    mock_exit.assert_called_once_with(1)  # Verify sys.exit was called
                     assert "Missing required columns: file_acc" in mock_stderr.getvalue()
