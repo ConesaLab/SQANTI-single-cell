@@ -41,25 +41,23 @@ RSCRIPTPATH = shutil.which('Rscript')
 
 
 def fill_design_table(args):
+    # Read the design CSV file into a DataFrame
     df = pd.read_csv(args.inDESIGN, sep=",")
-
-    # If number of columns is less than 2, probably wrongly formatted
-    if df.shape[1] < 2:
-        print(f"ERROR: {args.inDESIGN} is incorrectly formatted, is it not separated by commas?", file=sys.stderr)
-        sys.exit(1)
 
     # Check for required columns
     required_columns = {'sampleID', 'file_acc'}
     missing_columns = required_columns - set(df.columns)
 
     if missing_columns:
-        print(f"ERROR: Missing required columns: {', '.join(missing_columns)}", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"ERROR: Missing required columns in design table: {missing_columns}")
 
-    # Create the new columns
+    # Create the new columns based on the existing ones
     df['classification_file'] = args.input_dir + '/' + df['file_acc'] + '/' + df['sampleID'] + '_classification.txt'
     df['junction_file'] = args.input_dir + '/' + df['file_acc'] + '/' + df['sampleID'] + '_junctions.txt'
+
+    # Write the DataFrame back to the CSV file
     df.to_csv(args.inDESIGN, sep=',', index=False)
+
     return df
 
 
@@ -339,7 +337,11 @@ def main():
     args = parser.parse_args()
 
     # Check and read design file
-    df = fill_design_table(args)
+    try:
+        df = fill_design_table(args)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     # Run SQANTI3 for reads
     if args.reads:
