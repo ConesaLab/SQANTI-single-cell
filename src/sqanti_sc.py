@@ -27,16 +27,6 @@ sys.path.insert(0, utilitiesPath)
 
 sqantiqcPath = os.path.abspath(os.path.join(os.path.dirname(__file__), "../SQANTI3"))
 
-
-FIELDS_JUNC = ['isoform', 'chrom', 'strand', 'junction_number', 'genomic_start_coord',
-                   'genomic_end_coord', 'junction_category',
-                   'diff_to_Ref_start_site', 'diff_to_Ref_end_site', 'canonical']
-
-FIELDS_CLASS = ['isoform', 'chrom', 'strand', 'length',  'exons',  'structural_category',
-                'associated_gene', 'associated_transcript',  'ref_length', 'ref_exons',
-                'subcategory', 'RTS_stage', 'all_canonical',
-                'predicted_NMD', 'perc_A_downstream_TTS', "jxn_string"]
-
 RSCRIPTPATH = shutil.which('Rscript')
 
 
@@ -63,12 +53,15 @@ def fill_design_table(args):
 
 def get_files_runSQANTI3(args, df):
     def check_files_exist(*files):
-        for file in files:
-            if not os.path.isfile(file):
-                print(f'[ERROR] Missing file: {file}', file=sys.stdout)
-                sys.exit(-1)
+        """Check if each file exists, return False if missing instead of exiting."""
+        missing_files = [file for file in files if not os.path.isfile(file)]
+        if missing_files:
+            print(f'[ERROR] Missing file(s): {", ".join(missing_files)}', file=sys.stderr)
+            return False
+        return True
 
-    def build_sqanti_command(input_file):
+    def build_sqanti_command(input_file, is_fastq=False):
+        """Build the SQANTI command to run."""
         cmd = (
             f"python {sqantiqcPath}/sqanti3_qc.py {input_file} {args.annotation} {args.genome} "
             f"--min_ref_len {args.min_ref_len} --aligner_choice {args.aligner_choice} "
@@ -82,6 +75,19 @@ def get_files_runSQANTI3(args, df):
             cmd += " --fasta"
         return cmd
 
+    def run_command(cmd, error_message):
+        """Run a shell command and handle errors."""
+        try:
+            subprocess.run(cmd, shell=True, check=True)
+        except subprocess.CalledProcessError:
+            print(f"[ERROR] {error_message}: {cmd}", file=sys.stderr)
+            sys.exit(-1)
+
+    # Validate genome and annotation before processing files
+    if not check_files_exist(args.genome, args.annotation):
+        print("[ERROR] Genome or annotation file is missing.", file=sys.stderr)
+        sys.exit(-1)
+
     for index, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
@@ -91,12 +97,11 @@ def get_files_runSQANTI3(args, df):
         gtf_files = glob.glob(gtf_pattern)
         if gtf_files:
             gtf_file = gtf_files[0]
-            check_files_exist(args.genome, args.annotation)
             if args.verbose:
                 print(f'[INFO] Running SQANTI-sc qc for sample {gtf_file}', file=sys.stdout)
             cmd_sqanti = build_sqanti_command(gtf_file)
             print(cmd_sqanti, file=sys.stdout)
-            subprocess.run(cmd_sqanti, shell=True, check=True)
+            run_command(cmd_sqanti, "SQANTI3 failed to execute")
             continue
 
         # Check for .fastq or .fasta files
@@ -104,12 +109,11 @@ def get_files_runSQANTI3(args, df):
         fastq_files = glob.glob(fastq_pattern)
         if fastq_files:
             fastq_file = fastq_files[0]
-            check_files_exist(args.genome, args.annotation)
             if args.verbose:
                 print(f'[INFO] Running SQANTI-sc qc for sample {fastq_file}', file=sys.stdout)
             cmd_sqanti = build_sqanti_command(fastq_file, is_fastq=True)
             print(cmd_sqanti, file=sys.stdout)
-            subprocess.run(cmd_sqanti, shell=True, check=True)
+            run_command(cmd_sqanti, "SQANTI3 failed to execute")
             continue
 
         # Check for BAM files if mode is "reads"
@@ -118,42 +122,34 @@ def get_files_runSQANTI3(args, df):
             bam_files = glob.glob(bam_pattern)
             if bam_files:
                 bam_file = bam_files[0]
-                check_files_exist(args.genome, args.annotation)
                 if args.verbose:
                     print(f'[INFO] Running SQANTI-sc qc for sample {bam_file}', file=sys.stdout)
 
                 # Convert unmapped BAM to FASTQ
-                cmd_tofastq = f"samtools fastq -@ {args.samtools_cpus} {bam_file} -n > {args.input_dir}/{file_acc}_tmp.fastq"
-                try:
-                    subprocess.run(cmd_tofastq, shell=True, check=True)
-                except subprocess.CalledProcessError:
-                    print(f"ERROR running command: {cmd_tofastq}\n Missing SAMTOOLS", file=sys.stderr)
-                    sys.exit(-1)
+                tmp_fastq = f"{args.input_dir}/{file_acc}_tmp.fastq"
+                cmd_tofastq = f"samtools fastq -@ {args.samtools_cpus} {bam_file} -n > {tmp_fastq}"
+                run_command(cmd_tofastq, "Samtools failed to execute")
 
-                # Locate generated FASTQ
-                fastq_pattern = os.path.join(args.input_dir, f"{file_acc}*.fastq")
-                fastq_files = glob.glob(fastq_pattern)
-                if not fastq_files:
+                # Ensure FASTQ was generated
+                if not os.path.isfile(tmp_fastq):
                     print(f"[ERROR] FASTQ file not generated for {file_acc}", file=sys.stderr)
                     continue
 
-                fastq_file = fastq_files[0]
-
-                # Run SQANTI3
-                cmd_sqanti = build_sqanti_command(fastq_file, is_fastq=True)
+                # Run SQANTI3 in fasta mode
+                cmd_sqanti = build_sqanti_command(tmp_fastq, is_fastq=True)
                 print(cmd_sqanti, file=sys.stdout)
-                subprocess.run(cmd_sqanti, shell=True, check=True)
+                run_command(cmd_sqanti, "SQANTI3 failed to execute")
+
+                # Cleanup temporary files
+                try:
+                    os.remove(tmp_fastq)
+                except FileNotFoundError:
+                    print(f"[WARNING] Failed to remove temporary file: {tmp_fastq}", file=sys.stderr)
+
                 continue
 
-        # If none of the conditions are met, raise an error
-        print(f"ERROR: The file_acc you included in your design file does not correspond to .fastq, .gtf or directories with junctions and classification files in the {args.input_dir} directory", file=sys.stdout)
-
-    # Cleanup
-    try:
-        os.remove(f"{args.input_dir}/{file_acc}_tmp.fastq")
-        os.remove(f"{file_acc}_tmp.renamed.fasta")
-    except FileNotFoundError:
-        print(f"[WARNING] Failed to remove temporary file: {file_acc}_tmp.fastq", file=sys.stderr)
+        # No valid files found
+        print(f"[ERROR] No valid .fastq, .gtf, or .bam files found for {file_acc} in {args.input_dir}", file=sys.stderr)
 
 
 def make_UJC_hash(args, df):
@@ -214,8 +210,8 @@ def make_UJC_hash(args, df):
 
 def add_cell_data(args, df):
     """
-    Parse the BAM file to extract isoform, UMI, and cell barcode information 
-    and generate a df to add the UMI and cell barcode information to the classification.
+    Extract isoform, UMI, and cell barcode information from BAM file or a cell association file (depending on user's input)
+    and add it to classification.
     """
 
     for index, row in df.iterrows():
@@ -225,32 +221,50 @@ def add_cell_data(args, df):
 
         bam_pattern = os.path.join(args.input_dir, f"{file_acc}*.bam")
         bam_files = glob.glob(bam_pattern)
-        if not bam_files:
-            print(f"[ERROR] BAM file for {file_acc} not found in {args.input_dir}. Skipping...", file=sys.stderr)
-            continue
+        cell_association_file = os.path.join(args.input_dir, f"{file_acc}_cell_association.txt")
 
-        bam_file = bam_files[0]
+        cell_association_dict = {}
 
-        if not os.path.isfile(bam_file):
-            print(f"[ERROR] BAM file {bam_file} is not accessible. Skipping...", file=sys.stderr)
-            continue
+        # 1. Try to read cell data from BAM file (if exists)
+        if bam_files:
+            bam_file = bam_files[0]
+            if not os.path.isfile(bam_file):
+                print(f"[ERROR] BAM file {bam_file} is not accessible. Skipping...", file=sys.stderr)
+                continue
 
-        metadata_dict = {}
+            try:
+                with pysam.AlignmentFile(bam_file, "rb", check_sq=False) as bam:
+                    for read in bam:
+                        if read.has_tag("XM") and read.has_tag("CB"):
+                            umi = read.get_tag("XM")
+                            cell_barcode = read.get_tag("CB")
+                            isoform = read.query_name
+                            cell_association_dict[isoform] = {"UMI": umi, "CB": cell_barcode}
+            except Exception as e:
+                print(f"[ERROR] Failed to parse BAM file {bam_file}: {str(e)}", file=sys.stderr)
+                # Fallback to cell association file (if available)
+        # 2. If not bam file, try to read from cell association file
+        elif os.path.isfile(cell_association_file):
+            try:
+                cell_association_df = pd.read_csv(cell_association_file, sep='\t', dtype=str) # Added: load cell association
+                # Checks if `id` and `cell_barcode` columns exist, umi is not mandatory
+                if 'id' not in cell_association_df.columns or 'cell_barcode' not in cell_association_df.columns:
+                     print(f"[ERROR] Cell association file {cell_association_file} does not contain the required columns ('id' and 'cell_barcode'). Skipping...", file=sys.stderr)
+                     continue
+                for _, row in cell_association_df.iterrows():
+                    isoform = row['id']
+                    cell_barcode = row['cell_barcode']
+                    umi = row.get('umi')
+                    cell_association_dict[isoform] = {"CB": cell_barcode}
+                    if umi:
+                        cell_association_dict[isoform]["UMI"] = umi
+            except Exception as e:
+                print(f"[ERROR] Failed to parse cell_association file {cell_association_file}: {str(e)}", file=sys.stderr)
+                continue
 
-        try:
-            with pysam.AlignmentFile(bam_file, "rb", check_sq=False) as bam:
-                for read in bam:
-                    if read.has_tag("XM") and read.has_tag("CB"):
-                        umi = read.get_tag("XM")
-                        cell_barcode = read.get_tag("CB")
-                        isoform = read.query_name
-                        metadata_dict[isoform] = {"UMI": umi, "CB": cell_barcode}
-        except Exception as e:
-            print(f"[ERROR] Failed to parse BAM file {bam_file}: {str(e)}", file=sys.stderr)
-            continue
-
-        if not metadata_dict:
-            print(f"[INFO] No valid reads found in the BAM file for {file_acc} for metadata creation.", file=sys.stdout)
+        # 3. Add cell information to the classification file
+        if not cell_association_dict:
+            print(f"[INFO] No valid reads found in the BAM or cell association file for {file_acc} for cell association creation.", file=sys.stdout)
             return None
 
         # Load the classification file
@@ -260,22 +274,22 @@ def add_cell_data(args, df):
                 classification_df = pd.read_csv(classification_path, sep='\t', low_memory=False)
                 
                 # Add UMI and CB information
-                classification_df['UMI'] = classification_df['isoform'].map(lambda x: metadata_dict.get(x, {}).get("UMI", None))
-                classification_df['CB'] = classification_df['isoform'].map(lambda x: metadata_dict.get(x, {}).get("CB", None))
+                classification_df['UMI'] = classification_df['isoform'].map(lambda x: cell_association_dict.get(x, {}).get("UMI", None))
+                classification_df['CB'] = classification_df['isoform'].map(lambda x: cell_association_dict.get(x, {}).get("CB", None))
                 
                 # Fill _dup2 supplementary alignments with their respective primary alignment's UMI and CB
                 for index, row in classification_df.iterrows():
-                    match = re.match(r"(.+)_dup\d+$", row['isoform'])  # Match _dup<number>
+                    match = re.match(r"(.+)_dup\d+$", row['isoform'])
                     if match:
-                        primary_isoform = match.group(1)  # Extract the original molecule ID
-                        if primary_isoform in metadata_dict:
-                            classification_df.at[index, 'UMI'] = metadata_dict[primary_isoform]['UMI']
-                            classification_df.at[index, 'CB'] = metadata_dict[primary_isoform]['CB']
+                        primary_isoform = match.group(1)
+                        if primary_isoform in cell_association_dict:
+                            classification_df.at[index, 'UMI'] = cell_association_dict[primary_isoform].get('UMI', None)
+                            classification_df.at[index, 'CB'] = cell_association_dict[primary_isoform]['CB']
                             
                 classification_df.to_csv(f"{outputPathPrefix}_classification.txt", index=False, sep="\t")
 
             except Exception as e:
-                print(f"[ERROR] Could not merge metadata with classification table: {str(e)}", file=sys.stderr)
+                print(f"[ERROR] Could not merge cell association with classification table: {str(e)}", file=sys.stderr)
         else:
             print(f"[INFO] Classification file for {file_acc} not found.", file=sys.stdout)
 
@@ -354,7 +368,7 @@ def main():
     if not args.SKIPHASH:
         make_UJC_hash(args, df)
 
-    # Make metadata table
+    # Add cell information to classification
     add_cell_data(args, df)
 
     # Run plotting script

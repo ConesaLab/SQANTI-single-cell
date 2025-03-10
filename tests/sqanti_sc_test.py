@@ -3,7 +3,7 @@ import pandas as pd
 import sys
 from io import StringIO
 from unittest.mock import patch, mock_open
-from src.sqanti_sc import fill_design_table
+from src.sqanti_sc import *
 
 
 # Mock Arguments Class
