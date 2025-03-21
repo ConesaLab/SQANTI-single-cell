@@ -11,23 +11,19 @@ sqanti3_src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../S
 if sqanti3_src_path not in sys.path:
     sys.path.insert(0, sqanti3_src_path)
 
-from commands import (
-    RSCRIPTPATH, run_command
-)
+from commands import run_command
 
 #!/usr/bin/env python3
-# SQANTI_Single_Cell: Structural and Quality Annotation of Novel Transcripts in reads at the single cell level
+# SQANTI_Single_Cell: Structural and Quality Annotation of transcripts and reads at the single cell level
 # Author: Carlos Blanco
 
 __author__  = "carlos.blanco@csic.es"
 __version__ = '1.0'  # Python 3.11
 
-utilitiesPath = os.path.abspath(os.path.join(os.path.dirname(__file__), "../SQANTI3/src/utilities"))
+utilitiesPath = os.path.abspath(os.path.join(os.path.dirname(__file__), "../utilities"))
 sys.path.insert(0, utilitiesPath)
 
 sqantiqcPath = os.path.abspath(os.path.join(os.path.dirname(__file__), "../SQANTI3"))
-
-RSCRIPTPATH = shutil.which('Rscript')
 
 
 def fill_design_table(args):
@@ -65,7 +61,7 @@ def get_files_runSQANTI3(args, df):
         cmd = (
             f"python {sqantiqcPath}/sqanti3_qc.py {input_file} {args.annotation} {args.genome} "
             f"--min_ref_len {args.min_ref_len} --aligner_choice {args.aligner_choice} "
-            f"-t {args.cpus} -n {args.chunks} -d {args.out_dir}/{file_acc} -o {sampleID} -s {args.sites} --report skip"
+            f"-t {args.mapping_cpus} -n {args.chunks} -d {args.out_dir}/{file_acc} -o {sampleID} -s {args.sites} --report skip"
         )
         if args.force_id_ignore:
             cmd += " --force_id_ignore"
@@ -74,14 +70,6 @@ def get_files_runSQANTI3(args, df):
         if is_fastq:
             cmd += " --fasta"
         return cmd
-
-    def run_command(cmd, error_message):
-        """Run a shell command and handle errors."""
-        try:
-            subprocess.run(cmd, shell=True, check=True)
-        except subprocess.CalledProcessError:
-            print(f"[ERROR] {error_message}: {cmd}", file=sys.stderr)
-            sys.exit(-1)
 
     # Validate genome and annotation before processing files
     if not check_files_exist(args.genome, args.annotation):
@@ -153,18 +141,48 @@ def get_files_runSQANTI3(args, df):
 
 
 def make_UJC_hash(args, df):
+    def format_chr(chr_value):
+        return f"chr{chr_value}" if not str(chr_value).startswith("chr") else str(chr_value)
+
+    def extract_transcript_bounds(gtf_file):
+        bounds = {}
+        with open(gtf_file, 'r') as f:
+            for line in f:
+                if line.startswith('#'):
+                    continue
+                fields = line.strip().split('\t')
+                if fields[2] == 'transcript':
+                    chr, start, end, strand = fields[0], fields[3], fields[4], fields[6]
+                    transcript_id = re.search(r'transcript_id "(.*?)"', fields[8]).group(1)
+                    bounds[transcript_id] = (chr, start, end, strand)
+        return bounds
+
+    def create_jxn_string(row, bounds):
+        transcript_id = row['isoform']
+        if transcript_id in bounds:
+            chr, start, end, strand = bounds[transcript_id]
+            base_string = f"{format_chr(chr)}_{strand}_"
+        else:
+            base_string = format_chr(row["chr"]) + "_" + row["strand"] + "_"
+            start, end = "NA", "NA"
+
+        if pd.isna(row["jxn_string"]):
+            # Mono-exonic case
+            return f"{base_string}[{start}]_monoexon_[{end}]_{row['associated_transcript']}"
+        else:
+            # Multi-exonic case
+            junctions = row["jxn_string"].split("_")
+            return f"{base_string}[{start}]_" + "_".join(junctions[2:-1]) + f"_[{end}]"
 
     for index, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
-        # Input dir, sqanti3 dir, samplename
-        outputPathPrefix = os.path.join(args.input_dir, file_acc, sampleID)
+        outputPathPrefix = os.path.join(args.out_dir, file_acc, sampleID)
 
         print(f"**** Calculating UJCs for {file_acc}...", file=sys.stdout)
 
-        ## Take the corrected GTF
         introns_cmd = f"""gtftools -i {outputPathPrefix}tmp_introns.bed -c "$(cut -f 1 {outputPathPrefix}_corrected.gtf.cds.gff | sort | uniq | paste -sd ',' - | sed 's/chr//g')" {outputPathPrefix}_corrected.gtf.cds.gff"""
-        ujc_cmd = f"""awk -F'\t' -v OFS="\t" '{{print $5,"chr"$1,$4,$2+1"_"$3}}' {outputPathPrefix}tmp_introns.bed | bedtools groupby -g 1 -c 2,3,4 -o distinct,distinct,collapse | sed 's/,/_/g' | awk -F'\t' -v OFS="\t" '{{print $1,$2"_"$3"_"$4}}' > {outputPathPrefix}tmp_UJC.txt"""
+        ujc_cmd = f"""awk -F'\t' -v OFS="\t" '{{print $5,$1,$4,$2+1"_"$3}}' {outputPathPrefix}tmp_introns.bed | bedtools groupby -g 1 -c 2,3,4 -o distinct,distinct,collapse | sed 's/,/_/g' | awk -F'\t' -v OFS="\t" '{{print $1,$2"_"$3"_"$4}}' > {outputPathPrefix}tmp_UJC.txt"""
 
         if subprocess.check_call(introns_cmd, shell=True) != 0:
             print("ERROR running command: {0}\n Missing GTFTOOLS".format(introns_cmd), file=sys.stderr)
@@ -178,20 +196,29 @@ def make_UJC_hash(args, df):
             sys.exit(-1)
         os.remove(f"{outputPathPrefix}tmp_introns.bed")
 
-        ## Pandas merge to the left
+        # Add "chr" to the chromosome if missing
+        with open(f"{outputPathPrefix}tmp_UJC.txt", 'r') as f:
+            lines = f.readlines()
+
+        with open(f"{outputPathPrefix}tmp_UJC.txt", 'w') as f:
+            for line in lines:
+                parts = line.strip().split('\t')
+                chr_part = parts[1].split('_')[0]
+                parts[1] = '_'.join([format_chr(chr_part)] + parts[1].split('_')[1:])
+                f.write('\t'.join(parts) + '\n')
+
+        # Extract transcript bounds
+        transcript_bounds = extract_transcript_bounds(f"{outputPathPrefix}_corrected.gtf.cds.gff")
+
         classfile = f"{outputPathPrefix}_classification.txt"
         clas_df = pd.read_csv(classfile, sep="\t", usecols=[0, 1, 2, 7], dtype="str")
         clas_df.columns = ["isoform", "chr", "strand", "associated_transcript"]
         ujc_df = pd.read_csv(f"{outputPathPrefix}tmp_UJC.txt", sep="\t", names=["isoform", "jxn_string"], dtype="str")
 
         merged_df = pd.merge(clas_df, ujc_df, on="isoform", how="left")
-        # Fill missing values in UJC column using the transcript ID
-        merged_df["jxn_string"] = merged_df.apply(
-            lambda row: row["chr"] + "_" + row["strand"] + "_" + "monoexon" + "_" + row["associated_transcript"]
-            if pd.isna(row["jxn_string"])
-            else row["jxn_string"],
-            axis=1,
-        )
+        
+        # Create jxn_string with transcript bounds
+        merged_df["jxn_string"] = merged_df.apply(lambda row: create_jxn_string(row, transcript_bounds), axis=1)
 
         merged_df['jxnHash'] = merged_df['jxn_string'].apply(
             lambda x: hashlib.sha256(x.encode('utf-8')).hexdigest()
@@ -211,13 +238,13 @@ def make_UJC_hash(args, df):
 def add_cell_data(args, df):
     """
     Extract isoform, UMI, and cell barcode information from BAM file or a cell association file (depending on user's input)
-    and add it to classification.
+    and adds them to classification.
     """
 
     for index, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
-        outputPathPrefix = os.path.join(args.input_dir, file_acc, sampleID)
+        outputPathPrefix = os.path.join(args.out_dir, file_acc, sampleID)
 
         bam_pattern = os.path.join(args.input_dir, f"{file_acc}*.bam")
         bam_files = glob.glob(bam_pattern)
@@ -242,11 +269,11 @@ def add_cell_data(args, df):
                             cell_association_dict[isoform] = {"UMI": umi, "CB": cell_barcode}
             except Exception as e:
                 print(f"[ERROR] Failed to parse BAM file {bam_file}: {str(e)}", file=sys.stderr)
-                # Fallback to cell association file (if available)
+
         # 2. If not bam file, try to read from cell association file
         elif os.path.isfile(cell_association_file):
             try:
-                cell_association_df = pd.read_csv(cell_association_file, sep='\t', dtype=str) # Added: load cell association
+                cell_association_df = pd.read_csv(cell_association_file, sep='\t', dtype=str)
                 # Checks if `id` and `cell_barcode` columns exist, umi is not mandatory
                 if 'id' not in cell_association_df.columns or 'cell_barcode' not in cell_association_df.columns:
                      print(f"[ERROR] Cell association file {cell_association_file} does not contain the required columns ('id' and 'cell_barcode'). Skipping...", file=sys.stderr)
@@ -285,7 +312,13 @@ def add_cell_data(args, df):
                         if primary_isoform in cell_association_dict:
                             classification_df.at[index, 'UMI'] = cell_association_dict[primary_isoform].get('UMI', None)
                             classification_df.at[index, 'CB'] = cell_association_dict[primary_isoform]['CB']
-                            
+
+                # Fix boolean values
+                classification_df['RTS_stage'] = classification_df['RTS_stage'].map({True: 'TRUE', False: 'FALSE'})
+
+                # Replace empty strings with NaN, then NaN with 'NA'
+                classification_df = classification_df.fillna('NA')
+
                 classification_df.to_csv(f"{outputPathPrefix}_classification.txt", index=False, sep="\t")
 
             except Exception as e:
@@ -299,20 +332,30 @@ def add_cell_data(args, df):
 
 
 def generate_report(args, df):
+    print("**** Generating SQANTI3 report....", file=sys.stderr)
     for index, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
-        outputPathPrefix = os.path.join(args.input_dir, file_acc, sampleID)
-
-        classification_path = f"{outputPathPrefix}_classification.txt"
-        if os.path.isfile(classification_path):
+        outputPathPrefix = os.path.join(args.out_dir, file_acc, sampleID)
+        
+        classification_file = f"{outputPathPrefix}_classification.txt"
+        
+        if os.path.isfile(classification_file):
             try:
-                print("**** Generating SQANTI3 report....", file=sys.stderr)
-                cmd = f"{RSCRIPTPATH} {utilitiesPath}/SQANTI-sc_reads.R {classification_path} {utilitiesPath} {args.report}"
-                run_command(cmd,"SQANTI3 report")
-
-            except Exception as e:
-                print(f"Error generating report for {classification_path}: {e}")
+                ignore_flag  = "--ignore_cell_summary" if args.ignore_cell_summary else ""
+                cmd = (
+                    f"Rscript {utilitiesPath}/SQANTI-sc_reads.R "
+                    f"{classification_file} "
+                    f"{args.report} "
+                    f"{outputPathPrefix} "
+                    f"{ignore_flag}"
+                )
+                subprocess.run(cmd, shell=True, check=True)
+                print(f"**** SQANTI3 report successfully generated for {file_acc}", file=sys.stdout)
+            except subprocess.CalledProcessError as e:
+                print(f"Error generating report for {classification_file}: {str(e)}", file=sys.stdout)
+        else:
+            print(f"Classification file for {file_acc} not found. Skipping report generation.", file=sys.stdout)
 
 
 def main():
@@ -320,35 +363,75 @@ def main():
     global sqantiqcPath
 
     #arguments
-    parser = argparse.ArgumentParser(description="Structural and Quality Annotation of Novel Transcript Isoforms")
+    ap = argparse.ArgumentParser(description="Structural and Quality Annotation of Novel Transcript Isoforms")
     # Positional arguments
-    apr = parser.add_argument_group("Required arguments")
+    apr = ap.add_argument_group("Required arguments")
     apr.add_argument('--genome', type=str, required=True, help='\t\tReference genome (Fasta format).')
     apr.add_argument('--annotation', type=str, required=True, help='\t\tReference annotation file (GTF format).')
     apr.add_argument('-de', '--design', type=str, dest="inDESIGN", required=True, help='Path to design file, must have sampleID and file_acc column.')
     apr.add_argument('-m', '--mode', type=str, choices = ["isoforms", "reads"], required=True, help = '\t\tType of data to run SQANTI3 on (reads or isoforms)')
 
-    # Optional arguments
-    apo = parser.add_argument_group("Optional arguments")
-    apo.add_argument('-i', '--input_dir', type=str, default = './', help = '\t\tPath to directory where fastq files are stored. Or path to parent directory with children directories of SQANTI3 runs. Default: Directory where the script was run.')
-    apo.add_argument('-f', '--factor', type=str, dest="inFACTOR" ,required=False, help='This is the column name that plots are to be faceted by. Default: None')
-    apo.add_argument('-p','--prefix', type=str, dest="PREFIX", required=False, help='SQANTI-sc output filename prefix. Default: sqantiSingleCell')
-    apo.add_argument('-o','--out_dir', type=str, help='\t\tDirectory for output sqanti_sc files. Default: Directory where the script was run.', default = "./", required=False)
-    apo.add_argument('--min_ref_len', type=int, default=0, help="\t\tMinimum reference transcript length. Default: 0 bp")
-    apo.add_argument('--force_id_ignore', action="store_true", default=False, help="\t\t Allow the usage of transcript IDs non related with PacBio's nomenclature (PB.X.Y)")
-    apo.add_argument('--skipORF', action="store_true", default=False, help="\t\t Skip ORF prediction to save time.")
-    apo.add_argument('--aligner_choice', type=str, choices=['minimap2', "uLTRA"], default='minimap2', help="\t\tDefault: minimap2")
-    apo.add_argument('-@', '--samtools_cpus', default=10, type=int, help='\t\tNumber of threads used during conversion from bam to fastq. Default: 10')    
-    apo.add_argument('-t', '--mapping_cpus', default=10, type=int, help='\t\tNumber of threads used during alignment by aligners. Default: 10')
-    apo.add_argument('-n', '--chunks', default=10, type=int, help='\t\tNumber of chunks to split SQANTI3 analysis in for speed up. Default: 10')
-    apo.add_argument('-s','--sites', type=str, default="ATAC,GCAG,GTAG", help='\t\tSet of splice sites to be considered as canonical (comma-separated list of splice sites). Default: GTAG,GCAG,ATAC.', required=False)
-    apo.add_argument('--skip_hash', dest="SKIPHASH", action='store_true', help='Skip the hashing step')
-    apo.add_argument('--report', type=str, choices = ["pdf", "html", "both", "skip"], default = "pdf", help = "\t\tDefault: pdf")
-    apo.add_argument('-c' '--ignore_cell_summary', action="store_true", default=False, help="\t\t Add this flag to not save the cell summary table generated during the report to save space. Do not add if running the cell filter module afterwards, as this table is used to inform the cell filtering.")
-    apo.add_argument('--verbose', help = 'If verbose is run, it will print all steps, by default it is FALSE', action="store_true", default=False)
-    apo.add_argument('-v', '--version', help="Display program version number.", action='version', version='sqanti-sc '+str(__version__))
+    # Customization and filtering args
+    apc = ap.add_argument_group("Customization and filtering")
+    apc.add_argument('--min_ref_len', type=int, default=0, help="\t\tMinimum reference transcript length. Default: 0 bp")
+    apc.add_argument('--force_id_ignore', action="store_true", default=False, help="\t\t Allow the usage of transcript IDs non related with PacBio's nomenclature (PB.X.Y)")
+    apc.add_argument('--genename', action='store_true' ,help='Use gene_name tag from GTF to define genes. Default: gene_id used to define genes')
+    apc.add_argument('--short_reads', type=str, help='File Of File Names (fofn, space separated) with paths to FASTA or FASTQ from Short-Read RNA-Seq. If expression or coverage files are not provided, Kallisto (just for pair-end data) and STAR, respectively, will be run to calculate them.')
+    apc.add_argument('--SR_bam', type=str, help=' Directory or fofn file with the sorted bam files of Short Reads RNA-Seq mapped against the genome')
+    apc.add_argument('--novel_gene_prefix', default=None, help='Prefix for novel isoforms (default: None)')
 
-    args = parser.parse_args()
+    # Aligner and mapping options
+    apa = ap.add_argument_group("Aligner and mapping options")
+    apa.add_argument('--aligner_choice', type=str, choices=['minimap2', "uLTRA"], default='minimap2', help="\t\tDefault: minimap2")
+    apa.add_argument('-x','--gmap_index', help='Path and prefix of the reference index created by gmap_build. Mandatory if using GMAP unless -g option is specified.')
+    apa.add_argument('-s','--sites', type=str, default="ATAC,GCAG,GTAG", help='\t\tSet of splice sites to be considered as canonical (comma-separated list of splice sites). Default: GTAG,GCAG,ATAC.', required=False)
+
+    # ORF prediction
+    apo = ap.add_argument_group("ORF prediction")
+    apo.add_argument('--skipORF', action="store_true", default=False, help="\t\t Skip ORF prediction to save time.")
+    apo.add_argument("--orf_input", type=str, help="Input fasta to run ORF on. By default, ORF is run on genome-corrected fasta - this overrides it. If input is fusion (--is_fusion), this must be provided for ORF prediction.")
+
+    # Functional annotation
+    apf = ap.add_argument_group("Functional annotation")
+    apf.add_argument('--CAGE_peak', type=str, help="FANTOM5 Cage Peak (BED format, optional)")
+    apf.add_argument('--polyA_motif_list', type=str, help="Ranked list of polyA motifs (text, optional)")
+    apf.add_argument('--polyA_peak', type=str, help="PolyA Peak (BED format, optional)")
+    apf.add_argument('--phyloP_bed', type=str, help="PhyloP BED for conservation score (BED, optional)")
+
+    # Output options
+    apout = ap.add_argument_group("Output options")
+    apout.add_argument('-o','--out_dir', type=str, help='\t\tDirectory for output sqanti_sc files. Default: Directory where the script was run.', default = "./", required=False)
+    apout.add_argument('-d','--dir', type=str, help='\t\tDirectory for output sqanti_reads files. Default: Directory where the script was run.', default = "./", required=False)
+    apout.add_argument('--saturation', action="store_true", default=False, help='Include saturation curves into report')
+    apout.add_argument('--report', type=str, choices = ["pdf", "html", "both", "skip"], default = "pdf", help = "\t\tDefault: pdf")
+    apout.add_argument('--isoform_hits' , action='store_true', help=' Report all FSM/ISM isoform hits in a separate file')
+    apout.add_argument('--ratio_TSS_metric' , choices=['max', 'mean', 'median', '3quartile'], default='max', help=' Define which statistic metric should be reported in the ratio_TSS column (default: %(default)s)')
+
+    # Performance options
+    app = ap.add_argument_group("Performance options")
+    app.add_argument('-@', '--samtools_cpus', default=10, type=int, help='\t\tNumber of threads used during conversion from bam to fastq. Default: 10')    
+    app.add_argument('-t', '--mapping_cpus', default=10, type=int, help='\t\tNumber of threads used during alignment by aligners. Default: 10')
+    app.add_argument('-n', '--chunks', default=10, type=int, help='\t\tNumber of chunks to split SQANTI3 analysis in for speed up. Default: 10')
+
+    # Optional arguments
+    apm = ap.add_argument_group("Optional arguments")
+    apm.add_argument('-i', '--input_dir', type=str, default = './', help = '\t\tPath to directory where fastq files are stored. Or path to parent directory with children directories of SQANTI3 runs. Default: Directory where the script was run.')
+    apm.add_argument('--is_fusion', action="store_true", help="Input are fusion isoforms, must supply GTF as input")
+    apm.add_argument('-e','--expression', type=str, help='Expression matrix (supported: Kallisto tsv)')
+    apm.add_argument('-c','--coverage', help='Junction coverage files (provide a single file, comma-delmited filenames, or a file pattern, ex: "mydir/*.junctions").')
+    apm.add_argument('-w','--window', default=20, type=int, help='Size of the window in the genomic DNA screened for Adenine content downstream of TTS (default: %(default)s)')
+    apm.add_argument('-fl', '--fl_count', help='Full-length PacBio abundance file')
+    apm.add_argument('-v', '--version', help="Display program version number.", action='version', version='sqanti-sc '+str(__version__))
+    apm.add_argument('--isoAnnotLite', action='store_true', help='Run isoAnnot Lite to output a tappAS-compatible gff3 file')
+    apm.add_argument('--gff3' ,type=str, help='Precomputed tappAS species specific GFF3 file. It will serve as reference to transfer functional attributes')
+    apm.add_argument('--verbose', help = 'If verbose is run, it will print all steps, by default it is FALSE', action="store_true", default=False)
+    apm.add_argument('-f', '--factor', type=str, dest="inFACTOR" ,required=False, help='This is the column name that plots are to be faceted by. Default: None')
+    apm.add_argument('-p','--prefix', type=str, dest="PREFIX", required=False, help='SQANTI-sc output filename prefix. Default: sqantiSingleCell')
+    apm.add_argument('--skip_hash', dest="SKIPHASH", action='store_true', help='Skip the hashing step')
+    apm.add_argument('--ignore_cell_summary', action="store_true", default=False, help="\t\t Add this flag to not save the cell summary table generated during the report to save space. Do not add if running the cell filter module afterwards, as this table is used to inform the cell filtering.")
+
+
+    args = ap.parse_args()
 
     # Check and read design file
     try:
@@ -357,12 +440,8 @@ def main():
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Run SQANTI3 for reads
-    if args.reads:
-        get_files_runSQANTI3(args, df)
-
-    if args.isoforms:
-        get_files_runSQANTI3(args, df)
+    # Run SQANTI3 
+    get_files_runSQANTI3(args, df)
 
     # Make UJC and hash
     if not args.SKIPHASH:
