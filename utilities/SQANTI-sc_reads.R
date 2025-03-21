@@ -1,28 +1,58 @@
-#library(tidyverse)
+
+# Load dependencies
 library(dplyr)
 library(ggplot2)
 library(tidyr)
 library(forcats)
-#### tictoc library to check time until completion of functions
+library(grid)
+library(gridExtra)
 
 args <- commandArgs(trailingOnly = TRUE)
 class.file <- args[1]
-utilities.path <- args[2]
-report.format <- args[3]
+report.format <- args[2]
+outputPathPrefix <- args[3]
 
+# Initialize ignore_cell_summary flag
+ignore_cell_summary <- FALSE
+
+# Check for optional arguments
+if (length(args) > 3) {
+  for (arg in args[4:length(args)]) {
+    if (arg == "--ignore_cell_summary") {
+      ignore_cell_summary <- TRUE
+    }
+  }
+}
+
+# Validate arguments
 if (length(args) < 3) {
-  stop("Incorrect number of arguments! Script usage is: [classification file] [utilities directory path] [pdf|html|both]. Abort!")
+  stop("Incorrect number of arguments! Required: [classification file] [report format] [outputPathPrefix]. Abort!")
 }
 
 if (!(report.format %in% c('pdf', 'html', 'both'))) {
   stop("Report format needs to be: pdf, html, or both. Abort!")
 }
 
-calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
+# Print cell summary saving status
+if (ignore_cell_summary) {
+  print("Cell summary table will not be saved (--ignore_cell_summary flag is active).")
+} else {
+  print("Cell summary table will be saved.")
+}
+
+# Call the function with the appropriate Save parameter
+save_option <- ifelse(ignore_cell_summary, "N", "Y")
+
+# Generate output file names with full paths
+cell_summary_output <- file.path(paste0(outputPathPrefix, "_SQANTI_cell_summary"))
+report_output <- file.path(paste0(outputPathPrefix, "_SQANTI_sc_report_reads"))
+
+calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save){
   CBs <- Classification %>% select(CB) %>% distinct() %>% .$CB
   maxCB <- length(CBs)
   for (CB_id in CBs){
     if (CB_id==""){
+      print("There are reads with no cell barcode assigned and they will not be considered. Check your classification file.")
       next
     }
     print(paste0("Calculating metrics for CB ",CB_id,". (",which(CBs==CB_id),"/",maxCB,")"))
@@ -31,6 +61,8 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
     ##### READS ########
     # Reads per cell 
     total_reads <- nrow(sorted_classification)
+    
+    total_UMI <- sorted_classification %>% select(UMI) %>% n_distinct()
     
     total_reads_no_monoexon <- sorted_classification %>%
                                filter(!exons==1) %>%
@@ -80,8 +112,8 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
     models_in_cell <- sorted_classification %>%
                       group_by(associated_gene) %>%
                       summarise(t_chains=n_distinct(jxn_string)) %>%
-                      nrow()
-    # Take into consideration that monoexons of the same gene can be lost. Need to update jxn_string
+                      .$t_chains %>% sum()
+    # Take into consideration that monoexons of the same gene could not be counted correctly. Need to update jxn_string to include UTRs to distinguish them
     
     # Novel vs annotated metrics
     annotated_genes <- sorted_classification %>%
@@ -95,6 +127,12 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
                    n_distinct()
     
     # Known/novel canonical/non-canonical
+    if (total_reads_no_monoexon==0){
+      known_canonical_prop <- 0
+      known_non_canonical_prop <- 0
+      novel_canonical_prop <- 0
+      novel_non_canonical_prop <- 0
+    } else {
     known_canonical_prop <- sorted_classification %>%
                             filter(grepl("^ENST", associated_transcript) & all_canonical=="canonical") %>%
                             nrow()/total_reads_no_monoexon*100
@@ -110,6 +148,7 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
     novel_non_canonical_prop <- sorted_classification %>%
                                 filter(!grepl("^ENST", associated_transcript) & all_canonical=="non_canonical") %>%
                                 nrow()/total_reads_no_monoexon*100
+    }
     
     # Sqanti category
     sqanti_props <- sorted_classification %>%
@@ -137,13 +176,62 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
                                         'intergenic',
                                         'genic_intron')) %>% .$prop_cat
     
-    # Sqanti subcategory
+    ### COVERAGE OF GENE BODY ###
+    # Ref length corresponds to transcript length, not gene. Maybe can be added.
+    # Fusion genes can be excluded?
+    ref_body_cover_in_cell <- sorted_classification %>%
+                              filter((length/ref_length*100)>=45) %>%
+                              nrow()/total_reads*100
+    
+    # Read lengths general
+    two_fifty_length_reads <- sorted_classification %>%
+                              filter(length<=250) %>%
+                              nrow()/total_reads*100
+    
+    five_hund_length_reads <- sorted_classification %>%
+                              filter(length>250 & length<=500) %>%
+                              nrow()/total_reads*100
+    
+    short_length_reads <- sorted_classification %>%
+                          filter(length>500 & length<=1000) %>%
+                          nrow()/total_reads*100
+    
+    mid_length_reads <- sorted_classification %>%
+                        filter(length>1000 & length<=2000) %>%
+                        nrow()/total_reads*100
+    
+    long_length_reads <- sorted_classification %>%
+                         filter(length>2000) %>%
+                         nrow()/total_reads*100
+     
+    # Monoexons read length general
+    mono_two_fifty_length_reads <- sorted_classification %>%
+                                   filter(exons==1 & length<=250) %>%
+                                   nrow()/total_reads*100
+    
+    mono_five_hund_length_reads <- sorted_classification %>%
+                                   filter(exons==1 & length>250 & length<=500) %>%
+                                   nrow()/total_reads*100
+    
+    mono_short_length_reads <- sorted_classification %>%
+                               filter(exons==1 & length>500 & length<=1000) %>%
+                               nrow()/total_reads*100
+    
+    mono_mid_length_reads <- sorted_classification %>%
+                             filter(exons==1 & length>1000 & length<=2000) %>%
+                             nrow()/total_reads*100
+    
+    mono_long_length_reads <- sorted_classification %>%
+                              filter(exons==1 & length>2000) %>%
+                              nrow()/total_reads*100
+    
+    ### Sqanti subcategories ###
     if (FSM_count==0){
       sub_FSM_sqanti_props <- c(Alternative_3end=0,
                                 Alternative_3end5end=0,
                                 Alternative_5end=0,
                                 Reference_match=0,
-                                Mono_exon_FSM=0)
+                                Mono_exon_FSM=0) %>% as.numeric()
       
       two_fifty_length_reads_FSM <- 0
       five_hund_length_reads_FSM <- 0
@@ -155,6 +243,9 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       mono_short_length_reads_FSM <- 0
       mono_mid_length_reads_FSM <- 0
       mono_long_length_reads_FSM <- 0
+      ref_body_cover_FSM <- 0
+      cod_FSM <- 0
+      ncod_FSM <- 100 #    
     } else {
       sub_FSM_sqanti_props <- sorted_classification %>% 
                               filter(structural_category=="full-splice_match") %>%
@@ -176,55 +267,59 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       
       # Read length per category
       two_fifty_length_reads_FSM <- sorted_classification %>%
-                                    filter(structural_category=="full-splice_match") %>%
-                                    filter(length<=250) %>%
+                                    filter(structural_category=="full-splice_match" & length<=250) %>%
                                     nrow()/FSM_count*100
      
       five_hund_length_reads_FSM <- sorted_classification %>%
-                                     filter(structural_category=="full-splice_match") %>%
-                                     filter(length>250 & length<=500) %>%
+                                     filter(structural_category=="full-splice_match" & length>250 & length<=500) %>%
                                      nrow()/FSM_count*100
       
       short_length_reads_FSM <- sorted_classification %>%
-                                filter(structural_category=="full-splice_match") %>%
-                                filter(length>500 & length<=1000) %>%
+                                filter(structural_category=="full-splice_match" & length>500 & length<=1000) %>%
                                 nrow()/FSM_count*100
       
       mid_length_reads_FSM <- sorted_classification %>%
-                              filter(structural_category=="full-splice_match") %>%
-                              filter(length>1000 & length<=2000) %>%
+                              filter(structural_category=="full-splice_match" & length>1000 & length<=2000) %>%
                               nrow()/FSM_count*100
       
       long_length_reads_FSM <- sorted_classification %>%
-                               filter(structural_category=="full-splice_match") %>%
-                               filter(length>2000) %>%
+                               filter(structural_category=="full-splice_match" & length>2000) %>%
                                nrow()/FSM_count*100
       
       # Monoexon per length break
       mono_two_fifty_length_reads_FSM <- sorted_classification %>%
-                                         filter(structural_category=="full-splice_match" & exons==1) %>%
-                                         filter(length<=250) %>%
+                                         filter(structural_category=="full-splice_match" & exons==1 & length<=250) %>%
                                          nrow()/FSM_count*100
       
       mono_five_hund_length_reads_FSM <- sorted_classification %>%
-                                         filter(structural_category=="full-splice_match" & exons==1) %>%
-                                         filter(length>250 & length<=500) %>%
+                                         filter(structural_category=="full-splice_match" & exons==1 & length>250 & length<=500) %>%
                                          nrow()/FSM_count*100
       
       mono_short_length_reads_FSM <- sorted_classification %>%
-                                     filter(structural_category=="full-splice_match" & exons==1) %>%
-                                     filter(length>500 & length<=1000) %>%
+                                     filter(structural_category=="full-splice_match" & exons==1 & length>500 & length<=1000) %>%
                                      nrow()/FSM_count*100
       
       mono_mid_length_reads_FSM <- sorted_classification %>%
-                                   filter(structural_category=="full-splice_match" & exons==1) %>%
-                                   filter(length>1000 & length<=2000) %>%
+                                   filter(structural_category=="full-splice_match" & exons==1 & length>1000 & length<=2000) %>%
                                    nrow()/FSM_count*100
       
       mono_long_length_reads_FSM <- sorted_classification %>%
-                                    filter(structural_category=="full-splice_match" & exons==1) %>%
-                                    filter(length>2000) %>%
+                                    filter(structural_category=="full-splice_match" & exons==1 & length>2000) %>%
                                     nrow()/FSM_count*100
+      
+      # Reference body coverage
+      ref_body_cover_FSM <- sorted_classification %>%
+                            filter(structural_category=="full-splice_match" & length/ref_length*100>=45) %>%
+                            nrow()/FSM_count*100
+      
+      # Coding/non-coding
+      cod_FSM <- sorted_classification %>%
+                 filter(structural_category=="full-splice_match" & coding=="coding") %>%
+                 nrow()/FSM_count*100
+      
+      ncod_FSM <- sorted_classification %>%
+                  filter(structural_category=="full-splice_match" & coding=="non_coding") %>%
+                  nrow()/FSM_count*100
     }
     
     if (ISM_count==0){
@@ -244,6 +339,9 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       mono_short_length_reads_ISM <- 0
       mono_mid_length_reads_ISM <- 0
       mono_long_length_reads_ISM <- 0
+      ref_body_cover_ISM <- 0
+      cod_ISM <- 0
+      ncod_ISM <- 100 #     
     } else {
       sub_ISM_sqanti_props <- sorted_classification %>%
                               filter(structural_category=="incomplete-splice_match") %>%
@@ -291,29 +389,38 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       
       # Monoexons
       mono_two_fifty_length_reads_ISM <- sorted_classification %>%
-                                         filter(structural_category=="incomplete-splice_match" & exons==1) %>%
-                                         filter(length<=250) %>%
+                                         filter(structural_category=="incomplete-splice_match" & exons==1 & length<=250) %>%
                                          nrow()/ISM_count*100
       
       mono_five_hund_length_reads_ISM <- sorted_classification %>%
-                                         filter(structural_category=="incomplete-splice_match" & exons==1) %>%
-                                         filter(length>250 & length<=500) %>%
+                                         filter(structural_category=="incomplete-splice_match" & exons==1 & length>250 & length<=500) %>%
                                          nrow()/ISM_count*100
       
       mono_short_length_reads_ISM <- sorted_classification %>%
-                                     filter(structural_category=="incomplete-splice_match" & exons==1) %>%
-                                     filter(length>500 & length<=1000) %>%
+                                     filter(structural_category=="incomplete-splice_match" & exons==1 & length>500 & length<=1000) %>%
                                      nrow()/ISM_count*100
       
       mono_mid_length_reads_ISM <- sorted_classification %>%
-                                   filter(structural_category=="incomplete-splice_match" & exons==1) %>%
-                                   filter(length>1000 & length<=2000) %>%
+                                   filter(structural_category=="incomplete-splice_match" & exons==1 & length>1000 & length<=2000) %>%
                                    nrow()/ISM_count*100
       
       mono_long_length_reads_ISM <- sorted_classification %>%
-                                    filter(structural_category=="incomplete-splice_match" & exons==1) %>%
-                                    filter(length>2000) %>%
+                                    filter(structural_category=="incomplete-splice_match" & exons==1 & length>2000) %>%
                                     nrow()/ISM_count*100
+      
+      # Reference body coverage
+      ref_body_cover_ISM <- sorted_classification %>%
+                            filter(structural_category=="incomplete-splice_match" & length/ref_length*100>=45) %>%
+                            nrow()/ISM_count*100
+      
+      # Coding/non_coding
+      cod_ISM <- sorted_classification %>%
+                 filter(structural_category=="incomplete-splice_match" & coding=="coding") %>%
+                 nrow()/ISM_count*100
+      
+      ncod_ISM <- sorted_classification %>%
+                  filter(structural_category=="incomplete-splice_match" & coding=="non_coding") %>%
+                  nrow()/ISM_count*100
     }
     
     if (NIC_count==0){
@@ -333,6 +440,9 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       mono_short_length_reads_NIC <- 0
       mono_mid_length_reads_NIC <- 0
       mono_long_length_reads_NIC <- 0
+      ref_body_cover_NIC <- 0
+      cod_NIC <- 0
+      ncod_NIC <- 100 #    
     } else {
       sub_NIC_sqanti_probs <- sorted_classification %>%
                               filter(structural_category=="novel_in_catalog") %>%
@@ -354,55 +464,59 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       
       # Read length per category
       two_fifty_length_reads_NIC <- sorted_classification %>%
-                                    filter(structural_category=="novel_in_catalog") %>%
-                                    filter(length<=250) %>%
+                                    filter(structural_category=="novel_in_catalog" & length<=250) %>%
                                     nrow()/NIC_count*100
       
       five_hund_length_reads_NIC <- sorted_classification %>%
-                                    filter(structural_category=="novel_in_catalog") %>%
-                                    filter(length>250 & length<=500) %>%
+                                    filter(structural_category=="novel_in_catalog" & length>250 & length<=500) %>%
                                     nrow()/NIC_count*100
       
       short_length_reads_NIC <- sorted_classification %>%
-                                filter(structural_category=="novel_in_catalog") %>%
-                                filter(length>500 & length<=1000) %>%
+                                filter(structural_category=="novel_in_catalog" & length>500 & length<=1000) %>%
                                 nrow()/NIC_count*100
       
       mid_length_reads_NIC <- sorted_classification %>%
-                              filter(structural_category=="novel_in_catalog") %>%
-                              filter(length>1000 & length<=2000) %>%
+                              filter(structural_category=="novel_in_catalog" & length>1000 & length<=2000 ) %>%
                               nrow()/NIC_count*100
       
       long_length_reads_NIC <- sorted_classification %>%
-                               filter(structural_category=="novel_in_catalog") %>%
-                               filter(length>2000) %>%
+                               filter(structural_category=="novel_in_catalog" & length>2000) %>%
                                nrow()/NIC_count*100
       
       # Monoexons
       mono_two_fifty_length_reads_NIC <- sorted_classification %>%
-                                         filter(structural_category=="novel_in_catalog" & exons==1) %>%
-                                         filter(length<=250) %>%
+                                         filter(structural_category=="novel_in_catalog" & exons==1 & length<=250) %>%
                                          nrow()/NIC_count*100
       
       mono_five_hund_length_reads_NIC <- sorted_classification %>%
-                                         filter(structural_category=="novel_in_catalog" & exons==1) %>%
-                                         filter(length>250 & length<=500) %>%
+                                         filter(structural_category=="novel_in_catalog" & exons==1 & length>250 & length<=500) %>%
                                          nrow()/NIC_count*100
       
       mono_short_length_reads_NIC <- sorted_classification %>%
-                                     filter(structural_category=="novel_in_catalog" & exons==1) %>%
-                                     filter(length>500 & length<=1000) %>%
+                                     filter(structural_category=="novel_in_catalog" & exons==1 & length>500 & length<=1000) %>%
                                      nrow()/NIC_count*100
       
       mono_mid_length_reads_NIC <- sorted_classification %>%
-                                   filter(structural_category=="novel_in_catalog" & exons==1) %>%
-                                   filter(length>1000 & length<=2000) %>%
+                                   filter(structural_category=="novel_in_catalog" & exons==1 & length>1000 & length<=2000) %>%
                                    nrow()/NIC_count*100
       
       mono_long_length_reads_NIC <- sorted_classification %>%
-                                    filter(structural_category=="novel_in_catalog" & exons==1) %>%
-                                    filter(length>2000) %>%
+                                    filter(structural_category=="novel_in_catalog" & exons==1 & length>2000) %>%
                                     nrow()/NIC_count*100
+      
+      # Reference body coverage
+      ref_body_cover_NIC <- sorted_classification %>%
+                            filter(structural_category=="novel_in_catalog" & length/ref_length*100>=45) %>%
+                            nrow()/NIC_count*100
+      
+      # Coding/non-coding
+      cod_NIC <- sorted_classification %>%
+                 filter(structural_category=="novel_in_catalog" & coding=="coding") %>%
+                 nrow()/NIC_count*100
+      
+      ncod_NIC <- sorted_classification %>%
+                  filter(structural_category=="novel_in_catalog" & coding=="non_coding") %>%
+                  nrow()/NIC_count*100
     }
     
     if (NNC_count==0){
@@ -419,6 +533,9 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       mono_short_length_reads_NNC <- 0
       mono_mid_length_reads_NNC <- 0
       mono_long_length_reads_NNC <- 0
+      ref_body_cover_NNC <- 0
+      cod_NNC <- 0
+      ncod_NNC <- 100
     } else {
       sub_NNC_sqanti_probs <- sorted_classification %>% 
                               filter(structural_category=="novel_not_in_catalog") %>%
@@ -434,55 +551,59 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       
       # Read length per category
       two_fifty_length_reads_NNC <- sorted_classification %>%
-                                    filter(structural_category=="novel_not_in_catalog") %>%
-                                    filter(length<=250) %>%
+                                    filter(structural_category=="novel_not_in_catalog" & length<=250) %>%
                                     nrow()/NNC_count*100
       
       five_hund_length_reads_NNC <- sorted_classification %>%
-                                    filter(structural_category=="novel_not_in_catalog") %>%
-                                    filter(length>250 & length<=500) %>%
+                                    filter(structural_category=="novel_not_in_catalog" & length>250 & length<=500) %>%
                                     nrow()/NNC_count*100
       
       short_length_reads_NNC <- sorted_classification %>%
-                                filter(structural_category=="novel_not_in_catalog") %>%
-                                filter(length>500 & length<=1000) %>%
+                                filter(structural_category=="novel_not_in_catalog" & length>500 & length<=1000) %>%
                                 nrow()/NNC_count*100
       
       mid_length_reads_NNC <- sorted_classification %>%
-                              filter(structural_category=="novel_not_in_catalog") %>%
-                              filter(length>1000 & length<=2000) %>%
+                              filter(structural_category=="novel_not_in_catalog" & length>1000 & length<=2000) %>%
                               nrow()/NNC_count*100
       
       long_length_reads_NNC <- sorted_classification %>%
-                               filter(structural_category=="novel_not_in_catalog") %>%
-                               filter(length>2000) %>%
+                               filter(structural_category=="novel_not_in_catalog" & length>2000) %>%
                                nrow()/NNC_count*100
       
       # Monoexons
       mono_two_fifty_length_reads_NNC <- sorted_classification %>%
-                                         filter(structural_category=="novel_not_in_catalog" & exons==1) %>%
-                                         filter(length<=250) %>%
+                                         filter(structural_category=="novel_not_in_catalog" & exons==1 & length<=250) %>%
                                          nrow()/NNC_count*100
       
       mono_five_hund_length_reads_NNC <- sorted_classification %>%
-                                         filter(structural_category=="novel_not_in_catalog" & exons==1) %>%
-                                         filter(length>250 & length<=500) %>%
+                                         filter(structural_category=="novel_not_in_catalog" & exons==1 & length>250 & length<=500) %>%
                                          nrow()/NNC_count*100
       
       mono_short_length_reads_NNC <- sorted_classification %>%
-                                     filter(structural_category=="novel_not_in_catalog" & exons==1) %>%
-                                     filter(length>500 & length<=1000) %>%
+                                     filter(structural_category=="novel_not_in_catalog" & exons==1 & length>500 & length<=1000) %>%
                                      nrow()/NNC_count*100
       
       mono_mid_length_reads_NNC <- sorted_classification %>%
-                                   filter(structural_category=="novel_not_in_catalog" & exons==1) %>%
-                                   filter(length>1000 & length<=2000) %>%
+                                   filter(structural_category=="novel_not_in_catalog" & exons==1 & length>1000 & length<=2000) %>%
                                    nrow()/NNC_count*100
       
       mono_long_length_reads_NNC <- sorted_classification %>%
-                                    filter(structural_category=="novel_not_in_catalog" & exons==1) %>%
-                                    filter(length>2000) %>%
+                                    filter(structural_category=="novel_not_in_catalog" & exons==1 & length>2000) %>%
                                     nrow()/NNC_count*100
+      
+      # Reference body coverage
+      ref_body_cover_NNC <- sorted_classification %>%
+                            filter(structural_category=="novel_not_in_catalog" & length/ref_length*100>=45) %>%
+                            nrow()/NNC_count*100
+      
+      # Coding/non-coding
+      cod_NNC <- sorted_classification %>%
+                 filter(structural_category=="novel_not_in_catalog" & coding=="coding") %>%
+                 nrow()/NNC_count*100
+      
+      ncod_NNC <- sorted_classification %>%
+                  filter(structural_category=="novel_not_in_catalog" & coding=="non_coding") %>%
+                  nrow()/NNC_count*100
     }
     
     if (Fusion_count==0){
@@ -499,6 +620,9 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       mono_short_length_reads_fusion <- 0
       mono_mid_length_reads_fusion <- 0 
       mono_long_length_reads_fusion <- 0
+      ref_body_cover_fusion <- 0
+      cod_fusion <- 0
+      ncod_fusion <- 100 #    
     } else {
       sub_fusion_sqanti_props <- sorted_classification %>%
                                  filter(structural_category=="fusion") %>%
@@ -514,55 +638,59 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       
       # Read length per category
       two_fifty_length_reads_fusion <- sorted_classification %>%
-                                       filter(structural_category=="fusion") %>%
-                                       filter(length<=250) %>%
+                                       filter(structural_category=="fusion" & length<=250) %>%
                                        nrow()/Fusion_count*100
       
       five_hund_length_reads_fusion <- sorted_classification %>%
-                                       filter(structural_category=="fusion") %>%
-                                       filter(length>250 & length<=500) %>%
+                                       filter(structural_category=="fusion" & length>250 & length<=500) %>%
                                        nrow()/Fusion_count*100
       
       short_length_reads_fusion <- sorted_classification %>%
-                                   filter(structural_category=="fusion") %>%
-                                   filter(length>500 & length<=1000) %>%
+                                   filter(structural_category=="fusion" & length>500 & length<=1000) %>%
                                    nrow()/Fusion_count*100
       
       mid_length_reads_fusion <- sorted_classification %>%
-                                 filter(structural_category=="fusion") %>%
-                                 filter(length>1000 & length<=2000) %>%
+                                 filter(structural_category=="fusion" & length>1000 & length<=2000) %>%
                                  nrow()/Fusion_count*100
       
       long_length_reads_fusion <- sorted_classification %>%
-                                  filter(structural_category=="fusion") %>%
-                                  filter(length>2000) %>%
+                                  filter(structural_category=="fusion" & length>2000) %>%
                                   nrow()/Fusion_count*100
       
       # Monoexon
       mono_two_fifty_length_reads_fusion <- sorted_classification %>%
-                                            filter(structural_category=="fusion" & exons==1) %>%
-                                            filter(length<=250) %>%
+                                            filter(structural_category=="fusion" & exons==1 & length<=250) %>%
                                             nrow()/Fusion_count*100
       
       mono_five_hund_length_reads_fusion <- sorted_classification %>%
-                                            filter(structural_category=="fusion" & exons==1) %>%
-                                            filter(length>250 & length<=500) %>%
+                                            filter(structural_category=="fusion" & exons==1 & length>250 & length<=500) %>%
                                             nrow()/Fusion_count*100
       
       mono_short_length_reads_fusion <- sorted_classification %>%
-                                        filter(structural_category=="fusion" & exons==1) %>%
-                                        filter(length>500 & length<=1000) %>%
+                                        filter(structural_category=="fusion" & exons==1 & length>500 & length<=1000) %>%
                                         nrow()/Fusion_count*100
       
       mono_mid_length_reads_fusion <- sorted_classification %>%
-                                      filter(structural_category=="fusion" & exons==1) %>%
-                                      filter(length>1000 & length<=2000) %>%
+                                      filter(structural_category=="fusion" & exons==1 & length>1000 & length<=2000) %>%
                                       nrow()/Fusion_count*100
       
       mono_long_length_reads_fusion <- sorted_classification %>%
-                                       filter(structural_category=="fusion" & exons==1) %>%
-                                       filter(length>2000) %>%
+                                       filter(structural_category=="fusion" & exons==1 & length>2000) %>%
                                        nrow()/Fusion_count*100
+      
+      # Reference body coverage
+      ref_body_cover_fusion <- sorted_classification %>%
+                               filter(structural_category=="fusion" & length/ref_length*100>=45) %>% ####  Take a decision about this
+                               nrow()/Fusion_count*100
+      
+      # Coding/non-coding
+      cod_fusion <- sorted_classification %>%
+                    filter(structural_category=="fusion" & coding=="coding") %>%
+                    nrow()/Fusion_count*100
+      
+      ncod_fusion <- sorted_classification %>%
+                     filter(structural_category=="fusion" & coding=="non_coding") %>%
+                     nrow()/Fusion_count*100
     }
     
     if (Genic_count==0){
@@ -579,6 +707,9 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       mono_short_length_reads_genic <- 0
       mono_mid_length_reads_genic <- 0
       mono_long_length_reads_genic <- 0
+      ref_body_cover_genic <- 0 
+      cod_genic <- 0
+      ncod_genic <- 100
     } else {
       sub_genic_sqanti_props <- sorted_classification %>%
                                 filter(structural_category=="genic") %>%
@@ -594,55 +725,59 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       
       # Read length per category
       two_fifty_length_reads_genic <- sorted_classification %>%
-                                      filter(structural_category=="genic") %>%
-                                      filter(length<=250) %>%
+                                      filter(structural_category=="genic" & length<=250) %>%
                                       nrow()/Genic_count*100
       
       five_hund_length_reads_genic <- sorted_classification %>%
-                                      filter(structural_category=="genic") %>%
-                                      filter(length>250 & length<=500) %>%
+                                      filter(structural_category=="genic" & length>250 & length<=500) %>%
                                       nrow()/Genic_count*100
       
       short_length_reads_genic <- sorted_classification %>%
-                                  filter(structural_category=="genic") %>%
-                                  filter(length>500 & length<=1000) %>%
+                                  filter(structural_category=="genic" & length>500 & length<=1000) %>%
                                   nrow()/Genic_count*100
       
       mid_length_reads_genic <- sorted_classification %>%
-                                filter(structural_category=="genic") %>%
-                                filter(length>1000 & length<=2000) %>%
+                                filter(structural_category=="genic" & length>1000 & length<=2000) %>%
                                 nrow()/Genic_count*100
       
       long_length_reads_genic <- sorted_classification %>%
-                                 filter(structural_category=="genic") %>%
-                                 filter(length>2000) %>%
+                                 filter(structural_category=="genic" & length>2000) %>%
                                  nrow()/Genic_count*100
       
       # Monoexons
       mono_two_fifty_length_reads_genic <- sorted_classification %>%
-                                           filter(structural_category=="genic" & exons==1) %>%
-                                           filter(length<=250) %>%
+                                           filter(structural_category=="genic" & exons==1 & length<=250) %>%
                                            nrow()/Genic_count*100
        
       mono_five_hund_length_reads_genic <- sorted_classification %>%
-                                           filter(structural_category=="genic" & exons==1) %>%
-                                           filter(length>250 & length<=500) %>%
+                                           filter(structural_category=="genic" & exons==1 & length>250 & length<=500) %>%
                                            nrow()/Genic_count*100
       
       mono_short_length_reads_genic <- sorted_classification %>%
-                                       filter(structural_category=="genic" & exons==1) %>%
-                                       filter(length>500 & length<=1000) %>%
+                                       filter(structural_category=="genic" & exons==1 & length>500 & length<=1000) %>%
                                        nrow()/Genic_count*100
       
       mono_mid_length_reads_genic <- sorted_classification %>%
-                                     filter(structural_category=="genic" & exons==1) %>%
-                                     filter(length>1000 & length<=2000) %>%
+                                     filter(structural_category=="genic" & exons==1 & length>1000 & length<=2000) %>%
                                      nrow()/Genic_count*100
       
       mono_long_length_reads_genic <- sorted_classification %>%
-                                      filter(structural_category=="genic" & exons==1) %>%
-                                      filter(length>2000) %>%
+                                      filter(structural_category=="genic" & exons==1 & length>2000) %>%
                                       nrow()/Genic_count*100
+      
+      # Reference body coverage
+      ref_body_cover_genic <- sorted_classification %>%
+                              filter(structural_category=="genic" & length/ref_length*100>=45) %>%
+                              nrow()/Genic_count*100
+      
+      # Coding/non-coding
+      cod_genic <- sorted_classification %>%
+                   filter(structural_category=="genic" & coding=="coding") %>%
+                   nrow()/Genic_count*100
+      
+      ncod_genic <- sorted_classification %>%
+                    filter(structural_category=="genic" & coding=="non_coding") %>%
+                    nrow()/Genic_count*100
     } 
     
     if (Genic_intron_count==0){
@@ -659,6 +794,9 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       mono_short_length_reads_genic_intron <- 0 
       mono_mid_length_reads_genic_intron <- 0
       mono_long_length_reads_genic_intron <- 0
+      ref_body_cover_genic_intron <- 0
+      cod_genic_intron <- 0
+      ncod_genic_intron <- 100
     } else {
       sub_genic_intron_sqanti_props <- sorted_classification %>%
                                        filter(structural_category=="genic_intron") %>%
@@ -674,56 +812,60 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       
       # Read length per category
       two_fifty_length_reads_genic_intron <- sorted_classification %>%
-                                             filter(structural_category=="genic_intron") %>%
-                                             filter(length<=250) %>%
+                                             filter(structural_category=="genic_intron" & length<=250) %>%
                                              nrow()/Genic_intron_count*100
       
       five_hund_length_reads_genic_intron <- sorted_classification %>%
-                                             filter(structural_category=="genic_intron") %>%
-                                             filter(length>250 & length<=500) %>%
+                                             filter(structural_category=="genic_intron" & length>250 & length<=500) %>%
                                              nrow()/Genic_intron_count*100
       
       short_length_reads_genic_intron <- sorted_classification %>%
-                                         filter(structural_category=="genic_intron") %>%
-                                         filter(length>500 & length<=1000) %>%
+                                         filter(structural_category=="genic_intron" & length>500 & length<=1000) %>%
                                          nrow()/Genic_intron_count*100
       
       mid_length_reads_genic_intron <- sorted_classification %>%
-                                       filter(structural_category=="genic_intron") %>%
-                                       filter(length>1000 & length<=2000) %>%
+                                       filter(structural_category=="genic_intron" & length>1000 & length<=2000) %>%
                                        nrow()/Genic_intron_count*100
       
       long_length_reads_genic_intron <- sorted_classification %>%
-                                        filter(structural_category=="genic_intron") %>%
-                                        filter(length>2000) %>%
+                                        filter(structural_category=="genic_intron" & length>2000) %>%
                                         nrow()/Genic_intron_count*100
       
       # Monoexons
       mono_two_fifty_length_reads_genic_intron <- sorted_classification %>%
-                                                  filter(structural_category=="genic_intron" & exons==1) %>%
-                                                  filter(length<=250) %>%
+                                                  filter(structural_category=="genic_intron" & exons==1 & length<=250) %>%
                                                   nrow()/Genic_intron_count*100
       
       mono_five_hund_length_reads_genic_intron <- sorted_classification %>%
-                                                  filter(structural_category=="genic_intron" & exons==1) %>%
-                                                  filter(length>250 & length<=500) %>%
+                                                  filter(structural_category=="genic_intron" & exons==1 & length>250 & length<=500) %>%
                                                   nrow()/Genic_intron_count*100
       
       mono_short_length_reads_genic_intron <- sorted_classification %>%
-                                              filter(structural_category=="genic_intron" & exons==1) %>%
-                                              filter(length>500 & length<=1000) %>%
+                                              filter(structural_category=="genic_intron" & exons==1 & length>500 & length<=1000) %>%
                                               nrow()/Genic_intron_count*100
       
       mono_mid_length_reads_genic_intron <- sorted_classification %>%
-                                            filter(structural_category=="genic_intron" & exons==1) %>%
-                                            filter(length>1000 & length<=2000) %>%
+                                            filter(structural_category=="genic_intron" & exons==1 & length>1000 & length<=2000) %>%
                                             nrow()/Genic_intron_count*100
       
       mono_long_length_reads_genic_intron <- sorted_classification %>%
-                                             filter(structural_category=="genic_intron" & exons==1) %>%
-                                             filter(length>2000) %>%
+                                             filter(structural_category=="genic_intron" & exons==1 & length>2000) %>%
                                              nrow()/Genic_intron_count*100
-    }
+      
+      # Reference body coverage
+      ref_body_cover_genic_intron <- sorted_classification %>%
+                                     filter(structural_category=="genic_intron" & (length/ref_length*100)>=45) %>%
+                                     nrow()/Genic_intron_count*100
+      
+      # Coding/non-coding
+      cod_genic_intron <- sorted_classification %>%
+                          filter(structural_category=="genic_intron" & coding=="coding") %>%
+                          nrow()/Genic_intron_count*100
+      
+      ncod_genic_intron <- sorted_classification %>%
+                           filter(structural_category=="genic_intron" & coding=="non_coding") %>%
+                           nrow()/Genic_intron_count*100
+    } 
     
     if (Antisense_count==0){
       sub_antisense_sqanti_props <- c(Mono_exon_antisense=0,
@@ -739,6 +881,9 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       mono_short_length_reads_antisense <- 0
       mono_mid_length_reads_antisense <- 0 
       mono_long_length_reads_antisense <- 0 
+      ref_body_cover_antisense <- 0
+      cod_antisense <- 0
+      ncod_antisense <- 100
     } else {
       sub_antisense_sqanti_props <- sorted_classification %>%
                                     filter(structural_category=="antisense") %>%
@@ -754,61 +899,64 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       
       # Read length per category
       two_fifty_length_reads_antisense <- sorted_classification %>%
-                                          filter(structural_category=="antisense") %>%
-                                          filter(length<=250) %>%
+                                          filter(structural_category=="antisense" & length<=250) %>%
                                           nrow()/Antisense_count*100
       
       five_hund_length_reads_antisense <- sorted_classification %>%
-                                          filter(structural_category=="antisense") %>%
-                                          filter(length>250 & length<=500) %>%
+                                          filter(structural_category=="antisense" & length>250 & length<=500) %>%
                                           nrow()/Antisense_count*100
       
       short_length_reads_antisense <- sorted_classification %>%
-                                      filter(structural_category=="antisense") %>%
-                                      filter(length>500 & length<=1000) %>%
+                                      filter(structural_category=="antisense" & length>500 & length<=1000) %>%
                                       nrow()/Antisense_count*100
       
       mid_length_reads_antisense <- sorted_classification %>%
-                                    filter(structural_category=="antisense") %>%
-                                    filter(length>1000 & length<=2000) %>%
+                                    filter(structural_category=="antisense" & length>1000 & length<=2000) %>%
                                     nrow()/Antisense_count*100
       
       long_length_reads_antisense <- sorted_classification %>%
-                                     filter(structural_category=="antisense") %>%
-                                     filter(length>2000) %>%
+                                     filter(structural_category=="antisense" & length>2000) %>%
                                      nrow()/Antisense_count*100
       
       # Monoexons
       mono_two_fifty_length_reads_antisense <- sorted_classification %>%
-                                               filter(structural_category=="antisense" & exons==1) %>%
-                                               filter(length<=250) %>%
+                                               filter(structural_category=="antisense" & exons==1 & length<=250) %>%
                                                nrow()/Antisense_count*100
       
       mono_five_hund_length_reads_antisense <- sorted_classification %>%
-                                               filter(structural_category=="antisense" & exons==1) %>%
-                                               filter(length>250 & length<=500) %>%
+                                               filter(structural_category=="antisense" & exons==1 & length>250 & length<=500) %>%
                                                nrow()/Antisense_count*100
       
       mono_short_length_reads_antisense <- sorted_classification %>%
-                                           filter(structural_category=="antisense" & exons==1) %>%
-                                           filter(length>500 & length<=1000) %>%
+                                           filter(structural_category=="antisense" & exons==1 & length>500 & length<=1000) %>%
                                            nrow()/Antisense_count*100
       
       mono_mid_length_reads_antisense <- sorted_classification %>%
-                                         filter(structural_category=="antisense" & exons==1) %>%
-                                         filter(length>1000 & length<=2000) %>%
+                                         filter(structural_category=="antisense" & exons==1 & length>1000 & length<=2000) %>%
                                          nrow()/Antisense_count*100
       
       mono_long_length_reads_antisense <- sorted_classification %>%
-                                          filter(structural_category=="antisense" & exons==1) %>%
-                                          filter(length>2000) %>%
+                                          filter(structural_category=="antisense" & exons==1 & length>2000) %>%
                                           nrow()/Antisense_count*100
-    }
+      
+      # Reference body coverage
+      ref_body_cover_antisense <- sorted_classification %>%
+                                  filter(structural_category=="antisense" & length/ref_length*100>=45) %>%
+                                  nrow()/Antisense_count*100
+      
+      # Coding/non-coding
+      cod_antisense <- sorted_classification %>%
+                       filter(structural_category=="antisense" & coding=="coding") %>%
+                       nrow()/Antisense_count*100
+      
+      ncod_antisense <- sorted_classification %>%
+                        filter(structural_category=="antisense" & coding=="non_coding") %>%
+                        nrow()/Antisense_count*100
+      }
     
     if (Intergenic_count==0){
       sub_intergenic_sqanti_props <- c(Mono_exon_antisense=0,
                                        Multi_exon_antisense=0) %>% as.numeric()
-      
       
       two_fifty_length_reads_intergenic <- 0
       five_hund_length_reads_intergenic <- 0
@@ -820,6 +968,9 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       mono_short_length_reads_intergenic <- 0
       mono_mid_length_reads_intergenic <- 0
       mono_long_length_reads_intergenic <- 0
+      ref_body_cover_intergenic <- 0
+      cod_intergenic <- 0
+      ncod_intergenic <- 100
     } else {
       sub_intergenic_sqanti_props <- sorted_classification %>%
                                      filter(structural_category=="intergenic") %>%
@@ -835,115 +986,86 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
       
       # Read length per category
       two_fifty_length_reads_intergenic <- sorted_classification %>%
-                                           filter(structural_category=="intergenic") %>%
-                                           filter(length<=250) %>%
+                                           filter(structural_category=="intergenic" & length<=250) %>%
                                            nrow()/Intergenic_count*100
       
       five_hund_length_reads_intergenic <- sorted_classification %>%
-                                           filter(structural_category=="intergenic") %>%
-                                           filter(length>250 & length<=500) %>%
+                                           filter(structural_category=="intergenic" & length>250 & length<=500) %>%
                                            nrow()/Intergenic_count*100
       
       short_length_reads_intergenic <- sorted_classification %>%
-                                       filter(structural_category=="intergenic") %>%
-                                       filter(length>500 & length<=1000) %>%
+                                       filter(structural_category=="intergenic" & length>500 & length<=1000) %>%
                                        nrow()/Intergenic_count*100
       
       mid_length_reads_intergenic <- sorted_classification %>%
-                                     filter(structural_category=="intergenic") %>%
-                                     filter(length>1000 & length<=2000) %>%
+                                     filter(structural_category=="intergenic" & length>1000 & length<=2000) %>%
                                      nrow()/Intergenic_count*100
       
       long_length_reads_intergenic <- sorted_classification %>%
-                                      filter(structural_category=="intergenic") %>%
-                                      filter(length>2000) %>%
+                                      filter(structural_category=="intergenic" & length>2000) %>%
                                       nrow()/Intergenic_count*100
       
       # Monoexons
       mono_two_fifty_length_reads_intergenic <- sorted_classification %>%
-                                                filter(structural_category=="intergenic" & exons==1) %>%
-                                                filter(length<=250) %>%
+                                                filter(structural_category=="intergenic" & exons==1 & length<=250) %>%
                                                 nrow()/Intergenic_count*100
       
       mono_five_hund_length_reads_intergenic <- sorted_classification %>%
-                                                filter(structural_category=="intergenic" & exons==1) %>%
-                                                filter(length>250 & length<=500) %>%
+                                                filter(structural_category=="intergenic" & exons==1 & length>250 & length<=500) %>%
                                                 nrow()/Intergenic_count*100
       
       mono_short_length_reads_intergenic <- sorted_classification %>%
-                                            filter(structural_category=="intergenic" & exons==1) %>%
-                                            filter(length>500 & length<=1000) %>%
+                                            filter(structural_category=="intergenic" & exons==1 & length>500 & length<=1000) %>%
                                             nrow()/Intergenic_count*100
       
       mono_mid_length_reads_intergenic <- sorted_classification %>%
-                                          filter(structural_category=="intergenic" & exons==1) %>%
-                                          filter(length>1000 & length<=2000) %>%
+                                          filter(structural_category=="intergenic" & exons==1 & length>1000 & length<=2000) %>%
                                           nrow()/Intergenic_count*100
       
       mono_long_length_reads_intergenic <- sorted_classification %>%
-                                           filter(structural_category=="intergenic" & exons==1) %>%
-                                           filter(length>2000) %>%
+                                           filter(structural_category=="intergenic" & exons==1 & length>2000) %>%
                                            nrow()/Intergenic_count*100
+      
+      # Reference body coverage
+      ref_body_cover_intergenic <- sorted_classification %>%
+                                   filter(structural_category=="intergenic" & length/ref_length*100>=45) %>%
+                                   nrow()/Intergenic_count*100
+      
+      # Coding/non-coding
+      cod_intergenic <- sorted_classification %>%
+                        filter(structural_category=="intergenic" & coding=="coding") %>%
+                        nrow()/Intergenic_count*100
+      
+      ncod_intergenic <- sorted_classification %>%
+                         filter(structural_category=="intergenic" & coding=="non_coding") %>%
+                         nrow()/Intergenic_count*100
     }
-    
-    # Read lengths general
-    two_fifty_length_reads <- sorted_classification %>%
-                              filter(length<=250) %>%
-                              nrow()/total_reads*100
-    
-    five_hund_length_reads <- sorted_classification %>%
-                              filter(length>250 & length<=500) %>%
-                              nrow()/total_reads*100
-    
-    short_length_reads <- sorted_classification %>%
-                          filter(length>500 & length<=1000) %>%
-                          nrow()/total_reads*100
-    
-    mid_length_reads <- sorted_classification %>%
-                        filter(length>1000 & length<=2000) %>%
-                        nrow()/total_reads*100
-    
-    long_length_reads <- sorted_classification %>%
-                         filter(length>2000) %>%
-                         nrow()/total_reads*100
-    
-    # Monoexons read length general
-    mono_two_fifty_length_reads <- sorted_classification %>%
-                                   filter(exons==1 & length<=250) %>%
-                                   nrow()/total_reads*100
-    
-    mono_five_hund_length_reads <- sorted_classification %>%
-                                   filter(exons==1 & length>250 & length<=500) %>%
-                                   nrow()/total_reads*100
-    
-    mono_short_length_reads <- sorted_classification %>%
-                               filter(exons==1 & length>500 & length<=1000) %>%
-                               nrow()/total_reads*100
-    
-    mono_mid_length_reads <- sorted_classification %>%
-                             filter(exons==1 & length>1000 & length<=2000) %>%
-                             nrow()/total_reads*100
-    
-    mono_long_length_reads <- sorted_classification %>%
-                              filter(exons==1 & length>2000) %>%
-                              nrow()/total_reads*100
     
     ### BAD QUALITY METRICS ###
     # Percentage of RTS
     RTS_in_cell_prop <- sorted_classification %>%
-                   filter(RTS_stage==TRUE) %>%
-                   nrow()/total_reads*100
+                        filter(RTS_stage==TRUE) %>%
+                        nrow()/total_reads*100
     
-    # Percentage of non_canonical
+    # Percentage of canonical/non_canonical
+    if (total_reads_no_monoexon==0){
+      non_canonical_in_cell_prop <- 0
+      canonical_in_cell_prop <- 0
+    } else {
     non_canonical_in_cell_prop <- sorted_classification %>%
-                             filter(all_canonical=="non_canonical") %>%
-                             nrow()/total_reads_no_monoexon*100
+                                  filter(all_canonical=="non_canonical") %>%
+                                  nrow()/total_reads_no_monoexon*100
+    
+    canonical_in_cell_prop <- sorted_classification %>%
+                              filter(all_canonical=="canonical") %>%
+                              nrow()/total_reads_no_monoexon*100
+    }
     
     # Percentage of intrapriming
     intrapriming_in_cell_prop <- sorted_classification %>%
-                            filter(perc_A_downstream_TTS>60) %>%
-                            nrow()/total_reads*100
-    
+                                 filter(perc_A_downstream_TTS>=60) %>%
+                                 nrow()/total_reads*100
+     
     ##   Adding NMD in the future. 
     ##   Maybe also dist to TTS/TES
     
@@ -952,147 +1074,16 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
     annotated_genes_in_cell_prop<- annotated_genes/genes_in_cell*100
     # Annotated junction strings
     anno_models_in_cell_prop <- sorted_classification %>%
-                           group_by(associated_gene) %>%
-                           filter(grepl("^ENST", associated_transcript)) %>%
-                           summarise(t_chains=n_distinct(jxn_string)) %>%
-                           nrow()/models_in_cell*100
-    
-    # Percentage of canonical
-    canonical_in_cell_prop <- sorted_classification %>%
-                         filter(all_canonical=="canonical") %>%
-                         nrow()/total_reads_no_monoexon*100
-    
-    ### COVERAGE OF GENE BODY ###
-    # Ref length corresponds to transcript length, not gene. Maybe can be added.
-    # Fusion genes can be excluded?
-    # Include breaks per structural category
-    ref_body_cover_in_cell <- sorted_classification %>%
-                              filter((length/ref_length*100)>=45) %>%
-                              nrow()/total_reads*100
-    
-    ref_body_cover_FSM <- sorted_classification %>%
-                          filter(structural_category=="full-splice_match") %>%
-                          filter((length/ref_length*100)>=45) %>%
-                          nrow()/FSM_count*100
-    
-    ref_body_cover_ISM <- sorted_classification %>%
-                          filter(structural_category=="incomplete-splice_match") %>%
-                          filter((length/ref_length*100)>=45) %>%
-                          nrow()/ISM_count*100
-    
-    ref_body_cover_NIC <- sorted_classification %>%
-                          filter(structural_category=="novel_in_catalog") %>%
-                          filter((length/ref_length*100)>=45) %>%
-                          nrow()/NIC_count*100
-    
-    ref_body_cover_NNC <- sorted_classification %>%
-                          filter(structural_category=="novel_not_in_catalog") %>%
-                          filter((length/ref_length*100)>=45) %>%
-                          nrow()/NNC_count*100
-    
-    ref_body_cover_genic <- sorted_classification %>%
-                            filter(structural_category=="genic") %>%
-                            filter((length/ref_length*100)>=45) %>%
-                            nrow()/Genic_count*100
-    
-    ref_body_cover_antisense <- sorted_classification %>%
-                                filter(structural_category=="antisense") %>%
-                                filter((length/ref_length*100)>=45) %>%
-                                nrow()/Antisense_count*100
-    
-    ref_body_cover_fusion <- sorted_classification %>%
-                             filter(structural_category=="fusion") %>%
-                             filter((length/ref_length*100)>=45) %>% ####  Take a decision about this
-                             nrow()/Fusion_count*100
-    
-    ref_body_cover_intergenic <- sorted_classification %>%
-                                 filter(structural_category=="intergenic") %>%
-                                 filter((length/ref_length*100)>=45) %>%
-                                 nrow()/Intergenic_count*100
-    
-    ref_body_cover_genic_intron <- sorted_classification %>%
-                                   filter(structural_category=="genic_intron") %>%
-                                   filter((length/ref_length*100)>=45) %>%
-                                   nrow()/Genic_intron_count*100
-    
-    # Coding per category
-    cod_FSM <- sorted_classification %>%
-               filter(structural_category=="full-splice_match" & coding=="coding") %>%
-               nrow()/FSM_count*100
-    
-    cod_ISM <- sorted_classification %>%
-               filter(structural_category=="incomplete-splice_match" & coding=="coding") %>%
-               nrow()/ISM_count*100
-    
-    cod_NIC <- sorted_classification %>%
-               filter(structural_category=="novel_in_catalog" & coding=="coding") %>%
-               nrow()/NIC_count*100
-    
-    cod_NNC <- sorted_classification %>%
-               filter(structural_category=="novel_not_in_catalog" & coding=="coding") %>%
-               nrow()/NNC_count*100
-    
-    cod_genic <- sorted_classification %>%
-                 filter(structural_category=="genic" & coding=="coding") %>%
-                 nrow()/Genic_count*100
-    
-    cod_antisense <- sorted_classification %>%
-                     filter(structural_category=="antisense" & coding=="coding") %>%
-                     nrow()/Antisense_count*100
-    
-    cod_fusion <- sorted_classification %>%
-                  filter(structural_category=="fusion" & coding=="coding") %>%
-                  nrow()/Fusion_count*100
-    
-    cod_intergenic <- sorted_classification %>%
-                      filter(structural_category=="intergenic" & coding=="coding") %>%
-                      nrow()/Intergenic_count*100
-    
-    cod_genic_intron <- sorted_classification %>%
-                        filter(structural_category=="genic_intron" & coding=="coding") %>%
-                        nrow()/Genic_intron_count*100
-    
-    # Non-coding per category
-    ncod_FSM <- sorted_classification %>%
-                filter(structural_category=="full-splice_match" & coding=="non_coding") %>%
-                nrow()/FSM_count*100
-    
-    ncod_ISM <- sorted_classification %>%
-                filter(structural_category=="incomplete-splice_match" & coding=="non_coding") %>%
-                nrow()/ISM_count*100
-    
-    ncod_NIC <- sorted_classification %>%
-                filter(structural_category=="novel_in_catalog" & coding=="non_coding") %>%
-                nrow()/NIC_count*100
-    
-    ncod_NNC <- sorted_classification %>%
-                filter(structural_category=="novel_not_in_catalog" & coding=="non_coding") %>%
-                nrow()/NNC_count*100
-    
-    ncod_genic <- sorted_classification %>%
-                  filter(structural_category=="genic" & coding=="non_coding") %>%
-                  nrow()/Genic_count*100
-    
-    ncod_antisense <- sorted_classification %>%
-                      filter(structural_category=="antisense" & coding=="non_coding") %>%
-                      nrow()/Antisense_count*100
-    
-    ncod_fusion <- sorted_classification %>%
-                   filter(structural_category=="fusion" & coding=="non_coding") %>%
-                   nrow()/Fusion_count*100
-    
-    ncod_intergenic <- sorted_classification %>%
-                       filter(structural_category=="intergenic" & coding=="non_coding") %>%
-                       nrow()/Intergenic_count*100
-    
-    ncod_genic_intron <- sorted_classification %>%
-                         filter(structural_category=="genic_intron" & coding=="non_coding") %>%
-                         nrow()/Genic_intron_count*100
-    
+                                group_by(associated_gene) %>%
+                                filter(grepl("^ENST", associated_transcript)) %>%
+                                summarise(t_chains=n_distinct(jxn_string)) %>%
+                                .$t_chains %>% sum()/models_in_cell*100
+
     # Hacer tabla intermadia con los datos por celula (guardar en temp o al final del report?)
     if (exists("SQANTI_cell_summary")==FALSE){
       SQANTI_cell_summary <- c(CB_id,
                               total_reads,
+                              total_UMI,
                               genes_in_cell,
                               models_in_cell,
                               annotated_genes,
@@ -1256,6 +1247,7 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
     } else {
       SQANTI_cell_summary <- rbind(SQANTI_cell_summary, c(CB_id,
                                                         total_reads,
+                                                        total_UMI,
                                                         genes_in_cell,
                                                         models_in_cell,
                                                         annotated_genes,
@@ -1419,10 +1411,12 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
     }
   }
   SQANTI_cell_summary <- as.data.frame(SQANTI_cell_summary)
+  rownames(SQANTI_cell_summary) <- NULL
   colnames(SQANTI_cell_summary) <- c("CB",
-                                    "UMI_per_cell",
+                                    "Reads_in_cell",
+                                    "UMIs_in_cell",
                                     "Genes_in_cell",
-                                    "Junction_chains_in_cell",
+                                    "UJCs_in_cell",
                                     "Annotated_genes",
                                     "Novel_genes", # Std cell counts
                                     "Known_canonical_prop",
@@ -1607,76 +1601,95 @@ calculate_metrics_per_cell <- function(Classification, Output=".", Save="Y"){
                                     "Annotated_genes_prop_in_cell",
                                     "Annotated_juction_strings_prop_in_cell",
                                     "Canonical_prop_in_cell") # Features of good quality. Add annotated genes
-  if (Save=="Yes"|Save=="Y"|Save=="YES"){
+  
+  # Change data type of columns
+  SQANTI_cell_summary[,2:189] <- sapply(SQANTI_cell_summary[,2:189], as.numeric)
+  
+  if (Save == "Y"){
     print(paste0("Saving cell summary table. Starting at ", Sys.time()))
-    write.table(SQANTI_cell_summary, gzfile(paste0(Output,"/","SQANTI_cell_summary.tsv.gz")), sep = "\t", quote = FALSE, row.names = FALSE)
-    print(paste0("Cell summary table saved at ", Output, "/SQANTI_cell_summary.tsv.gz"))
+    write.table(SQANTI_cell_summary, file = gzfile(paste0(cell_summary_output, ".txt.gz")), sep = "\t", quote = FALSE, row.names = FALSE)
+    print(paste0("Cell summary table saved as ", cell_summary_output, ".txt.gz"))
   }
-  print(paste0("All steps completed at ", Sys.time()))
+  print(paste0("All steps completed at ",Sys.time()))
   return(SQANTI_cell_summary)
 }
 
-generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Output="."){
-  ##Check if file is gzip'd:
-  # summary(file('yourfile.gz'))$class
-  # If run in a HPC, loading script should have this, not here
+generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, report_output){
   
   ### Basic cell informtion ###
   #############################
   
-  # UMIs in cell
-  gg_UMIs_in_cells <- ggplot(SQANTI_cell_summary, aes(x = "", y = as.numeric(UMI_per_cell))) +
-    geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.5) +
+  # Reads in cell
+  gg_reads_in_cells <- ggplot(SQANTI_cell_summary, aes(x = "", y = Reads_in_cell)) +
+    geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.2) +
     geom_violin(fill = "#CC6633", color = "black", alpha = 0.5, scale = "width") +  
-    geom_boxplot(width = 0.05, fill = "#CC6633", color = "grey20", outlier.shape = NA, alpha=0.3) +
+    geom_boxplot(width = 0.05, fill = "#CC6633", color = "grey20", outlier.shape = NA, alpha = 0.3) +
     stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
     theme_classic(base_size = 14) + 
-    labs(title = "Number of UMIs\nAcross Cells",
+    labs(title = "Number of Reads\nAcross Cells",
          x = "Cell",
-         y = "UMIs, count") +
+         y = "Reads, count") +
     theme(
       legend.position = "none",
       plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 14))
+      axis.text.x = element_text(size = 14))
+  
+  # UMIs in cell
+  gg_umis_in_cells <- ggplot(SQANTI_cell_summary, aes(x = "", y = UMIs_in_cell)) +
+    geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.2) +
+    geom_violin(fill = "#CC6633", color = "black", alpha = 0.5, scale = "width") +  
+    geom_boxplot(width = 0.05, fill = "#CC6633", color = "grey20", outlier.shape = NA, alpha = 0.3) +
+    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
+    theme_classic(base_size = 14) + 
+    labs(title = "Number of UMIs\nAcross Cells",
+         x = "Cell",
+         y = "UMI, count") +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  
+      axis.title = element_text(size = 16), 
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14))
   
   # Genes in cell
-  gg_genes_in_cells <- ggplot(SQANTI_cell_summary, aes(x = "", y = as.numeric(Genes_in_cell))) +
-    geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.5) + 
+  gg_genes_in_cells <- ggplot(SQANTI_cell_summary, aes(x = "", y = Genes_in_cell)) +
+    geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.2) + 
     geom_violin(fill = "#CC6633", color = "black", alpha = 0.5, scale = "width") +
     geom_boxplot(width = 0.05, fill = "#CC6633", color = "grey20", outlier.shape = NA, alpha = 0.3) + 
     stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
     theme_classic(base_size = 14) + 
     labs(title = "Number of Genes\nAcross Cells",
          x = "Cell",
-         y = "Genes, counts") +
+         y = "Genes, count") +
     theme(
       legend.position = "none",
       plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 14))
+      axis.text.x = element_text(size = 14))
   
   # Junctions strings in cell
-  gg_JCs_in_cell <- ggplot(SQANTI_cell_summary, aes(x = "", y = as.numeric(Junction_chains_in_cell))) +
-    geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.5) +
+  gg_JCs_in_cell <- ggplot(SQANTI_cell_summary, aes(x = "", y = UJCs_in_cell)) +
+    geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.2) +
     geom_violin(fill = "#CC6633", color = "black", alpha = 0.5, scale = "width") + 
     geom_boxplot(width = 0.05, fill = "#CC6633", color = "grey20", outlier.shape = NA, alpha=0.3) + 
     stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
     theme_classic(base_size = 14) + 
-    labs(title = "Number of Unique Junction Chains\nAcross Cells",
+    labs(title = "Number of Unique Junction\nChains Across Cells",
          x = "Cell",
-         y = "Unique Junction Chains, counts") +
+         y = "Unique Junction Chains, count") +
     theme(
       legend.position = "none",
       plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 14))
+      axis.text.x = element_text(size = 14))
   
-  #   Composite plot of all cell info plots
-  #gg_cell_report <- gg_UMIs_in_cells | gg_genes_in_cells | gg_JCs_in_cell
+  # Composite plot of all cell info plots
+  # gg_cell_report1 <- grid.arrange(gg_reads_in_cells, gg_umis_in_cells, ncol=2)
+  # gg_cell_report2 <- grid.arrange(gg_genes_in_cells, gg_JCs_in_cell, ncol=2)
   
   # Anno/novel genes in cell
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Annotated_genes", "Novel_genes"), 
@@ -1684,8 +1697,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Annotated_genes, Novel_genes)))
   
-  gg_annotation_of_genes_in_cell <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
-    geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.5) +
+  gg_annotation_of_genes_in_cell <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
+    geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.2) +
     geom_violin(fill = "#CC6633", color = "black", alpha = 0.5, scale = "width") + 
     geom_boxplot(width = 0.05, fill = "#CC6633", color = "grey20", outlier.shape = NA, alpha=0.3) + 
     stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
@@ -1699,7 +1712,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   #  Mono/multi-exon prop novel vs annotated genes
   
@@ -1707,26 +1720,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   ###########################
   
   # All reads length distribution
-  # gg_bulk_all_reads <- ggplot(Classification_file, aes(x = "", y = as.numeric(length))) +
-  #   geom_violin(fill = "#CC6633", color = "grey50", alpha = 0.5, scale = "width") +
-  #   geom_point(aes(color = "#CC6633"), 
-  #              position = position_dodge(width = 0.8), 
-  #              size = 0.5, alpha = 0.5) +
-  #   geom_boxplot(width = 0.05, fill = "#CC6633", color = "grey50", outlier.shape = NA, alpha=0.3) + 
-  #   stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-  #   theme_classic(base_size = 14) +
-  #   coord_flip() +
-  #   labs(title = "All Reads Length Distribution",
-  #        x = "Reads",
-  #        y = "Read Length") +
-  #   theme(
-  #     legend.position = "none",
-  #     plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-  #     axis.title = element_text(size = 16), 
-  #     axis.text.y = element_text(size = 14),
-  #     axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
-  gg_bulk_all_reads <- ggplot(Classification_file, aes(x=as.numeric(length))) +
-    geom_histogram(binwidth=100, fill="#CC6633", color="black", alpha=0.7) +
+  gg_bulk_all_reads <- ggplot(Classification_file, aes(x=length)) +
+    geom_histogram(binwidth=50, fill="#CC6633", color="black", alpha=0.5) +
     labs(title = "All Read Lengths Distribution",
          x = "",
          y = "Reads, counts") +
@@ -1736,7 +1731,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
      axis.title = element_text(size = 16),
      axis.text.y = element_text(size = 14),
-     axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+     axis.text.x = element_text(size = 16))
     
   # Length distribution per break (cells)
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Total_250b_length_prop", "Total_500b_length_prop",
@@ -1747,8 +1742,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Total_250b_length_prop, Total_500b_length_prop,
                                                                                                        Total_short_length_prop, Total_mid_length_prop,
                                                                                                        Total_long_length_prop)))
-  gg_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
-    geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.5) +
+  gg_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
+    geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.2) +
     geom_violin(fill = "#CC6633", color = "black", alpha = 0.5, scale = "width") +
     geom_boxplot(width = 0.05, fill = "#CC6633", color = "grey20", outlier.shape = NA, alpha=0.3) + 
     stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
@@ -1764,7 +1759,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # Mono-exon length distribution per break
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Total_250b_length_mono_prop", "Total_500b_length_mono_prop",
@@ -1775,8 +1770,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Total_250b_length_mono_prop, Total_500b_length_mono_prop,
                                                                                                        Total_short_length_mono_prop, Total_mid_length_mono_prop,
                                                                                                        Total_long_length_mono_prop)))
-  gg_read_distr_mono <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
-    geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.5) +
+  gg_read_distr_mono <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
+    geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.2) +
     geom_violin(fill = "#CC6633", color = "black", alpha = 0.5, scale = "width") +
     geom_boxplot(width = 0.05, fill = "#CC6633", color = "grey20", outlier.shape = NA, alpha=0.3) + 
     stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
@@ -1804,8 +1799,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(FSM_250b_length_prop, FSM_500b_length_prop,
                                                                                                        FSM_short_length_prop, FSM_mid_length_prop,
                                                                                                        FSM_long_length_prop)))
-  gg_FSM_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
-    geom_point(alpha = 0.5, color = "#6BAED6", size = 0.5, position = position_dodge2(width = 0.8)) +
+  gg_FSM_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
+    geom_point(alpha = 0.2, color = "#6BAED6", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "#6BAED6", color = "#6BAED6", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "#6BAED6", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
     stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
@@ -1821,7 +1816,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # ISM
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("ISM_250b_length_prop", "ISM_500b_length_prop",
@@ -1832,7 +1827,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(ISM_250b_length_prop, ISM_500b_length_prop,
                                                                                                        ISM_short_length_prop, ISM_mid_length_prop,
                                                                                                        ISM_long_length_prop)))
-  gg_ISM_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_ISM_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "#FC8D59", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "#FC8D59", color = "#FC8D59", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "#FC8D59", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -1849,7 +1844,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # NIC
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("NIC_250b_length_prop", "NIC_500b_length_prop",
@@ -1860,7 +1855,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(NIC_250b_length_prop, NIC_500b_length_prop,
                                                                                                        NIC_short_length_prop, NIC_mid_length_prop,
                                                                                                        NIC_long_length_prop)))
-  gg_NIC_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_NIC_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "#78C679", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "#78C679", color = "#78C679", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "#78C679", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -1877,7 +1872,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # NNC
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("NNC_250b_length_prop", "NNC_500b_length_prop",
@@ -1888,7 +1883,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(NNC_250b_length_prop, NNC_500b_length_prop,
                                                                                                        NNC_short_length_prop, NNC_mid_length_prop,
                                                                                                        NNC_long_length_prop)))
-  gg_NNC_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_NNC_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "#EE6A50", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "#EE6A50", color = "#EE6A50", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "#EE6A50", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -1905,7 +1900,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # Genic
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Genic_250b_length_prop", "Genic_500b_length_prop",
@@ -1916,7 +1911,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Genic_250b_length_prop, Genic_500b_length_prop,
                                                                                                        Genic_short_length_prop, Genic_mid_length_prop,
                                                                                                        Genic_long_length_prop)))
-  gg_genic_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_genic_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "#969696", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "#969696", color = "#969696", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "#969696", color = "grey90", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -1933,7 +1928,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # Antisense
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Antisense_250b_length_prop", "Antisense_500b_length_prop",
@@ -1944,7 +1939,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Antisense_250b_length_prop, Antisense_500b_length_prop,
                                                                                                        Antisense_short_length_prop, Antisense_mid_length_prop,
                                                                                                        Antisense_long_length_prop)))
-  gg_antisense_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_antisense_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "#66C2A4", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "#66C2A4", color = "#66C2A4", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "#66C2A4", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -1961,7 +1956,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # Fusion
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Fusion_250b_length_prop", "Fusion_500b_length_prop",
@@ -1972,7 +1967,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Fusion_250b_length_prop, Fusion_500b_length_prop,
                                                                                                        Fusion_short_length_prop, Fusion_mid_length_prop,
                                                                                                        Fusion_long_length_prop)))
-  gg_fusion_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_fusion_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "goldenrod1", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "goldenrod1", color = "goldenrod1", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "goldenrod1", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -1989,7 +1984,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # Intergenic
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Intergenic_250b_length_prop", "Intergenic_500b_length_prop",
@@ -2000,7 +1995,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Intergenic_250b_length_prop, Intergenic_500b_length_prop,
                                                                                                        Intergenic_short_length_prop, Intergenic_mid_length_prop,
                                                                                                        Intergenic_long_length_prop)))
-  gg_intergenic_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_intergenic_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "darksalmon", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "darksalmon", color = "darksalmon", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "darksalmon", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -2017,7 +2012,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # Genic intron
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Genic_intron_250b_length_prop", "Genic_intron_500b_length_prop",
@@ -2028,7 +2023,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Genic_intron_250b_length_prop, Genic_intron_500b_length_prop,
                                                                                                        Genic_intron_short_length_prop, Genic_intron_mid_length_prop,
                                                                                                        Genic_intron_long_length_prop)))
-  gg_genic_intron_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_genic_intron_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "#41B6C4", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "#41B6C4", color = "#41B6C4", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "#41B6C4", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -2045,7 +2040,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # Mono-exon length distribution across categories
   # FSM
@@ -2057,7 +2052,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(FSM_250b_length_mono_prop, FSM_500b_length_mono_prop,
                                                                                                        FSM_short_length_mono_prop, FSM_mid_length_mono_prop,
                                                                                                        FSM_long_length_mono_prop)))
-  gg_FSM_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_FSM_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "#6BAED6", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "#6BAED6", color = "#6BAED6", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "#6BAED6", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -2074,7 +2069,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # ISM
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("ISM_250b_length_mono_prop", "ISM_500b_length_mono_prop",
@@ -2085,7 +2080,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(ISM_250b_length_mono_prop, ISM_500b_length_mono_prop,
                                                                                                        ISM_short_length_mono_prop, ISM_mid_length_mono_prop,
                                                                                                        ISM_long_length_mono_prop)))
-  gg_ISM_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_ISM_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "#FC8D59", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "#FC8D59", color = "#FC8D59", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "#FC8D59", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -2102,7 +2097,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # NIC
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("NIC_250b_length_mono_prop", "NIC_500b_length_mono_prop",
@@ -2113,7 +2108,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(NIC_250b_length_mono_prop, NIC_500b_length_mono_prop,
                                                                                                        NIC_short_length_mono_prop, NIC_mid_length_mono_prop,
                                                                                                        NIC_long_length_mono_prop)))
-  gg_NIC_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_NIC_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "#78C679", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "#78C679", color = "#78C679", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "#78C679", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -2130,7 +2125,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # NNC
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("NNC_250b_length_mono_prop", "NNC_500b_length_mono_prop",
@@ -2141,7 +2136,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(NNC_250b_length_mono_prop, NNC_500b_length_mono_prop,
                                                                                                        NNC_short_length_mono_prop, NNC_mid_length_mono_prop,
                                                                                                        NNC_long_length_mono_prop)))
-  gg_NNC_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_NNC_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "#EE6A50", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "#EE6A50", color = "#EE6A50", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "#EE6A50", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -2158,7 +2153,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # Genic
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Genic_250b_length_mono_prop", "Genic_500b_length_mono_prop",
@@ -2169,7 +2164,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Genic_250b_length_mono_prop, Genic_500b_length_mono_prop,
                                                                                                        Genic_short_length_mono_prop, Genic_mid_length_mono_prop,
                                                                                                        Genic_long_length_mono_prop)))
-  gg_genic_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_genic_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "#969696", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "#969696", color = "#969696", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "#969696", color = "grey90", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -2186,7 +2181,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # Antisense
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Antisense_250b_length_mono_prop", "Antisense_500b_length_mono_prop",
@@ -2197,7 +2192,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Antisense_250b_length_mono_prop, Antisense_500b_length_mono_prop,
                                                                                                        Antisense_short_length_mono_prop, Antisense_mid_length_mono_prop,
                                                                                                        Antisense_long_length_mono_prop)))
-  gg_antisense_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_antisense_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "#66C2A4", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "#66C2A4", color = "#66C2A4", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "#66C2A4", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -2214,7 +2209,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # Fusion
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Fusion_250b_length_mono_prop", "Fusion_500b_length_mono_prop",
@@ -2225,7 +2220,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Fusion_250b_length_mono_prop, Fusion_500b_length_mono_prop,
                                                                                                        Fusion_short_length_mono_prop, Fusion_mid_length_mono_prop,
                                                                                                        Fusion_long_length_mono_prop)))
-  gg_fusion_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_fusion_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "goldenrod1", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "goldenrod1", color = "goldenrod1", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "goldenrod1", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -2242,7 +2237,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
   
   # Intergenic
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Intergenic_250b_length_mono_prop", "Intergenic_500b_length_mono_prop",
@@ -2253,7 +2248,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Intergenic_250b_length_mono_prop, Intergenic_500b_length_mono_prop,
                                                                                                        Intergenic_short_length_mono_prop, Intergenic_mid_length_mono_prop,
                                                                                                        Intergenic_long_length_mono_prop)))
-  gg_intergenic_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_intergenic_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "darksalmon", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "darksalmon", color = "darksalmon", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "darksalmon", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -2281,7 +2276,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Genic_intron_250b_length_mono_prop, Genic_intron_500b_length_mono_prop,
                                                                                                        Genic_intron_short_length_mono_prop, Genic_intron_mid_length_mono_prop,
                                                                                                        Genic_intron_long_length_mono_prop)))
-  gg_genic_intron_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_genic_intron_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(alpha = 0.5, color = "#41B6C4", size = 0.5, position = position_dodge2(width = 0.8)) +
     geom_violin(fill = "#41B6C4", color = "#41B6C4", alpha = 0.7, scale = "width") +
     geom_boxplot(fill = "#41B6C4", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
@@ -2324,7 +2319,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
                                                                                                        Intergenic_ref_coverage_prop,
                                                                                                        Genic_intron_ref_coverage_prop)))
   
-  gg_ref_coverage_across_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_ref_coverage_across_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(aes(color = Variable), 
                position = position_dodge2(width = 0.8), 
                size = 0.5, alpha = 0.8) + 
@@ -2370,7 +2365,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
                                                                                                        Genic_Genomic_prop,Antisense_prop,
                                                                                                        Fusion_prop,Intergenic_prop,Genic_intron_prop)))
   
-  gg_SQANTI_across_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_SQANTI_across_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(aes(color = Variable), 
                position = position_dodge2(width = 0.8), 
                size = 0.5, alpha = 0.8) +
@@ -2422,7 +2417,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
                                                                                                        Coding_intergenic_prop,
                                                                                                        Coding_genic_intron_prop)))
   
-  gg_coding_across_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_coding_across_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(aes(color = Variable), 
                position = position_dodge2(width = 0.8), 
                size = 0.5, alpha = 0.8) + 
@@ -2474,7 +2469,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
                                                                                                        Non_coding_intergenic_prop,
                                                                                                        Non_coding_genic_intron_prop)))
   
-  gg_non_coding_across_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_non_coding_across_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(aes(color = Variable), 
                position = position_dodge2(width = 0.8), 
                size = 0.5, alpha = 0.8) + 
@@ -2516,7 +2511,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
                                                                                                        FSM_reference_match_prop,
                                                                                                        FSM_mono.exon_prop)))
   
-  gg_SQANTI_across_FSM <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_SQANTI_across_FSM <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(aes(color = Variable), 
                position = position_dodge2(width = 0.8), 
                size = 0.5, alpha = 0.8) + 
@@ -2557,7 +2552,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
                                                                                                        ISM_intron_retention_prop,
                                                                                                        ISM_mono.exon_prop))) 
   
-  gg_SQANTI_across_ISM <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_SQANTI_across_ISM <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(aes(color = Variable), 
                position = position_dodge2(width = 0.8), 
                size = 0.5, alpha = 0.8) + 
@@ -2600,7 +2595,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
                                                                                                        NIC_intron_retention_prop,
                                                                                                        NIC_mono.exon_by_intron_retention_prop,
                                                                                                        NIC_mono.exon_prop)))
-  gg_SQANTI_across_NIC <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_SQANTI_across_NIC <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(aes(color = Variable), 
                position = position_dodge2(width = 0.8), 
                size = 0.5, alpha = 0.8) + 
@@ -2638,7 +2633,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(NNC_at_least_1_don_accept_prop,
                                                                                                        NNC_intron_retention_prop)))
   
-  gg_SQANTI_across_NNC <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_SQANTI_across_NNC <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(aes(color = Variable), 
                position = position_dodge2(width = 0.8), 
                size = 0.5, alpha = 0.8) + 
@@ -2673,7 +2668,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
                                      colnames(SQANTI_cell_summary %>% select(Fusion_intron_retention_prop, 
                                                                              Fusion_multi.exon_prop)))
   
-  gg_SQANTI_across_Fusion <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_SQANTI_across_Fusion <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_point(aes(color = Variable), 
                position = position_dodge2(width = 0.8), 
                size = 0.5, alpha = 0.8) + 
@@ -2708,7 +2703,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
                                      colnames(SQANTI_cell_summary %>% select(Genic_mono.exon_prop, 
                                                                              Genic_multi.exon_prop)))
   
-  gg_SQANTI_across_Genic <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_SQANTI_across_Genic <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_violin(aes(color = Variable, 
                     fill = Variable),
                     alpha = 0.7, scale = "width") +  
@@ -2743,7 +2738,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
                                      colnames(SQANTI_cell_summary %>% select(Genic_intron_mono.exon_prop, 
                                                                              Genic_intron_multi.exon_prop)))
   
-  gg_SQANTI_across_Genic_Intron <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_SQANTI_across_Genic_Intron <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_violin(aes(color = Variable, 
                     fill = Variable),
                     alpha = 0.7, scale = "width") +  
@@ -2778,7 +2773,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
                                      colnames(SQANTI_cell_summary %>% select(Antisense_mono.exon_prop, 
                                                                              Antisense_multi.exon_prop)))
   
-  gg_SQANTI_across_Antisense <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_SQANTI_across_Antisense <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_violin(aes(color = Variable, 
                     fill = Variable),
                     alpha = 0.7, scale = "width") +  
@@ -2813,7 +2808,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
                                      colnames(SQANTI_cell_summary %>% select(Intergenic_mono.exon_prop, 
                                                                              Intergenic_multi.exon_prop)))
   
-  gg_SQANTI_across_Intergenic <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_SQANTI_across_Intergenic <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_violin(aes(color = Variable, 
                     fill = Variable),
                     alpha = 0.7, scale = "width") +  
@@ -2837,6 +2832,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16) 
     )
+  
   ### Splice junctions characterization ###
   #########################################
   
@@ -2847,7 +2843,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Known_canonical_prop, Known_non_canonical_prop,
                                                                                                        Novel_canonical_prop, Novel_non_canonical_prop)))
-  gg_known_novel_canon <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_known_novel_canon <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_violin(aes(color = Variable, 
                     fill = Variable),
                     alpha = 0.7, scale = "width") +  
@@ -2869,9 +2865,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
                                   "Novel_non_canonical_prop" = "#FC8D59")) +
     scale_x_discrete(labels = c("Known\nCanonical", "Known\nNon-canonical",
                                 "Novel\nCanonical", "Novel\nNon-canonical")) +
-    labs(title = "Distribution of Unique Splice Junctions Across Cells",
+    labs(title = "Distribution of Splice Junctions Across Cells",
          x = "",
-         y = "Unique Splice Junctions, %") +
+         y = "Reads, %") +
     theme(
       legend.position = "none",
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
@@ -2891,7 +2887,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Intrapriming_prop_in_cell, RTS_prop_in_cell,
                                                                                                        Non_canonical_prop_in_cell)))
-  gg_bad_feature <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_bad_feature <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_violin(aes(color = Variable, 
                     fill = Variable),
                     alpha = 0.7, scale = "width") +  
@@ -2936,7 +2932,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Annotated_genes_prop_in_cell,
                                                                                                        Annotated_juction_strings_prop_in_cell,
                                                                                                        Canonical_prop_in_cell)))
-  gg_good_feature <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = as.numeric(Value))) +
+  gg_good_feature <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_violin(aes(color = Variable, 
                     fill = Variable),
                     alpha = 0.7, scale = "width") +  
@@ -2965,39 +2961,55 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
   
+  ### Presets ###
+  ###############
+  
+  # t1 <- ttheme_default(core=list(core = list(fg_params = list(cex = 0.6)),
+  #                                colhead = list(fg_params = list(cex = 0.7))))
   
   ### Generate PDF report ###
   ###########################
   
-  pdf(file = paste0(Output,"/","SQANTI_sc_report_reads.pdf"), paper = "a4r", width = 10, height = 7)
+  pdf(file.path(paste0(report_output,".pdf")), paper = "a4r", width = 14, height = 11)
   ### Basic cell informtion ###
-  #gg_cell_report
-  print(gg_UMIs_in_cells)
-  print(gg_genes_in_cells)
-  print(gg_JCs_in_cell)
+  grid.arrange(tableGrob(summary(SQANTI_cell_summary[,12:20]), rows = NULL),
+               tableGrob(summary(SQANTI_cell_summary[,21:29]), rows = NULL),
+               nrow=2)
+  grid.arrange(gg_reads_in_cells, gg_umis_in_cells, ncol=2)
+  grid.arrange(gg_genes_in_cells, gg_JCs_in_cell, ncol=2)
   print(gg_annotation_of_genes_in_cell)
   ### Read lengths ###
   print(gg_bulk_all_reads)
   print(gg_read_distr)
   print(gg_read_distr_mono)
+  grid.arrange(gg_read_distr, gg_read_distr_mono, nrow=2)
   print(gg_FSM_read_distr)
   print(gg_FSM_mono_read_distr)
+  grid.arrange(gg_FSM_read_distr, gg_FSM_mono_read_distr, nrow=2)
   print(gg_ISM_read_distr)
   print(gg_ISM_mono_read_distr)
+  grid.arrange(gg_ISM_read_distr, gg_ISM_mono_read_distr, nrow=2)
   print(gg_NIC_read_distr)
   print(gg_NIC_mono_read_distr)
+  grid.arrange(gg_NIC_read_distr, gg_NIC_mono_read_distr, nrow=2)
   print(gg_NNC_read_distr)
   print(gg_NNC_mono_read_distr)
+  grid.arrange(gg_NNC_read_distr, gg_NNC_mono_read_distr, nrow=2)
   print(gg_genic_read_distr)
   print(gg_genic_mono_read_distr)
+  grid.arrange(gg_genic_read_distr, gg_genic_mono_read_distr, nrow=2)
   print(gg_antisense_read_distr)
   print(gg_antisense_mono_read_distr)
+  grid.arrange(gg_antisense_read_distr, gg_antisense_mono_read_distr, nrow=2)
   print(gg_fusion_read_distr)
   print(gg_fusion_mono_read_distr)
+  grid.arrange(gg_fusion_read_distr, gg_fusion_mono_read_distr, nrow=2)
   print(gg_intergenic_read_distr)
   print(gg_intergenic_mono_read_distr)
+  grid.arrange(gg_intergenic_read_distr, gg_intergenic_mono_read_distr, nrow=2)
   print(gg_genic_intron_read_distr)
   print(gg_genic_intron_mono_read_distr)
+  grid.arrange(gg_genic_intron_read_distr, gg_genic_intron_mono_read_distr, nrow=2)
   ### SQANTI structural categories ###
   print(gg_SQANTI_across_category)
   print(gg_SQANTI_across_FSM)
@@ -3012,6 +3024,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
   ### Coding/non-coding ###
   print(gg_coding_across_category)
   print(gg_non_coding_across_category)
+  grid.arrange(gg_coding_across_category, gg_non_coding_across_category, nrow=2)
   ### Coverage (TSS/TES in the future) ###
   print(gg_ref_coverage_across_category)
   ### Unique Splice Junctions ###
@@ -3024,5 +3037,14 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ou
 }
 
 Classification <- read.table(class.file, header=TRUE, sep="\t", stringsAsFactors=FALSE)
-SQANTI_cell_summary <- calculate_metrics_per_cell(Classification)
-generate_sqantisc_plots(SQANTI_cell_summary, Classification)
+SQANTI_cell_summary <- calculate_metrics_per_cell(
+  Classification, 
+  cell_summary_output, 
+  Save = save_option
+)
+
+generate_sqantisc_plots(
+  SQANTI_cell_summary, 
+  Classification, 
+  report_output
+)
