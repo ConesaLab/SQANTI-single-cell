@@ -1,0 +1,36 @@
+name: Automated Testing
+
+on:
+  push:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout your repo
+        uses: actions/checkout@v3
+
+      - name: Clone external repo
+        run: git clone https://github.com/ConesaLab/SQANTI3.git SQANTI3
+
+      - name: Set up Conda
+        uses: mamba-org/setup-micromamba@v1
+        with:
+          environment-file: SQANTI3/SQANTI3.conda_env.yml
+          environment-name: SQANTI3.env
+          cache-environment: true
+
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=$PYTHONPATH:$(pwd)/src" >> $GITHUB_ENV
+
+      - name: Run tests
+        shell: bash -l {0}
+        run: |
+          micromamba activate SQANTI3.env
+          pip install -r requirements.txt
+          echo "Current Conda environment: $(micromamba info --envs)"
+          pytest tests/
