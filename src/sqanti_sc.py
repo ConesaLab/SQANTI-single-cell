@@ -18,7 +18,7 @@ from commands import run_command
 # Author: Carlos Blanco
 
 __author__  = "carlos.blanco@csic.es"
-__version__ = '1.0'  # Python 3.11
+__version__ = '0.1.0'  # Python 3.11
 
 utilitiesPath = os.path.abspath(os.path.join(os.path.dirname(__file__), "../utilities"))
 sys.path.insert(0, utilitiesPath)
