@@ -14,30 +14,54 @@ from src.sqanti_sc import *
 def mock_args(tmpdir):
     class MockArgs:
         def __init__(self):
+            # Set default values for all arguments
             self.test_data_dir = os.path.join(os.path.dirname(__file__), "test_data")
             self.inDESIGN = str(tmpdir.join("design.csv"))
             self.input_dir = str(tmpdir)
             self.annotation = os.path.join(self.test_data_dir, "reference_transcriptome.gtf")
             self.genome = os.path.join(self.test_data_dir, "reference_genome.fasta")
+            self.mode = "reads"
+            self.out_dir = str(tmpdir.join("output_dir"))
+            self.report = "pdf"
+            self.samtools_cpus = 2
+            self.verbose = True
+            self.factor = None
+            self.SKIPHASH = False
+            self.ignore_cell_summary = False
             self.min_ref_len = 0
+            self.force_id_ignore = False
+            self.genename = False
+            self.short_reads = None
+            self.SR_bam = None
+            self.novel_gene_prefix = None
             self.aligner_choice = "minimap2"
+            self.gmap_index = None
+            self.sites = "ATAC,GCAG,GTAG"
+            self.skipORF = False
+            self.orf_input = None
+            self.CAGE_peak = None
+            self.polyA_motif_list = None
+            self.polyA_peak = None
+            self.phyloP_bed = None
+            self.saturation = False
+            self.isoform_hits = False
+            self.ratio_TSS_metric = "max"
             self.mapping_cpus = 2
             self.chunks = 2
-            self.out_dir = str(tmpdir.join("output_dir"))
-            self.sites = None
-            self.force_id_ignore = False
-            self.skipORF = True
-            self.verbose = True
-            self.mode = "reads"
-            self.samtools_cpus = 2
-            self.report = str(tmpdir.join("report_dir"))
+            self.is_fusion = False
+            self.expression = None
+            self.coverage = None
+            self.window = 20
+            self.fl_count = None
+            self.isoAnnotLite = False
+            self.gff3 = None
+            self.version = "0.1.0"
 
             # Create dummy design file
             design_content = "sampleID,file_acc\nsample1,file1\nsample2,file2"
             tmpdir.join("design.csv").write(design_content)
 
             os.makedirs(self.out_dir, exist_ok=True)
-            os.makedirs(self.report, exist_ok=True)
 
     return MockArgs()
 
@@ -268,10 +292,10 @@ def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
 
     # Add necessary attributes to mock_args
     mock_args.ignore_cell_summary = False
-    mock_args.report = "/path/to/report"
+    mock_args.report = "pdf"
     mock_args.input_dir = "/path/to/input"
-    mock_args.RSCRIPTPATH = "/path/to/Rscripts"
-    mock_args.utilitiesPath = "/path/to/utilities"
+    mock_args.utilitiesPath = "/storage/gge/Carlos/github_conesalab/scSQANTI_devel/utilities"
+    mock_args.out_dir = "/path/to/output"
 
     df = pd.DataFrame({
         "sampleID": ["sample1"],
@@ -283,23 +307,17 @@ def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
     # Capture printed output
     captured = capsys.readouterr()
 
-    # Check if the function tried to run the report generation
-    assert "Generating SQANTI3 report" in captured.err
+    # Check stdout for the report generation message
+    assert "Generating SQANTI3 report for file1" in captured.out  # Match the exact message
+    assert "SQANTI3 report successfully generated for file1" in captured.out
 
-    # Verify that subprocess.run was called
-    mock_run.assert_called()
-
-    # Check the command arguments
-    args, kwargs = mock_run.call_args
-    assert "Rscript" in args[0]
-    assert "/path/to/report" in args[0]
-    assert "--ignore_cell_summary" not in args[0]  # Since we set it to False
-
-    # Test with ignore_cell_summary set to True
-    mock_args.ignore_cell_summary = True
-    generate_report(mock_args, df)
-    args, kwargs = mock_run.call_args
-    assert "--ignore_cell_summary" in args[0]
+    # Verify subprocess.run was called with the correct command
+    expected_cmd = (
+    "Rscript /storage/gge/Carlos/github_conesalab/scSQANTI_devel/utilities/SQANTI-sc_reads.R "
+    "/path/to/output/file1/sample1_classification.txt "
+    "pdf /path/to/output/file1/sample1"
+    )
+    mock_run.assert_called_once_with(expected_cmd, shell=True, check=True)
 
 # Additional tests for edge cases and error handling
 
