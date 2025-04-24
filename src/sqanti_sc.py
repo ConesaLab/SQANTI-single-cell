@@ -59,7 +59,7 @@ def get_files_runSQANTI3(args, df):
     def build_sqanti_command(input_file, is_fastq=False):
         """Build the SQANTI command to run."""
         cmd = (
-            f"python {sqantiqcPath}/sqanti3_qc.py {input_file} {args.annotation} {args.genome} "
+            f"python {sqantiqcPath}/sqanti3_qc.py --isoforms {input_file} --refGTF {args.refGTF} --refFasta {args.refFasta} "
             f"--min_ref_len {args.min_ref_len} --aligner_choice {args.aligner_choice} -w {args.window} "
             f"-t {args.mapping_cpus} -n {args.chunks} -d {args.out_dir}/{file_acc} -o {sampleID} "
             f"-s {args.sites} --ratio_TSS_metric {args.ratio_TSS_metric} --novel_gene_prefix {args.novel_gene_prefix} --report skip"
@@ -74,7 +74,6 @@ def get_files_runSQANTI3(args, df):
             ('force_id_ignore', '--force_id_ignore'),
             ('skipORF', '--skipORF'),
             ('genename', '--genename'),
-            ('version', '-v'),
             ('saturation', '--saturation'),
             ('isoAnnotLite', '--isoAnnotLite'),
             ('isoform_hits', '--isoform_hits')
@@ -92,7 +91,6 @@ def get_files_runSQANTI3(args, df):
             ("orf_input", "--orf_input"),
             ("expression", "--expression"),
             ("coverage", "--coverage"),
-            ("fl_count", "--fl_count"),
             ("gff3", "--gff3"),
             ("short_reads", "--short_reads"),
             ("SR_bam", "--SR_bam"),
@@ -407,10 +405,10 @@ def main():
 
     #arguments
     ap = argparse.ArgumentParser(description="Structural and Quality Annotation of Novel Transcript Isoforms")
-    # Positional arguments
+    # Required arguments
     apr = ap.add_argument_group("Required arguments")
-    apr.add_argument('--genome', type=str, required=True, help='\t\tReference genome (Fasta format).')
-    apr.add_argument('--annotation', type=str, required=True, help='\t\tReference annotation file (GTF format).')
+    apr.add_argument('--refFasta', type=str, required=True, help='\t\tReference genome (Fasta format).')
+    apr.add_argument('--refGTF', type=str, required=True, help='\t\tReference annotation file (GTF format).')
     apr.add_argument('-de', '--design', type=str, dest="inDESIGN", required=True, help='Path to design file, must have sampleID and file_acc column.')
     apr.add_argument('-m', '--mode', type=str, choices = ["isoforms", "reads"], required=True, help = '\t\tType of data to run SQANTI3 on (reads or isoforms)')
 
@@ -424,6 +422,7 @@ def main():
     apsc.add_argument('-f', '--factor', type=str, dest="inFACTOR" ,required=False, help='This is the column name that plots are to be faceted by. Default: None')
     apsc.add_argument('--skip_hash', dest="SKIPHASH", action='store_true', help='Skip the hashing step')
     apsc.add_argument('--ignore_cell_summary', action="store_true", default=False, help="\t\t Add this flag to not save the cell summary table generated during the report to save space. Do not add if running the cell filter module afterwards, as this table is used to inform the cell filtering.")
+    apsc.add_argument('-cm', '--count_matrix', help='Cellxisoform count matrix')
 
     # SQANTI3 arguments
     # Customization and filtering args
@@ -444,7 +443,7 @@ def main():
     # ORF prediction
     apo = ap.add_argument_group("SQANTI3 ORF prediction")
     apo.add_argument('--skipORF', action="store_true", default=False, help="\t\t Skip ORF prediction to save time.")
-    apo.add_argument("--orf_input", type=str, help="Input fasta to run ORF on. By default, ORF is run on genome-corrected fasta - this overrides it. If input is fusion (--is_fusion), this must be provided for ORF prediction.")
+    apo.add_argument('--orf_input', type=str, help="Input fasta to run ORF on. By default, ORF is run on genome-corrected fasta - this overrides it. If input is fusion (--is_fusion), this must be provided for ORF prediction.")
 
     # Functional annotation
     apf = ap.add_argument_group("SQANTI3 functional annotation")
@@ -463,6 +462,8 @@ def main():
     app = ap.add_argument_group("SQANTI3 performance options")
     app.add_argument('-t', '--mapping_cpus', default=10, type=int, help='\t\tNumber of threads used during alignment by SQANTI3 aligners. Default: 10')
     app.add_argument('-n', '--chunks', default=10, type=int, help='\t\tNumber of chunks to split SQANTI3 analysis in for speed up. Default: 10')
+    app.add_argument("-l","--log_level", default="INFO",choices=["ERROR","WARNING","INFO","DEBUG"],
+                        help="Set the logging level %(default)s")
 
     # Optional arguments
     apm = ap.add_argument_group("SQANTI3 optional arguments")
@@ -470,7 +471,6 @@ def main():
     apm.add_argument('-e','--expression', type=str, help='Expression matrix (supported: Kallisto tsv)')
     apm.add_argument('-c','--coverage', help='Junction coverage files (provide a single file, comma-delmited filenames, or a file pattern, ex: "mydir/*.junctions").')
     apm.add_argument('-w','--window', default=20, type=int, help='Size of the window in the genomic DNA screened for Adenine content downstream of TTS (default: %(default)s)')
-    apm.add_argument('-fl', '--fl_count', help='Full-length PacBio abundance file')
     apm.add_argument('-v', '--version', help="Display program version number.", action='version', version='sqanti-sc '+str(__version__))
     apm.add_argument('--isoAnnotLite', action='store_true', help='Run isoAnnot Lite to output a tappAS-compatible gff3 file')
     apm.add_argument('--gff3' ,type=str, help='Precomputed tappAS species specific GFF3 file. It will serve as reference to transfer functional attributes')
