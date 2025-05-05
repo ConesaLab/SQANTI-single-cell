@@ -3,15 +3,15 @@ import subprocess, os, re, sys, glob
 import argparse
 import pandas as pd
 import numpy as np
-import shutil
 import hashlib
 import pysam
 
-sqanti3_src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../SQANTI3/src"))
+sqanti3_src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../SQANTI3"))
 if sqanti3_src_path not in sys.path:
     sys.path.insert(0, sqanti3_src_path)
 
-from commands import run_command
+from src.commands import run_command
+from src.module_logging import qc_logger, update_logger
 
 #!/usr/bin/env python3
 # SQANTI_Single_Cell: Structural and Quality Annotation of transcripts and reads at the single cell level
@@ -103,13 +103,22 @@ def get_files_runSQANTI3(args, df):
         return cmd
 
     # Validate genome and annotation before processing files
-    if not check_files_exist(args.genome, args.annotation):
+    if not check_files_exist(args.refFasta, args.refGTF):
         print("[ERROR] Genome or annotation file is missing.", file=sys.stderr)
         sys.exit(-1)
 
     for index, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
+
+        # Create the logs directory for this file_acc
+        file_acc_dir = os.path.join(args.out_dir, file_acc)
+        logs_dir = os.path.join(file_acc_dir, "logs")
+        os.makedirs(logs_dir, exist_ok=True)
+
+        # Update the logger to write to the correct log file
+        log_file = os.path.join(logs_dir, "sqanti3.log")
+        update_logger(qc_logger, file_acc_dir, args.log_level)
 
         # Check for .gtf or .gff file
         gtf_pattern = os.path.join(args.input_dir, f"{file_acc}*.g*f")
@@ -129,7 +138,7 @@ def get_files_runSQANTI3(args, df):
                     cmd_sqanti += f" --orf_input {args.orf_input}"
 
             print(cmd_sqanti, file=sys.stdout)
-            run_command(cmd_sqanti, "SQANTI3 failed to execute")
+            run_command(cmd_sqanti, qc_logger, out_file=log_file, description="SQANTI3 failed to execute")
             continue
 
         # Check for .fastq or .fasta files
@@ -141,7 +150,7 @@ def get_files_runSQANTI3(args, df):
                 print(f'[INFO] Running SQANTI-sc qc for sample {fastq_file}', file=sys.stdout)
             cmd_sqanti = build_sqanti_command(fastq_file, is_fastq=True)
             print(cmd_sqanti, file=sys.stdout)
-            run_command(cmd_sqanti, "SQANTI3 failed to execute")
+            run_command(cmd_sqanti, qc_logger, out_file=log_file, description="SQANTI3 failed to execute")
             continue
 
         # Check for BAM files if mode is "reads"
@@ -156,7 +165,7 @@ def get_files_runSQANTI3(args, df):
                 # Convert unmapped BAM to FASTQ
                 tmp_fastq = f"{args.input_dir}/{file_acc}_tmp.fastq"
                 cmd_tofastq = f"samtools fastq -@ {args.samtools_cpus} {bam_file} -n > {tmp_fastq}"
-                run_command(cmd_tofastq, "Samtools failed to execute")
+                run_command(cmd_tofastq, qc_logger, out_file=log_file, description="Samtools failed to execute")
 
                 # Ensure FASTQ was generated
                 if not os.path.isfile(tmp_fastq):
@@ -166,7 +175,7 @@ def get_files_runSQANTI3(args, df):
                 # Run SQANTI3 in fasta mode
                 cmd_sqanti = build_sqanti_command(tmp_fastq, is_fastq=True)
                 print(cmd_sqanti, file=sys.stdout)
-                run_command(cmd_sqanti, "SQANTI3 failed to execute")
+                run_command(cmd_sqanti, qc_logger, out_file=log_file, description="SQANTI3 failed to execute")
 
                 # Cleanup temporary files
                 try:
