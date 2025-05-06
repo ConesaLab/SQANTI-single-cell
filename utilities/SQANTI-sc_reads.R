@@ -3066,7 +3066,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
 
   # RTS  (split between categories)
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
@@ -3097,7 +3097,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
 
   # Non-canonical  (split between categories)
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
@@ -3129,7 +3129,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
 
 
 
@@ -3172,38 +3172,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
   
   ### Good features plot ###
   ##########################
-  
-  # Annotated genes  (split between categories)
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
-                                  cols = c("FSM_anno_genes_prop", "ISM_anno_genes_prop", 
-                                           "NIC_anno_genes_prop", "NNC_anno_genes_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, 
-                                    levels = c("FSM_anno_genes_prop", "ISM_anno_genes_prop", 
-                                               "NIC_anno_genes_prop", "NNC_anno_genes_prop"))
-  
-  gg_anno_genes_by_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, fill = Variable), alpha = 0.7, scale = "width") +  
-    geom_point(aes(color = Variable), position = position_dodge2(width = 0.8), 
-               size = 0.5, alpha = 0.8) + 
-    geom_boxplot(aes(fill = Variable), color = "grey20",
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_color_manual(values = rep("#0e5a87", 4)) +
-    scale_fill_manual(values = rep("#0e5a87", 4)) +
-    scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
-    labs(title = "Annotated Genes",
-         x = "",
-         y = "Genes, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
-
   # Junction strings mapped to annotated transcripts  (split between categories) # maybe not
   # Canonical  (split between categories)
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
@@ -3223,7 +3191,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
                  width = 0.08, outlier.shape = NA, alpha = 0.6) +
     stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
     theme_classic(base_size = 14) +
-    # Use the same canonical color from the original good_feature plot
     scale_color_manual(values = rep("#CC6633", 4)) +
     scale_fill_manual(values = rep("#CC6633", 4)) +
     scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
@@ -3235,16 +3202,14 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+      axis.text.x = element_text(size = 16))
 
 
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Annotated_genes_prop_in_cell",
-                                                                "Annotated_juction_strings_prop_in_cell",
+  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Annotated_juction_strings_prop_in_cell",
                                                                 "Canonical_prop_in_cell"), 
                                   names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
   
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Annotated_genes_prop_in_cell,
-                                                                                                       Annotated_juction_strings_prop_in_cell,
+  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Annotated_juction_strings_prop_in_cell,
                                                                                                        Canonical_prop_in_cell)))
   gg_good_feature <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_violin(aes(color = Variable, 
@@ -3257,13 +3222,11 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
                  width = 0.08, outlier.shape = NA, alpha = 0.6) +
     stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
     theme_classic(base_size = 14) +
-    scale_color_manual(values = c("Annotated_genes_prop_in_cell" = "#0e5a87",
-                                  "Annotated_juction_strings_prop_in_cell" = "#6699CC",
+    scale_color_manual(values = c("Annotated_juction_strings_prop_in_cell" = "#6699CC",
                                   "Canonical_prop_in_cell" = "#CC6633")) +
-    scale_fill_manual(values = c("Annotated_genes_prop_in_cell" = "#0e5a87",
-                                 "Annotated_juction_strings_prop_in_cell" = "#6699CC",
+    scale_fill_manual(values = c("Annotated_juction_strings_prop_in_cell" = "#6699CC",
                                  "Canonical_prop_in_cell" = "#CC6633")) +
-    scale_x_discrete(labels = c("Annotated genes", "Annotated UJCs",
+    scale_x_discrete(labels = c("Annotated UJCs",
                                 "Reads with\ncanonical splice\njunctions")) +
     labs(title = "Good Quality Control Attributes Across Cells",
          x = "",
@@ -3353,7 +3316,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
   ### Good features ###
   print(gg_good_feature)
   ### Good features by structural category ###
-  print(gg_anno_genes_by_category)
   print(gg_canon_by_category)
   dev.off()
 }
