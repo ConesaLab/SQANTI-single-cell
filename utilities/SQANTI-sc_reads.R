@@ -115,10 +115,17 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                       .$t_chains %>% sum()
     # Take into consideration that monoexons of the same gene could not be counted correctly. Need to update jxn_string to include UTRs to distinguish them
     
+    # Mitochondrial reads
+    MT_reads_count <- sorted_classification %>%
+                      filter(chrom == "MT") %>%
+                      nrow()
+
+    MT_perc <- (MT_reads_count / total_reads) * 100
+            
     # Novel vs annotated metrics
     annotated_genes <- sorted_classification %>%
                        select(associated_gene) %>%
-                       filter(grepl("^ENSG", associated_gene)) %>%
+                       filter(!grepl("^novel", associated_gene)) %>%
                        n_distinct()
     
     novel_genes <- sorted_classification %>%
@@ -134,19 +141,19 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
       novel_non_canonical_prop <- 0
     } else {
     known_canonical_prop <- sorted_classification %>%
-                            filter(grepl("^ENST", associated_transcript) & all_canonical=="canonical") %>%
+                            filter(!grepl("^novel", associated_transcript) & all_canonical=="canonical") %>%
                             nrow()/total_reads_no_monoexon*100
     
     known_non_canonical_prop <- sorted_classification %>%
-                                filter(grepl("^ENST", associated_transcript) & all_canonical=="non_canonical") %>%
+                                filter(!grepl("^novel", associated_transcript) & all_canonical=="non_canonical") %>%
                                 nrow()/total_reads_no_monoexon*100
     
     novel_canonical_prop <- sorted_classification %>%
-                            filter(!grepl("^ENST", associated_transcript) & all_canonical=="canonical") %>%
+                            filter(grepl("^novel", associated_transcript) & all_canonical=="canonical") %>%
                             nrow()/total_reads_no_monoexon*100
     
     novel_non_canonical_prop <- sorted_classification %>%
-                                filter(!grepl("^ENST", associated_transcript) & all_canonical=="non_canonical") %>%
+                                filter(grepl("^novel", associated_transcript) & all_canonical=="non_canonical") %>%
                                 nrow()/total_reads_no_monoexon*100
     }
     
@@ -1075,7 +1082,7 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
     # Annotated junction strings
     anno_models_in_cell_prop <- sorted_classification %>%
                                 group_by(associated_gene) %>%
-                                filter(grepl("^ENST", associated_transcript)) %>%
+                                filter(!grepl("^novel", associated_transcript)) %>%
                                 summarise(t_chains=n_distinct(jxn_string)) %>%
                                 .$t_chains %>% sum()/models_in_cell*100
 
@@ -1088,6 +1095,7 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                               models_in_cell,
                               annotated_genes,
                               novel_genes, # Std cell counts
+                              MT_perc,
                               known_canonical_prop,
                               known_non_canonical_prop,
                               novel_canonical_prop,
@@ -1252,6 +1260,7 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                                                         models_in_cell,
                                                         annotated_genes,
                                                         novel_genes, # Std cell counts
+                                                        MT_perc,
                                                         known_canonical_prop,
                                                         known_non_canonical_prop,
                                                         novel_canonical_prop,
@@ -1419,6 +1428,7 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                                     "UJCs_in_cell",
                                     "Annotated_genes",
                                     "Novel_genes", # Std cell counts
+                                    "MT_perc",
                                     "Known_canonical_prop",
                                     "Known_non_canonical_prop",
                                     "Novel_canonical_prop",
@@ -1603,8 +1613,9 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                                     "Canonical_prop_in_cell") # Features of good quality. Add annotated genes
   
   # Change data type of columns
-  SQANTI_cell_summary[,2:189] <- sapply(SQANTI_cell_summary[,2:189], as.numeric)
-  
+  SQANTI_cell_summary <- SQANTI_cell_summary %>%
+    mutate(across(2:ncol(.), as.numeric))  
+
   if (Save == "Y"){
     print(paste0("Saving cell summary table. Starting at ", Sys.time()))
     write.table(SQANTI_cell_summary, file = gzfile(paste0(cell_summary_output, ".txt.gz")), sep = "\t", quote = FALSE, row.names = FALSE)
@@ -1714,6 +1725,23 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(size = 16))
   
+  # Mitochondrial percentage in cell
+  gg_MT_perc <- ggplot(SQANTI_cell_summary, aes(x = "", y = MT_perc)) +
+    geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.2) +
+    geom_violin(fill = "#CC6633", color = "black", alpha = 0.5, scale = "width") +  
+    geom_boxplot(width = 0.05, fill = "#CC6633", color = "grey20", outlier.shape = NA, alpha = 0.3) +
+    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
+    theme_classic(base_size = 14) + 
+    labs(title = "Mitochondrial Reads Across Cells",
+         x = "Cell",
+         y = "Reads, %") +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  
+      axis.title = element_text(size = 16), 
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 14))
+
   #  Mono/multi-exon prop novel vs annotated genes
   
   ### Length distribution ###
@@ -2904,8 +2932,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
     scale_fill_manual(values = c("Intrapriming_prop_in_cell" = "#78C679",
                                  "RTS_prop_in_cell" = "#FF9933",
                                  "Non_canonical_prop_in_cell" = "#41B6C4")) +
-    scale_x_discrete(labels = c("Intrapriming", "RTS",
-                                "Non-canonical")) +
+    scale_x_discrete(labels = c("Intrapriming", "RT-switching",
+                                "Non-Canonical Junctions")) +
     labs(title = "Bad Quality Control Attributes Across Cells",
          x = "",
          y = "Reads, %") +
@@ -2978,6 +3006,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
   grid.arrange(gg_reads_in_cells, gg_umis_in_cells, ncol=2)
   grid.arrange(gg_genes_in_cells, gg_JCs_in_cell, ncol=2)
   print(gg_annotation_of_genes_in_cell)
+  print(gg_MT_perc)
   ### Read lengths ###
   print(gg_bulk_all_reads)
   print(gg_read_distr)
