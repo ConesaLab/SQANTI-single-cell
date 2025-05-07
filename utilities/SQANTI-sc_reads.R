@@ -1,11 +1,24 @@
+#!/usr/env/bin Rscript
 
-# Load dependencies
+######################################################
+##### SQANTI single-cell reads report generation #####
+######################################################
+
+
+
+### Author: Juan Francisco Cervilla & Carlos Blanco
+
+
+#********************** Packages 
+
 library(dplyr)
 library(ggplot2)
 library(tidyr)
 library(forcats)
 library(grid)
 library(gridExtra)
+
+#********************** Taking arguments from python script
 
 args <- commandArgs(trailingOnly = TRUE)
 class.file <- args[1]
@@ -132,7 +145,69 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                    select(associated_gene) %>%
                    filter(grepl("^novel", associated_gene)) %>%
                    n_distinct()
+
+    # Create binned read count metrics for annotated and novel genes
     
+    # Get all genes associated with reads in this cell
+    cell_genes <- sorted_classification %>% 
+                 select(associated_gene) %>% 
+                 distinct() %>% 
+                 .$associated_gene
+    
+    # Count reads per gene in this cell
+    gene_counts <- sorted_classification %>%
+                   group_by(associated_gene) %>%
+                   summarise(read_count = n(), .groups = 'drop')
+    
+    # Separate novel and annotated genes
+    novel_genes_counts <- gene_counts %>%
+                         filter(grepl("^novel", associated_gene))
+                         
+    annotated_genes_counts <- gene_counts %>%
+                             filter(!grepl("^novel", associated_gene))
+    
+    # Calculate percentage of genes in each read count bin
+    
+    # For annotated genes
+    total_annotated_genes <- nrow(annotated_genes_counts)
+    
+    if(total_annotated_genes > 0) {
+      anno_bin1_count <- sum(annotated_genes_counts$read_count == 1)
+      anno_bin2_3_count <- sum(annotated_genes_counts$read_count >= 2 & annotated_genes_counts$read_count <= 3)
+      anno_bin4_5_count <- sum(annotated_genes_counts$read_count >= 4 & annotated_genes_counts$read_count <= 5)
+      anno_bin6plus_count <- sum(annotated_genes_counts$read_count >= 6)
+      
+      anno_bin1_perc <- (anno_bin1_count / total_annotated_genes) * 100
+      anno_bin2_3_perc <- (anno_bin2_3_count / total_annotated_genes) * 100
+      anno_bin4_5_perc <- (anno_bin4_5_count / total_annotated_genes) * 100
+      anno_bin6plus_perc <- (anno_bin6plus_count / total_annotated_genes) * 100
+    } else {
+      anno_bin1_perc <- 0
+      anno_bin2_3_perc <- 0
+      anno_bin4_5_perc <- 0
+      anno_bin6plus_perc <- 0
+    }
+    
+    # For novel genes
+    total_novel_genes <- nrow(novel_genes_counts)
+    
+    if(total_novel_genes > 0) {
+      novel_bin1_count <- sum(novel_genes_counts$read_count == 1)
+      novel_bin2_3_count <- sum(novel_genes_counts$read_count >= 2 & novel_genes_counts$read_count <= 3)
+      novel_bin4_5_count <- sum(novel_genes_counts$read_count >= 4 & novel_genes_counts$read_count <= 5)
+      novel_bin6plus_count <- sum(novel_genes_counts$read_count >= 6)
+      
+      novel_bin1_perc <- (novel_bin1_count / total_novel_genes) * 100
+      novel_bin2_3_perc <- (novel_bin2_3_count / total_novel_genes) * 100
+      novel_bin4_5_perc <- (novel_bin4_5_count / total_novel_genes) * 100
+      novel_bin6plus_perc <- (novel_bin6plus_count / total_novel_genes) * 100
+    } else {
+      novel_bin1_perc <- 0
+      novel_bin2_3_perc <- 0
+      novel_bin4_5_perc <- 0
+      novel_bin6plus_perc <- 0
+    }
+
     # Known/novel canonical/non-canonical
     if (total_reads_no_monoexon==0){
       known_canonical_prop <- 0
@@ -1361,6 +1436,8 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                               ref_body_cover_fusion,
                               ref_body_cover_intergenic,
                               ref_body_cover_genic_intron, # Coverage of reference length (set at 45% default)
+                              anno_bin1_perc, anno_bin2_3_perc, anno_bin4_5_perc, anno_bin6plus_perc,
+                              novel_bin1_perc, novel_bin2_3_perc, novel_bin4_5_perc, novel_bin6plus_perc,
                               RTS_in_cell_prop,
                               non_canonical_in_cell_prop,
                               intrapriming_in_cell_prop, 
@@ -1531,6 +1608,8 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                                                         ref_body_cover_fusion,
                                                         ref_body_cover_intergenic,
                                                         ref_body_cover_genic_intron, # Coverage of reference length (set at 45% default)
+                                                        anno_bin1_perc, anno_bin2_3_perc, anno_bin4_5_perc, anno_bin6plus_perc,
+                                                        novel_bin1_perc, novel_bin2_3_perc, novel_bin4_5_perc, novel_bin6plus_perc,
                                                         RTS_in_cell_prop,
                                                         non_canonical_in_cell_prop,
                                                         intrapriming_in_cell_prop, 
@@ -1730,6 +1809,8 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                                     "Fusion_ref_coverage_prop",
                                     "Intergenic_ref_coverage_prop",
                                     "Genic_intron_ref_coverage_prop", # Coverage of reference length (set at 45% default)
+                                    "anno_bin1_perc", "anno_bin2_3_perc", "anno_bin4_5_perc", "anno_bin6plus_perc",
+                                    "novel_bin1_perc", "novel_bin2_3_perc", "novel_bin4_5_perc", "novel_bin6plus_perc",
                                     "RTS_prop_in_cell",
                                     "Non_canonical_prop_in_cell",
                                     "Intrapriming_prop_in_cell", 
@@ -1855,6 +1936,67 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(size = 16))
   
+  ### Gene Distribution by Read Count Bins ###
+  ###########################################
+  
+  read_bins_data <- data.frame(
+    CB = rep(SQANTI_cell_summary$CB, 8),
+    bin = rep(c("1", "2-3", "4-5", ">=6", "1", "2-3", "4-5", ">=6"), each = nrow(SQANTI_cell_summary)),
+    gene_type = rep(c("Annotated", "Annotated", "Annotated", "Annotated", "Novel", "Novel", "Novel", "Novel"), each = nrow(SQANTI_cell_summary)),
+    percentage = c(
+      SQANTI_cell_summary$anno_bin1_perc, 
+      SQANTI_cell_summary$anno_bin2_3_perc, 
+      SQANTI_cell_summary$anno_bin4_5_perc, 
+      SQANTI_cell_summary$anno_bin6plus_perc,
+      SQANTI_cell_summary$novel_bin1_perc, 
+      SQANTI_cell_summary$novel_bin2_3_perc, 
+      SQANTI_cell_summary$novel_bin4_5_perc, 
+      SQANTI_cell_summary$novel_bin6plus_perc
+    )
+  )
+  
+  read_bins_data$bin <- factor(read_bins_data$bin, levels = c("1", "2-3", "4-5", ">=6"))
+  read_bins_data$gene_type <- factor(read_bins_data$gene_type, levels = c("Annotated", "Novel"))
+  
+  gg_read_bins <- ggplot(read_bins_data, aes(x = gene_type, y = percentage, fill = gene_type)) +
+    geom_violin(alpha = 0.7, scale = "width") +
+    geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.6, show.legend = FALSE) +  # Suppress legend here
+    geom_point(aes(color = gene_type), 
+              position = position_jitter(width = 0.15, height = 0, seed = 123), 
+              size = 0.5, alpha = 0.5, show.legend = FALSE) +  # Suppress legend here too
+    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1, show.legend = FALSE) +  # Suppress legend
+    scale_fill_manual(values = c("Annotated" = "#e37744", "Novel" = "#78C679")) +
+    scale_color_manual(values = c("Annotated" = "#e37744", "Novel" = "#78C679"), guide = "none") +  # Remove color legend
+    facet_grid(. ~ bin, scales = "free_x", space = "free", switch = "x") +
+    coord_cartesian(ylim = c(0, 100)) +
+    theme_classic(base_size = 14) +
+    labs(
+      title = "Distribution of Genes by Read Count Bins Across Cells",
+      x = "",
+      y = "Genes, %"
+    ) +
+    theme(
+      legend.position = "bottom",
+      legend.title = element_blank(),
+      legend.key.size = unit(0.8, "cm"),
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+      axis.title = element_text(size = 16),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_blank(),
+      strip.placement = "outside", 
+      strip.text.x = element_text(size = 16),
+      strip.background = element_blank(),
+      legend.text = element_text(size = 14)
+    ) +
+    guides(
+      fill = guide_legend(override.aes = list(
+        alpha = 0.7,
+        color = "black"
+      )),
+      color = "none"
+    )
+
+
   # Mitochondrial percentage in cell
   gg_MT_perc <- ggplot(SQANTI_cell_summary, aes(x = "", y = MT_perc)) +
     geom_point(color = "#CC6633", position = position_dodge2(width = 0.8), size = 0.5, alpha = 0.2) +
@@ -3255,6 +3397,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
   grid.arrange(gg_reads_in_cells, gg_umis_in_cells, ncol=2)
   grid.arrange(gg_genes_in_cells, gg_JCs_in_cell, ncol=2)
   print(gg_annotation_of_genes_in_cell)
+  print(gg_read_bins)
   print(gg_MT_perc)
   ### Read lengths ###
   print(gg_bulk_all_reads)
