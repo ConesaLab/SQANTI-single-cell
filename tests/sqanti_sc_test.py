@@ -1,3 +1,4 @@
+import sys
 import pytest
 import pandas as pd
 import os
@@ -7,7 +8,18 @@ import pysam
 import glob
 import hashlib
 from io import StringIO
-from src.sqanti_sc import *
+
+# Add SQANTI3 to Python path
+sqanti3_src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../SQANTI3"))
+if sqanti3_src_path not in sys.path:
+    sys.path.insert(0, sqanti3_src_path)
+from src.commands import run_command
+from src.module_logging import qc_logger, update_logger
+
+sqanti_sc_src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../src"))
+if sqanti_sc_src_path not in sys.path:
+    sys.path.insert(0, sqanti_sc_src_path)
+from sqanti_sc import *
 
 # Fixture for creating a mock arguments object
 @pytest.fixture
@@ -18,8 +30,8 @@ def mock_args(tmpdir):
             self.test_data_dir = os.path.join(os.path.dirname(__file__), "test_data")
             self.inDESIGN = str(tmpdir.join("design.csv"))
             self.input_dir = str(tmpdir)
-            self.annotation = os.path.join(self.test_data_dir, "reference_transcriptome.gtf")
-            self.genome = os.path.join(self.test_data_dir, "reference_genome.fasta")
+            self.refGTF = os.path.join(self.test_data_dir, "reference_transcriptome.gtf")
+            self.refFasta = os.path.join(self.test_data_dir, "reference_genome.fasta")
             self.mode = "reads"
             self.out_dir = str(tmpdir.join("output_dir"))
             self.report = "pdf"
@@ -56,6 +68,7 @@ def mock_args(tmpdir):
             self.isoAnnotLite = False
             self.gff3 = None
             self.version = "0.1.0"
+            self.log_level = "INFO"
 
             # Create dummy design file
             design_content = "sampleID,file_acc\nsample1,file1\nsample2,file2"
@@ -74,9 +87,9 @@ def test_fill_design_table(mock_args):
     assert df['classification_file'][0] == f"{mock_args.input_dir}/file1/sample1_classification.txt"
     assert df['junction_file'][0] == f"{mock_args.input_dir}/file1/sample1_junctions.txt"
 
-@patch('src.sqanti_sc.run_command')
-@patch('src.sqanti_sc.os.path.isfile')
-@patch('src.sqanti_sc.glob.glob')
+@patch('sqanti_sc.run_command')
+@patch('sqanti_sc.os.path.isfile')
+@patch('sqanti_sc.glob.glob')
 def test_get_files_runSQANTI3_gtf(mock_glob, mock_isfile, mock_run_command, mock_args, capsys):
     # Mock glob and isfile to simulate finding files
     mock_glob.return_value = [os.path.join(mock_args.test_data_dir, "isoforms.gtf")]
@@ -89,7 +102,7 @@ def test_get_files_runSQANTI3_gtf(mock_glob, mock_isfile, mock_run_command, mock
     })
 
     # Mock pandas read_csv to return the mocked DataFrame
-    with patch('src.sqanti_sc.pd.read_csv', return_value=design_df):
+    with patch('sqanti_sc.pd.read_csv', return_value=design_df):
         get_files_runSQANTI3(mock_args, design_df)
 
     # Capture printed output and check for expected messages
@@ -99,12 +112,12 @@ def test_get_files_runSQANTI3_gtf(mock_glob, mock_isfile, mock_run_command, mock
     # Assert that run_command was called
     mock_run_command.assert_called()
 
-@patch('src.sqanti_sc.subprocess.check_call')
-@patch('src.sqanti_sc.subprocess.call')
-@patch('src.sqanti_sc.os.path.exists')
-@patch('src.sqanti_sc.os.remove')
-@patch('src.sqanti_sc.pd.read_csv')
-@patch('src.sqanti_sc.pd.DataFrame.to_csv')
+@patch('sqanti_sc.subprocess.check_call')
+@patch('sqanti_sc.subprocess.call')
+@patch('sqanti_sc.os.path.exists')
+@patch('sqanti_sc.os.remove')
+@patch('sqanti_sc.pd.read_csv')
+@patch('sqanti_sc.pd.DataFrame.to_csv')
 @patch('builtins.open', new_callable=mock_open, read_data="chr1\tHAVANA\ttranscript\t1\t1000\t.\t+\t.\ttranscript_id \"ENST00000456328.2\";\n")
 def test_make_UJC_hash(mock_file, mock_to_csv, mock_read_csv, mock_remove, mock_exists, mock_call, mock_check_call, mock_args):
     # Mock file existence and subprocess calls
@@ -181,10 +194,10 @@ def test_make_UJC_hash(mock_file, mock_to_csv, mock_read_csv, mock_remove, mock_
         assert row["jxn_string"] == expected_jxn_strings[i]
         assert row["jxnHash"] == expected_hashes[i]
 
-@patch('src.sqanti_sc.pysam.AlignmentFile')
-@patch('src.sqanti_sc.os.path.isfile')
-@patch('src.sqanti_sc.glob.glob')
-@patch('src.sqanti_sc.pd.read_csv')
+@patch('sqanti_sc.pysam.AlignmentFile')
+@patch('sqanti_sc.os.path.isfile')
+@patch('sqanti_sc.glob.glob')
+@patch('sqanti_sc.pd.read_csv')
 def test_add_cell_data_bam(mock_read_csv, mock_glob, mock_isfile, mock_alignment_file, mock_args):
     # Test add_cell_data function with BAM file input
     mock_isfile.return_value = True
@@ -214,11 +227,11 @@ def test_add_cell_data_bam(mock_read_csv, mock_glob, mock_isfile, mock_alignment
 
     mock_alignment_file.assert_called_with(os.path.join(mock_args.test_data_dir, "unmapped_reads.bam"), "rb", check_sq=False)
 
-@patch('src.sqanti_sc.pd.read_csv')
-@patch('src.sqanti_sc.os.path.isfile')
-@patch('src.sqanti_sc.glob.glob')
-@patch('src.sqanti_sc.os.remove')
-@patch('src.sqanti_sc.pd.DataFrame.to_csv')
+@patch('sqanti_sc.pd.read_csv')
+@patch('sqanti_sc.os.path.isfile')
+@patch('sqanti_sc.glob.glob')
+@patch('sqanti_sc.os.remove')
+@patch('sqanti_sc.pd.DataFrame.to_csv')
 def test_add_cell_data_metadata(mock_to_csv, mock_remove, mock_glob, mock_isfile, mock_read_csv, mock_args, tmpdir, capsys):
     # Define file paths
     metadata_file = tmpdir.join("file1_cell_association.txt")
@@ -285,8 +298,8 @@ def test_add_cell_data_metadata(mock_to_csv, mock_remove, mock_glob, mock_isfile
     # Verify to_csv was called
     mock_to_csv.assert_called_once()
 
-@patch('src.sqanti_sc.subprocess.run')
-@patch('src.sqanti_sc.os.path.isfile')
+@patch('sqanti_sc.subprocess.run')
+@patch('sqanti_sc.os.path.isfile')
 def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
     mock_isfile.return_value = True
 
@@ -331,7 +344,7 @@ def test_fill_design_table_missing_columns(mock_args):
     with pytest.raises(ValueError, match="Missing required columns in design table"):
         fill_design_table(mock_args)
 
-@patch('src.sqanti_sc.os.path.isfile')
+@patch('sqanti_sc.os.path.isfile')
 def test_get_files_runSQANTI3_missing_files(mock_isfile, mock_args, capsys):
     mock_isfile.return_value = False
     
@@ -349,10 +362,10 @@ def test_get_files_runSQANTI3_missing_files(mock_isfile, mock_args, capsys):
     captured = capsys.readouterr()
     assert "[ERROR] Genome or annotation file is missing." in captured.err
 
-@patch('src.sqanti_sc.pysam.AlignmentFile')
-@patch('src.sqanti_sc.os.path.isfile')
-@patch('src.sqanti_sc.glob.glob')
-@patch('src.sqanti_sc.pd.read_csv')
+@patch('sqanti_sc.pysam.AlignmentFile')
+@patch('sqanti_sc.os.path.isfile')
+@patch('sqanti_sc.glob.glob')
+@patch('sqanti_sc.pd.read_csv')
 def test_add_cell_data_missing_tags(mock_read_csv, mock_glob, mock_isfile, mock_alignment_file, mock_args, capsys):
     mock_isfile.return_value = True
     mock_glob.return_value = [os.path.join(mock_args.test_data_dir, "unmapped_reads.bam")]
@@ -381,9 +394,9 @@ def test_add_cell_data_missing_tags(mock_read_csv, mock_glob, mock_isfile, mock_
     captured = capsys.readouterr()
     assert "No valid reads found in the BAM or cell association file" in captured.out
 
-@patch('src.sqanti_sc.pd.read_csv')
-@patch('src.sqanti_sc.os.path.isfile')
-@patch('src.sqanti_sc.glob.glob')
+@patch('sqanti_sc.pd.read_csv')
+@patch('sqanti_sc.os.path.isfile')
+@patch('sqanti_sc.glob.glob')
 def test_add_cell_data_metadata_missing_columns(mock_glob, mock_isfile, mock_read_csv, mock_args, tmpdir, capsys):
     # Test add_cell_data function with metadata file input but missing mandatory column
     metadata_content = "id\tumi\niso1\tumi1\niso2\tumi2" # No cell_barcode column
