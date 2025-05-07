@@ -3,22 +3,22 @@ import subprocess, os, re, sys, glob
 import argparse
 import pandas as pd
 import numpy as np
-import shutil
 import hashlib
 import pysam
 
-sqanti3_src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../SQANTI3/src"))
+sqanti3_src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../SQANTI3"))
 if sqanti3_src_path not in sys.path:
     sys.path.insert(0, sqanti3_src_path)
 
-from commands import run_command
+from src.commands import run_command
+from src.module_logging import qc_logger, update_logger
 
 #!/usr/bin/env python3
 # SQANTI_Single_Cell: Structural and Quality Annotation of transcripts and reads at the single cell level
 # Author: Carlos Blanco
 
 __author__  = "carlos.blanco@csic.es"
-__version__ = '0.1.0'  # Python 3.11
+__version__ = '0.1.1'  # Python 3.11
 
 utilitiesPath = os.path.abspath(os.path.join(os.path.dirname(__file__), "../utilities"))
 sys.path.insert(0, utilitiesPath)
@@ -59,26 +59,66 @@ def get_files_runSQANTI3(args, df):
     def build_sqanti_command(input_file, is_fastq=False):
         """Build the SQANTI command to run."""
         cmd = (
-            f"python {sqantiqcPath}/sqanti3_qc.py {input_file} {args.annotation} {args.genome} "
-            f"--min_ref_len {args.min_ref_len} --aligner_choice {args.aligner_choice} "
-            f"-t {args.mapping_cpus} -n {args.chunks} -d {args.out_dir}/{file_acc} -o {sampleID} -s {args.sites} --report skip"
+            f"python {sqantiqcPath}/sqanti3_qc.py --isoforms {input_file} --refGTF {args.refGTF} --refFasta {args.refFasta} "
+            f"--min_ref_len {args.min_ref_len} --aligner_choice {args.aligner_choice} -w {args.window} "
+            f"-t {args.mapping_cpus} -n {args.chunks} -d {args.out_dir}/{file_acc} -o {sampleID} "
+            f"-s {args.sites} --ratio_TSS_metric {args.ratio_TSS_metric} --novel_gene_prefix {args.novel_gene_prefix} --report skip"
         )
-        if args.force_id_ignore:
-            cmd += " --force_id_ignore"
-        if args.skipORF:
-            cmd += " --skipORF"
+
         if is_fastq:
             cmd += " --fasta"
+        if args.aligner_choice == "gmap":
+            cmd += f" -x {args.gmap_index}"
+        
+        flag_args = [
+            ('force_id_ignore', '--force_id_ignore'),
+            ('skipORF', '--skipORF'),
+            ('genename', '--genename'),
+            ('saturation', '--saturation'),
+            ('isoAnnotLite', '--isoAnnotLite'),
+            ('isoform_hits', '--isoform_hits')
+        ]
+
+        for arg, flag in flag_args:
+            if getattr(args, arg):
+                cmd += f" {flag}"
+
+        optional_files = [
+            ("CAGE_peak", "--CAGE_peak"),
+            ("polyA_motif_list", "--polyA_motif_list"),
+            ("polyA_peak", "--polyA_peak"),
+            ("phyloP_bed", "--phyloP_bed"),
+            ("orf_input", "--orf_input"),
+            ("expression", "--expression"),
+            ("coverage", "--coverage"),
+            ("gff3", "--gff3"),
+            ("short_reads", "--short_reads"),
+            ("SR_bam", "--SR_bam"),
+            ]
+
+        for arg_name, flag in optional_files:
+            if getattr(args, arg_name):
+                cmd += f" {flag} {getattr(args, arg_name)}"
+
         return cmd
 
     # Validate genome and annotation before processing files
-    if not check_files_exist(args.genome, args.annotation):
+    if not check_files_exist(args.refFasta, args.refGTF):
         print("[ERROR] Genome or annotation file is missing.", file=sys.stderr)
         sys.exit(-1)
 
     for index, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
+
+        # Create the logs directory for this file_acc
+        file_acc_dir = os.path.join(args.out_dir, file_acc)
+        logs_dir = os.path.join(file_acc_dir, "logs")
+        os.makedirs(logs_dir, exist_ok=True)
+
+        # Update the logger to write to the correct log file
+        log_file = os.path.join(logs_dir, "sqanti3.log")
+        update_logger(qc_logger, file_acc_dir, args.log_level)
 
         # Check for .gtf or .gff file
         gtf_pattern = os.path.join(args.input_dir, f"{file_acc}*.g*f")
@@ -87,9 +127,18 @@ def get_files_runSQANTI3(args, df):
             gtf_file = gtf_files[0]
             if args.verbose:
                 print(f'[INFO] Running SQANTI-sc qc for sample {gtf_file}', file=sys.stdout)
+            
             cmd_sqanti = build_sqanti_command(gtf_file)
+
+            if args.is_fusion:
+                cmd_sqanti += " --is_fusion"
+                if not args.skipORF:
+                    if not args.orf_input:
+                        raise ValueError("[ERROR] --orf_input must be provided when using --is_fusion with a GTF input file, unless --skipORF is specified.")
+                    cmd_sqanti += f" --orf_input {args.orf_input}"
+
             print(cmd_sqanti, file=sys.stdout)
-            run_command(cmd_sqanti, "SQANTI3 failed to execute")
+            run_command(cmd_sqanti, qc_logger, out_file=log_file, description="SQANTI3 failed to execute")
             continue
 
         # Check for .fastq or .fasta files
@@ -101,7 +150,7 @@ def get_files_runSQANTI3(args, df):
                 print(f'[INFO] Running SQANTI-sc qc for sample {fastq_file}', file=sys.stdout)
             cmd_sqanti = build_sqanti_command(fastq_file, is_fastq=True)
             print(cmd_sqanti, file=sys.stdout)
-            run_command(cmd_sqanti, "SQANTI3 failed to execute")
+            run_command(cmd_sqanti, qc_logger, out_file=log_file, description="SQANTI3 failed to execute")
             continue
 
         # Check for BAM files if mode is "reads"
@@ -116,7 +165,7 @@ def get_files_runSQANTI3(args, df):
                 # Convert unmapped BAM to FASTQ
                 tmp_fastq = f"{args.input_dir}/{file_acc}_tmp.fastq"
                 cmd_tofastq = f"samtools fastq -@ {args.samtools_cpus} {bam_file} -n > {tmp_fastq}"
-                run_command(cmd_tofastq, "Samtools failed to execute")
+                run_command(cmd_tofastq, qc_logger, out_file=log_file, description="Samtools failed to execute")
 
                 # Ensure FASTQ was generated
                 if not os.path.isfile(tmp_fastq):
@@ -126,7 +175,7 @@ def get_files_runSQANTI3(args, df):
                 # Run SQANTI3 in fasta mode
                 cmd_sqanti = build_sqanti_command(tmp_fastq, is_fastq=True)
                 print(cmd_sqanti, file=sys.stdout)
-                run_command(cmd_sqanti, "SQANTI3 failed to execute")
+                run_command(cmd_sqanti, qc_logger, out_file=log_file, description="SQANTI3 failed to execute")
 
                 # Cleanup temporary files
                 try:
@@ -332,7 +381,6 @@ def add_cell_data(args, df):
 
 
 def generate_report(args, df):
-    print("**** Generating SQANTI3 report....", file=sys.stderr)
     for index, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
@@ -340,14 +388,16 @@ def generate_report(args, df):
         
         classification_file = f"{outputPathPrefix}_classification.txt"
         
+        print(f"**** Generating SQANTI3 report for {file_acc}...", file=sys.stdout)
+
         if os.path.isfile(classification_file):
             try:
-                ignore_flag  = "--ignore_cell_summary" if args.ignore_cell_summary else ""
+                ignore_flag  = " --ignore_cell_summary" if args.ignore_cell_summary else ""
                 cmd = (
                     f"Rscript {utilitiesPath}/SQANTI-sc_reads.R "
                     f"{classification_file} "
                     f"{args.report} "
-                    f"{outputPathPrefix} "
+                    f"{outputPathPrefix}"
                     f"{ignore_flag}"
                 )
                 subprocess.run(cmd, shell=True, check=True)
@@ -364,15 +414,28 @@ def main():
 
     #arguments
     ap = argparse.ArgumentParser(description="Structural and Quality Annotation of Novel Transcript Isoforms")
-    # Positional arguments
+    # Required arguments
     apr = ap.add_argument_group("Required arguments")
-    apr.add_argument('--genome', type=str, required=True, help='\t\tReference genome (Fasta format).')
-    apr.add_argument('--annotation', type=str, required=True, help='\t\tReference annotation file (GTF format).')
+    apr.add_argument('--refFasta', type=str, required=True, help='\t\tReference genome (Fasta format).')
+    apr.add_argument('--refGTF', type=str, required=True, help='\t\tReference annotation file (GTF format).')
     apr.add_argument('-de', '--design', type=str, dest="inDESIGN", required=True, help='Path to design file, must have sampleID and file_acc column.')
     apr.add_argument('-m', '--mode', type=str, choices = ["isoforms", "reads"], required=True, help = '\t\tType of data to run SQANTI3 on (reads or isoforms)')
 
+    # Optional arguments
+    apsc = ap.add_argument_group("Optional arguments")
+    apsc.add_argument('-d','--out_dir', type=str, help='\t\tDirectory for output sqanti_sc files. Default: Directory where the script was run.', default = "./", required=False)
+    apsc.add_argument('-i', '--input_dir', type=str, default = './', help = '\t\tPath to directory where fastq files are stored. Or path to parent directory with children directories of SQANTI3 runs. Default: Directory where the script was run.')
+    apsc.add_argument('--report', type=str, choices = ["pdf", "html", "both", "skip"], default = "pdf", help = "\t\tDefault: pdf")
+    apsc.add_argument('-@', '--samtools_cpus', default=10, type=int, help='\t\tNumber of threads used during conversion from bam to fastq. Default: 10')    
+    apsc.add_argument('--verbose', help = 'If verbose is run, it will print all steps, by default it is FALSE', action="store_true", default=False)
+    apsc.add_argument('-f', '--factor', type=str, dest="inFACTOR" ,required=False, help='This is the column name that plots are to be faceted by. Default: None')
+    apsc.add_argument('--skip_hash', dest="SKIPHASH", action='store_true', help='Skip the hashing step')
+    apsc.add_argument('--ignore_cell_summary', action="store_true", default=False, help="\t\t Add this flag to not save the cell summary table generated during the report to save space. Do not add if running the cell filter module afterwards, as this table is used to inform the cell filtering.")
+    apsc.add_argument('-cm', '--count_matrix', help='Cellxisoform count matrix')
+
+    # SQANTI3 arguments
     # Customization and filtering args
-    apc = ap.add_argument_group("Customization and filtering")
+    apc = ap.add_argument_group("SQANTI3 customization and filtering")
     apc.add_argument('--min_ref_len', type=int, default=0, help="\t\tMinimum reference transcript length. Default: 0 bp")
     apc.add_argument('--force_id_ignore', action="store_true", default=False, help="\t\t Allow the usage of transcript IDs non related with PacBio's nomenclature (PB.X.Y)")
     apc.add_argument('--genename', action='store_true' ,help='Use gene_name tag from GTF to define genes. Default: gene_id used to define genes')
@@ -381,55 +444,45 @@ def main():
     apc.add_argument('--novel_gene_prefix', default=None, help='Prefix for novel isoforms (default: None)')
 
     # Aligner and mapping options
-    apa = ap.add_argument_group("Aligner and mapping options")
-    apa.add_argument('--aligner_choice', type=str, choices=['minimap2', "uLTRA"], default='minimap2', help="\t\tDefault: minimap2")
+    apa = ap.add_argument_group("SQANTI3 aligner and mapping options")
+    apa.add_argument('--aligner_choice', type=str, choices=['minimap2', "uLTRA", "gmap", "deSALT"], default='minimap2', help="\t\tDefault: minimap2")
     apa.add_argument('-x','--gmap_index', help='Path and prefix of the reference index created by gmap_build. Mandatory if using GMAP unless -g option is specified.')
     apa.add_argument('-s','--sites', type=str, default="ATAC,GCAG,GTAG", help='\t\tSet of splice sites to be considered as canonical (comma-separated list of splice sites). Default: GTAG,GCAG,ATAC.', required=False)
 
     # ORF prediction
-    apo = ap.add_argument_group("ORF prediction")
+    apo = ap.add_argument_group("SQANTI3 ORF prediction")
     apo.add_argument('--skipORF', action="store_true", default=False, help="\t\t Skip ORF prediction to save time.")
-    apo.add_argument("--orf_input", type=str, help="Input fasta to run ORF on. By default, ORF is run on genome-corrected fasta - this overrides it. If input is fusion (--is_fusion), this must be provided for ORF prediction.")
+    apo.add_argument('--orf_input', type=str, help="Input fasta to run ORF on. By default, ORF is run on genome-corrected fasta - this overrides it. If input is fusion (--is_fusion), this must be provided for ORF prediction.")
 
     # Functional annotation
-    apf = ap.add_argument_group("Functional annotation")
+    apf = ap.add_argument_group("SQANTI3 functional annotation")
     apf.add_argument('--CAGE_peak', type=str, help="FANTOM5 Cage Peak (BED format, optional)")
     apf.add_argument('--polyA_motif_list', type=str, help="Ranked list of polyA motifs (text, optional)")
     apf.add_argument('--polyA_peak', type=str, help="PolyA Peak (BED format, optional)")
     apf.add_argument('--phyloP_bed', type=str, help="PhyloP BED for conservation score (BED, optional)")
 
     # Output options
-    apout = ap.add_argument_group("Output options")
-    apout.add_argument('-o','--out_dir', type=str, help='\t\tDirectory for output sqanti_sc files. Default: Directory where the script was run.', default = "./", required=False)
-    apout.add_argument('-d','--dir', type=str, help='\t\tDirectory for output sqanti_reads files. Default: Directory where the script was run.', default = "./", required=False)
+    apout = ap.add_argument_group("SQANTI3 output options")
     apout.add_argument('--saturation', action="store_true", default=False, help='Include saturation curves into report')
-    apout.add_argument('--report', type=str, choices = ["pdf", "html", "both", "skip"], default = "pdf", help = "\t\tDefault: pdf")
     apout.add_argument('--isoform_hits' , action='store_true', help=' Report all FSM/ISM isoform hits in a separate file')
     apout.add_argument('--ratio_TSS_metric' , choices=['max', 'mean', 'median', '3quartile'], default='max', help=' Define which statistic metric should be reported in the ratio_TSS column (default: %(default)s)')
 
     # Performance options
-    app = ap.add_argument_group("Performance options")
-    app.add_argument('-@', '--samtools_cpus', default=10, type=int, help='\t\tNumber of threads used during conversion from bam to fastq. Default: 10')    
-    app.add_argument('-t', '--mapping_cpus', default=10, type=int, help='\t\tNumber of threads used during alignment by aligners. Default: 10')
+    app = ap.add_argument_group("SQANTI3 performance options")
+    app.add_argument('-t', '--mapping_cpus', default=10, type=int, help='\t\tNumber of threads used during alignment by SQANTI3 aligners. Default: 10')
     app.add_argument('-n', '--chunks', default=10, type=int, help='\t\tNumber of chunks to split SQANTI3 analysis in for speed up. Default: 10')
+    app.add_argument("-l","--log_level", default="INFO",choices=["ERROR","WARNING","INFO","DEBUG"],
+                        help="Set the logging level %(default)s")
 
     # Optional arguments
-    apm = ap.add_argument_group("Optional arguments")
-    apm.add_argument('-i', '--input_dir', type=str, default = './', help = '\t\tPath to directory where fastq files are stored. Or path to parent directory with children directories of SQANTI3 runs. Default: Directory where the script was run.')
+    apm = ap.add_argument_group("SQANTI3 optional arguments")
     apm.add_argument('--is_fusion', action="store_true", help="Input are fusion isoforms, must supply GTF as input")
     apm.add_argument('-e','--expression', type=str, help='Expression matrix (supported: Kallisto tsv)')
     apm.add_argument('-c','--coverage', help='Junction coverage files (provide a single file, comma-delmited filenames, or a file pattern, ex: "mydir/*.junctions").')
     apm.add_argument('-w','--window', default=20, type=int, help='Size of the window in the genomic DNA screened for Adenine content downstream of TTS (default: %(default)s)')
-    apm.add_argument('-fl', '--fl_count', help='Full-length PacBio abundance file')
     apm.add_argument('-v', '--version', help="Display program version number.", action='version', version='sqanti-sc '+str(__version__))
     apm.add_argument('--isoAnnotLite', action='store_true', help='Run isoAnnot Lite to output a tappAS-compatible gff3 file')
     apm.add_argument('--gff3' ,type=str, help='Precomputed tappAS species specific GFF3 file. It will serve as reference to transfer functional attributes')
-    apm.add_argument('--verbose', help = 'If verbose is run, it will print all steps, by default it is FALSE', action="store_true", default=False)
-    apm.add_argument('-f', '--factor', type=str, dest="inFACTOR" ,required=False, help='This is the column name that plots are to be faceted by. Default: None')
-    apm.add_argument('-p','--prefix', type=str, dest="PREFIX", required=False, help='SQANTI-sc output filename prefix. Default: sqantiSingleCell')
-    apm.add_argument('--skip_hash', dest="SKIPHASH", action='store_true', help='Skip the hashing step')
-    apm.add_argument('--ignore_cell_summary', action="store_true", default=False, help="\t\t Add this flag to not save the cell summary table generated during the report to save space. Do not add if running the cell filter module afterwards, as this table is used to inform the cell filtering.")
-
 
     args = ap.parse_args()
 
