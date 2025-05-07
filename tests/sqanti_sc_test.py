@@ -300,15 +300,15 @@ def test_add_cell_data_metadata(mock_to_csv, mock_remove, mock_glob, mock_isfile
 
 @patch('sqanti_sc.subprocess.run')
 @patch('sqanti_sc.os.path.isfile')
+@patch('sqanti_sc.utilitiesPath', 'utilities')  # Mock the global utilitiesPath
 def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
     mock_isfile.return_value = True
 
     # Add necessary attributes to mock_args
     mock_args.ignore_cell_summary = False
     mock_args.report = "pdf"
-    mock_args.input_dir = "/path/to/input"
-    mock_args.utilitiesPath = "/storage/gge/Carlos/github_conesalab/scSQANTI_devel/utilities"
-    mock_args.out_dir = "/path/to/output"
+    mock_args.input_dir = "input"
+    mock_args.out_dir = "output"
 
     df = pd.DataFrame({
         "sampleID": ["sample1"],
@@ -326,9 +326,9 @@ def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
 
     # Verify subprocess.run was called with the correct command
     expected_cmd = (
-    "Rscript /storage/gge/Carlos/github_conesalab/scSQANTI_devel/utilities/SQANTI-sc_reads.R "
-    "/path/to/output/file1/sample1_classification.txt "
-    "pdf /path/to/output/file1/sample1"
+        "Rscript utilities/SQANTI-sc_reads.R "
+        "output/file1/sample1_classification.txt "
+        "pdf output/file1/sample1"
     )
     mock_run.assert_called_once_with(expected_cmd, shell=True, check=True)
 
