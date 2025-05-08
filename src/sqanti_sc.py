@@ -193,35 +193,16 @@ def make_UJC_hash(args, df):
     def format_chr(chr_value):
         return f"chr{chr_value}" if not str(chr_value).startswith("chr") else str(chr_value)
 
-    def extract_transcript_bounds(gtf_file):
-        bounds = {}
-        with open(gtf_file, 'r') as f:
-            for line in f:
-                if line.startswith('#'):
-                    continue
-                fields = line.strip().split('\t')
-                if fields[2] == 'transcript':
-                    chr, start, end, strand = fields[0], fields[3], fields[4], fields[6]
-                    transcript_id = re.search(r'transcript_id "(.*?)"', fields[8]).group(1)
-                    bounds[transcript_id] = (chr, start, end, strand)
-        return bounds
-
-    def create_jxn_string(row, bounds):
-        transcript_id = row['isoform']
-        if transcript_id in bounds:
-            chr, start, end, strand = bounds[transcript_id]
-            base_string = f"{format_chr(chr)}_{strand}_"
-        else:
-            base_string = format_chr(row["chr"]) + "_" + row["strand"] + "_"
-            start, end = "NA", "NA"
-
+    def create_jxn_string(row):
+        base_string = format_chr(row["chr"]) + "_" + row["strand"] + "_"
+        
         if pd.isna(row["jxn_string"]):
             # Mono-exonic case
-            return f"{base_string}[{start}]_monoexon_[{end}]_{row['associated_transcript']}"
+            return f"{base_string}monoexon_{row['associated_transcript']}"
         else:
             # Multi-exonic case
             junctions = row["jxn_string"].split("_")
-            return f"{base_string}[{start}]_" + "_".join(junctions[2:-1]) + f"_[{end}]"
+            return f"{base_string}" + "_".join(junctions[2:-1])
 
     for index, row in df.iterrows():
         file_acc = row['file_acc']
@@ -256,9 +237,6 @@ def make_UJC_hash(args, df):
                 parts[1] = '_'.join([format_chr(chr_part)] + parts[1].split('_')[1:])
                 f.write('\t'.join(parts) + '\n')
 
-        # Extract transcript bounds
-        transcript_bounds = extract_transcript_bounds(f"{outputPathPrefix}_corrected.gtf.cds.gff")
-
         classfile = f"{outputPathPrefix}_classification.txt"
         clas_df = pd.read_csv(classfile, sep="\t", usecols=[0, 1, 2, 7], dtype="str")
         clas_df.columns = ["isoform", "chr", "strand", "associated_transcript"]
@@ -266,8 +244,7 @@ def make_UJC_hash(args, df):
 
         merged_df = pd.merge(clas_df, ujc_df, on="isoform", how="left")
         
-        # Create jxn_string with transcript bounds
-        merged_df["jxn_string"] = merged_df.apply(lambda row: create_jxn_string(row, transcript_bounds), axis=1)
+        merged_df["jxn_string"] = merged_df.apply(create_jxn_string, axis=1)
 
         merged_df['jxnHash'] = merged_df['jxn_string'].apply(
             lambda x: hashlib.sha256(x.encode('utf-8')).hexdigest()
