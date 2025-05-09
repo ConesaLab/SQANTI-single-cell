@@ -121,12 +121,12 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
     genes_in_cell <- sorted_classification %>%
                      select(associated_gene) %>%
                      n_distinct()
-    
+
     models_in_cell <- sorted_classification %>%
+                      filter(exons > 1) %>%
                       group_by(associated_gene) %>%
                       summarise(t_chains=n_distinct(jxn_string)) %>%
                       .$t_chains %>% sum()
-    # Take into consideration that monoexons of the same gene could not be counted correctly. Need to update jxn_string to include UTRs to distinguish them
     
     # Mitochondrial reads
     MT_reads_count <- sorted_classification %>%
@@ -206,6 +206,60 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
       novel_bin2_3_perc <- 0
       novel_bin4_5_perc <- 0
       novel_bin6plus_perc <- 0
+    }
+
+    # Calculate UJC bins for multiexonic reads
+    # Get all genes with their UJC counts for multiexonic reads
+    gene_ujc_counts <- sorted_classification %>%
+                       filter(exons > 1) %>%
+                       group_by(associated_gene) %>%
+                       summarise(ujc_count = n_distinct(jxn_string), .groups = 'drop')
+    
+    # Separate novel and annotated genes
+    novel_genes_ujc_counts <- gene_ujc_counts %>%
+                             filter(grepl("^novel", associated_gene))
+                         
+    annotated_genes_ujc_counts <- gene_ujc_counts %>%
+                                 filter(!grepl("^novel", associated_gene))
+    
+    # For annotated genes UJC bins
+    total_annotated_genes_ujc <- nrow(annotated_genes_ujc_counts)
+    
+    if(total_annotated_genes_ujc > 0) {
+      anno_ujc_bin1_count <- sum(annotated_genes_ujc_counts$ujc_count == 1)
+      anno_ujc_bin2_3_count <- sum(annotated_genes_ujc_counts$ujc_count >= 2 & annotated_genes_ujc_counts$ujc_count <= 3)
+      anno_ujc_bin4_5_count <- sum(annotated_genes_ujc_counts$ujc_count >= 4 & annotated_genes_ujc_counts$ujc_count <= 5)
+      anno_ujc_bin6plus_count <- sum(annotated_genes_ujc_counts$ujc_count >= 6)
+      
+      anno_ujc_bin1_perc <- (anno_ujc_bin1_count / total_annotated_genes_ujc) * 100
+      anno_ujc_bin2_3_perc <- (anno_ujc_bin2_3_count / total_annotated_genes_ujc) * 100
+      anno_ujc_bin4_5_perc <- (anno_ujc_bin4_5_count / total_annotated_genes_ujc) * 100
+      anno_ujc_bin6plus_perc <- (anno_ujc_bin6plus_count / total_annotated_genes_ujc) * 100
+    } else {
+      anno_ujc_bin1_perc <- 0
+      anno_ujc_bin2_3_perc <- 0
+      anno_ujc_bin4_5_perc <- 0
+      anno_ujc_bin6plus_perc <- 0
+    }
+    
+    # For novel genes UJC bins
+    total_novel_genes_ujc <- nrow(novel_genes_ujc_counts)
+    
+    if(total_novel_genes_ujc > 0) {
+      novel_ujc_bin1_count <- sum(novel_genes_ujc_counts$ujc_count == 1)
+      novel_ujc_bin2_3_count <- sum(novel_genes_ujc_counts$ujc_count >= 2 & novel_genes_ujc_counts$ujc_count <= 3)
+      novel_ujc_bin4_5_count <- sum(novel_genes_ujc_counts$ujc_count >= 4 & novel_genes_ujc_counts$ujc_count <= 5)
+      novel_ujc_bin6plus_count <- sum(novel_genes_ujc_counts$ujc_count >= 6)
+      
+      novel_ujc_bin1_perc <- (novel_ujc_bin1_count / total_novel_genes_ujc) * 100
+      novel_ujc_bin2_3_perc <- (novel_ujc_bin2_3_count / total_novel_genes_ujc) * 100
+      novel_ujc_bin4_5_perc <- (novel_ujc_bin4_5_count / total_novel_genes_ujc) * 100
+      novel_ujc_bin6plus_perc <- (novel_ujc_bin6plus_count / total_novel_genes_ujc) * 100
+    } else {
+      novel_ujc_bin1_perc <- 0
+      novel_ujc_bin2_3_perc <- 0
+      novel_ujc_bin4_5_perc <- 0
+      novel_ujc_bin6plus_perc <- 0
     }
 
     # Known/novel canonical/non-canonical
@@ -762,7 +816,7 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
       
       # Reference body coverage
       ref_body_cover_fusion <- sorted_classification %>%
-                               filter(structural_category=="fusion" & length/ref_length*100>=45) %>% ####  Take a decision about this
+                               filter(structural_category=="fusion" & length/ref_length*100>=45) %>% ####  Take a decision about this
                                nrow()/Fusion_count*100
       
       # Coding/non-coding
@@ -1438,6 +1492,8 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                               ref_body_cover_genic_intron, # Coverage of reference length (set at 45% default)
                               anno_bin1_perc, anno_bin2_3_perc, anno_bin4_5_perc, anno_bin6plus_perc,
                               novel_bin1_perc, novel_bin2_3_perc, novel_bin4_5_perc, novel_bin6plus_perc,
+                              anno_ujc_bin1_perc, anno_ujc_bin2_3_perc, anno_ujc_bin4_5_perc, anno_ujc_bin6plus_perc,
+                              novel_ujc_bin1_perc, novel_ujc_bin2_3_perc, novel_ujc_bin4_5_perc, novel_ujc_bin6plus_perc,
                               RTS_in_cell_prop,
                               non_canonical_in_cell_prop,
                               intrapriming_in_cell_prop, 
@@ -1610,6 +1666,8 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                                                         ref_body_cover_genic_intron, # Coverage of reference length (set at 45% default)
                                                         anno_bin1_perc, anno_bin2_3_perc, anno_bin4_5_perc, anno_bin6plus_perc,
                                                         novel_bin1_perc, novel_bin2_3_perc, novel_bin4_5_perc, novel_bin6plus_perc,
+                                                        anno_ujc_bin1_perc, anno_ujc_bin2_3_perc, anno_ujc_bin4_5_perc, anno_ujc_bin6plus_perc,
+                                                        novel_ujc_bin1_perc, novel_ujc_bin2_3_perc, novel_ujc_bin4_5_perc, novel_ujc_bin6plus_perc,
                                                         RTS_in_cell_prop,
                                                         non_canonical_in_cell_prop,
                                                         intrapriming_in_cell_prop, 
@@ -1811,6 +1869,8 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                                     "Genic_intron_ref_coverage_prop", # Coverage of reference length (set at 45% default)
                                     "anno_bin1_perc", "anno_bin2_3_perc", "anno_bin4_5_perc", "anno_bin6plus_perc",
                                     "novel_bin1_perc", "novel_bin2_3_perc", "novel_bin4_5_perc", "novel_bin6plus_perc",
+                                    "anno_ujc_bin1_perc", "anno_ujc_bin2_3_perc", "anno_ujc_bin4_5_perc", "anno_ujc_bin6plus_perc",
+                                    "novel_ujc_bin1_perc", "novel_ujc_bin2_3_perc", "novel_ujc_bin4_5_perc", "novel_ujc_bin6plus_perc",
                                     "RTS_prop_in_cell",
                                     "Non_canonical_prop_in_cell",
                                     "Intrapriming_prop_in_cell", 
@@ -1996,6 +2056,67 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       color = "none"
     )
 
+  # Create UJC bins data
+  ujc_bins_data <- data.frame(
+    CB = rep(SQANTI_cell_summary$CB, 8),
+    bin = rep(c("1", "2-3", "4-5", ">=6", "1", "2-3", "4-5", ">=6"), each = nrow(SQANTI_cell_summary)),
+    gene_type = rep(c("Annotated", "Annotated", "Annotated", "Annotated", "Novel", "Novel", "Novel", "Novel"), each = nrow(SQANTI_cell_summary)),
+    percentage = c(
+      SQANTI_cell_summary$anno_ujc_bin1_perc, 
+      SQANTI_cell_summary$anno_ujc_bin2_3_perc, 
+      SQANTI_cell_summary$anno_ujc_bin4_5_perc, 
+      SQANTI_cell_summary$anno_ujc_bin6plus_perc,
+      SQANTI_cell_summary$novel_ujc_bin1_perc, 
+      SQANTI_cell_summary$novel_ujc_bin2_3_perc, 
+      SQANTI_cell_summary$novel_ujc_bin4_5_perc, 
+      SQANTI_cell_summary$novel_ujc_bin6plus_perc
+    )
+  )
+  
+  # Handle NA and invalid values
+  ujc_bins_data <- ujc_bins_data %>%
+    mutate(percentage = ifelse(is.na(percentage) | is.infinite(percentage) | percentage < 0, 0, percentage))
+  
+  ujc_bins_data$bin <- factor(ujc_bins_data$bin, levels = c("1", "2-3", "4-5", ">=6"))
+  ujc_bins_data$gene_type <- factor(ujc_bins_data$gene_type, levels = c("Annotated", "Novel"))
+  
+  gg_ujc_bins <- ggplot(ujc_bins_data, aes(x = gene_type, y = percentage, fill = gene_type)) +
+    geom_violin(alpha = 0.7, scale = "width") +
+    geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.6, show.legend = FALSE) +  # Suppress legend here
+    geom_point(aes(color = gene_type), 
+              position = position_jitter(width = 0.15, height = 0, seed = 123), 
+              size = 0.5, alpha = 0.5, show.legend = FALSE) +  # Suppress legend here too
+    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1, show.legend = FALSE) +  # Suppress legend
+    scale_fill_manual(values = c("Annotated" = "#e37744", "Novel" = "#78C679")) +
+    scale_color_manual(values = c("Annotated" = "#e37744", "Novel" = "#78C679"), guide = "none") +  # Remove color legend
+    facet_grid(. ~ bin, scales = "free_x", space = "free", switch = "x") +
+    coord_cartesian(ylim = c(0, 100)) +
+    theme_classic(base_size = 14) +
+    labs(
+      title = "Distribution of Genes by UJC Count Bins Across Cells",
+      x = "",
+      y = "Genes, %"
+    ) +
+    theme(
+      legend.position = "bottom",
+      legend.title = element_blank(),
+      legend.key.size = unit(0.8, "cm"),
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+      axis.title = element_text(size = 16),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_blank(),
+      strip.placement = "outside", 
+      strip.text.x = element_text(size = 16),
+      strip.background = element_blank(),
+      legend.text = element_text(size = 14)
+    ) +
+    guides(
+      fill = guide_legend(override.aes = list(
+        alpha = 0.7,
+        color = "black"
+      )),
+      color = "none"
+    )
 
   # Mitochondrial percentage in cell
   gg_MT_perc <- ggplot(SQANTI_cell_summary, aes(x = "", y = MT_perc)) +
@@ -2023,7 +2144,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
   gg_bulk_all_reads <- ggplot(Classification_file, aes(x=length)) +
     geom_histogram(binwidth=50, fill="#CC6633", color="black", alpha=0.5) +
     labs(title = "All Read Lengths Distribution",
-         x = "",
+         x = "Read length",
          y = "Reads, counts") +
     theme_classic() +
     theme(
@@ -2032,7 +2153,103 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
      axis.title = element_text(size = 16),
      axis.text.y = element_text(size = 14),
      axis.text.x = element_text(size = 16))
-    
+
+  # Bulk transcript length distribution by structural category
+  Classification_file$structural_category <- factor(
+    Classification_file$structural_category,
+    levels = c(
+      "full-splice_match",
+      "incomplete-splice_match",
+      "novel_in_catalog",
+      "novel_not_in_catalog",
+      "genic",
+      "antisense",              
+      "fusion",                
+      "intergenic",             
+      "genic_intron"            
+    )
+  )
+
+  gg_bulk_length_by_category <- ggplot(Classification_file, aes(x = length, color = structural_category)) +
+    geom_freqpoly(binwidth = 100, linewidth = 1.2, na.rm = TRUE) +
+    labs(
+      title = "All Read Lengths Distribution by Structural Category",
+      x = "Read length",
+      y = "Reads, counts"
+    ) +
+    theme_classic(base_size = 16) +
+    scale_color_manual(
+      values = c(
+        "full-splice_match" = "#6BAED6",
+        "incomplete-splice_match" = "#FC8D59",
+        "novel_in_catalog" = "#78C679",
+        "novel_not_in_catalog" = "#EE6A50",
+        "genic" = "#969696",
+        "antisense" = "#66C2A4",
+        "fusion" = "goldenrod1",
+        "intergenic" = "darksalmon",
+        "genic_intron" = "#41B6C4"
+      ),
+      labels = c(
+        "full-splice_match" = "FSM",
+        "incomplete-splice_match" = "ISM",
+        "novel_in_catalog" = "NIC",
+        "novel_not_in_catalog" = "NNC",
+        "genic" = "Genic Genomic",
+        "antisense" = "Antisense",
+        "fusion" = "Fusion",
+        "intergenic" = "Intergenic",
+        "genic_intron" = "Genic Intron"
+      )
+    ) +
+    scale_x_continuous(
+      breaks = seq(0, max(Classification_file$length, na.rm = TRUE), by = 500)
+    ) + 
+    theme(
+      legend.position = "bottom",
+      legend.title = element_blank(),
+      legend.key.size = unit(1, "cm"),
+      legend.text = element_text(size = 14),
+      plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
+      axis.title = element_text(size = 16),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 16)
+    )
+
+  # Bulk transcript length distribution by exonic structure
+  Classification_file$exon_type <- ifelse(
+    Classification_file$exons == 1, "Mono-Exon", "Multi-Exon"
+  )
+  Classification_file$exon_type <- factor(
+    Classification_file$exon_type, levels = c("Multi-Exon", "Mono-Exon")
+  )
+
+  gg_bulk_length_by_exon_type <- ggplot(Classification_file, aes(x = length, color = exon_type)) +
+    geom_freqpoly(binwidth = 100, linewidth = 1.2, na.rm = TRUE) +
+    labs(
+      title = "Mono- vs Multi- Exon Read Lengths Distribution",
+      x = "Read length",
+      y = "Reads, counts"
+    ) +
+    theme_classic(base_size = 16) +
+    scale_color_manual(
+      values = c("Multi-Exon" = "#3B0057", "Mono-Exon" = "#FFE44C")
+    ) +
+    scale_x_continuous(
+      breaks = seq(0, max(Classification_file$length, na.rm = TRUE), by = 500)
+    ) + 
+    theme(
+      legend.position = "bottom",
+      legend.title = element_blank(),
+      legend.key.size = unit(1, "cm"),
+      legend.text = element_text(size = 14),
+      plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
+      axis.title = element_text(size = 16),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 16)
+    )
+
+
   # Length distribution per break (cells)
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Total_250b_length_prop", "Total_500b_length_prop",
                                                                 "Total_short_length_prop", "Total_mid_length_prop",
@@ -3310,7 +3527,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
   
-  #  NMD  (split between categories)
+  #  NMD  (split between categories)
   
   ### Good features plot ###
   ##########################
@@ -3398,9 +3615,12 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
   grid.arrange(gg_genes_in_cells, gg_JCs_in_cell, ncol=2)
   print(gg_annotation_of_genes_in_cell)
   print(gg_read_bins)
+  print(gg_ujc_bins)
   print(gg_MT_perc)
   ### Read lengths ###
   print(gg_bulk_all_reads)
+  print(gg_bulk_length_by_category)
+  print(gg_bulk_length_by_exon_type)
   print(gg_read_distr)
   print(gg_read_distr_mono)
   grid.arrange(gg_read_distr, gg_read_distr_mono, nrow=2)
