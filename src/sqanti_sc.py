@@ -341,6 +341,7 @@ def add_cell_data(args, df):
 
                 # Fix boolean values
                 classification_df['RTS_stage'] = classification_df['RTS_stage'].map({True: 'TRUE', False: 'FALSE'})
+                classification_df['predicted_NMD'] = classification_df['predicted_NMD'].map({True: 'TRUE', False: 'FALSE'})
 
                 # Replace empty strings with NaN, then NaN with 'NA'
                 classification_df = classification_df.fillna('NA')

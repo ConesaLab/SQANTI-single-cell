@@ -1249,7 +1249,27 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                              filter(structural_category == "novel_not_in_catalog" & perc_A_downstream_TTS >= 60) %>%
                              nrow() / NNC_count * 100
 
-    ##   Adding NMD in the future. 
+    # Percentage of predicted NMD
+    NMD_in_cell_prop <- sorted_classification %>%
+                        filter(predicted_NMD==TRUE) %>%
+                        nrow()/total_reads*100
+
+    # NMD by category
+    FSM_NMD_prop <- if(FSM_count == 0) 0 else sorted_classification %>%
+                    filter(structural_category == "full-splice_match" & predicted_NMD == TRUE) %>%
+                    nrow() / FSM_count * 100
+  
+    ISM_NMD_prop <- if(ISM_count == 0) 0 else sorted_classification %>%
+                    filter(structural_category == "incomplete-splice_match" & predicted_NMD == TRUE) %>%
+                    nrow() / ISM_count * 100
+    
+    NIC_NMD_prop <- if(NIC_count == 0) 0 else sorted_classification %>%
+                    filter(structural_category == "novel_in_catalog" & predicted_NMD == TRUE) %>%
+                    nrow() / NIC_count * 100
+    
+    NNC_NMD_prop <- if(NNC_count == 0) 0 else sorted_classification %>%
+                    filter(structural_category == "novel_not_in_catalog" & predicted_NMD == TRUE) %>%
+                    nrow() / NNC_count * 100 
     ##   Maybe also dist to TTS/TES
     
     ### GOOD QUALITY METRICS ###
@@ -1496,10 +1516,12 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                               novel_ujc_bin1_perc, novel_ujc_bin2_3_perc, novel_ujc_bin4_5_perc, novel_ujc_bin6plus_perc,
                               RTS_in_cell_prop,
                               non_canonical_in_cell_prop,
-                              intrapriming_in_cell_prop, 
+                              intrapriming_in_cell_prop,
+                              NMD_in_cell_prop,
                               FSM_RTS_prop, ISM_RTS_prop, NIC_RTS_prop, NNC_RTS_prop,
                               FSM_noncanon_prop, ISM_noncanon_prop, NIC_noncanon_prop, NNC_noncanon_prop,
-                              FSM_intrapriming_prop, ISM_intrapriming_prop, NIC_intrapriming_prop, NNC_intrapriming_prop, # Features of bad quality
+                              FSM_intrapriming_prop, ISM_intrapriming_prop, NIC_intrapriming_prop, NNC_intrapriming_prop,
+                              FSM_NMD_prop, ISM_NMD_prop, NIC_NMD_prop, NNC_NMD_prop, # Features of bad quality
                               annotated_genes_in_cell_prop,
                               anno_models_in_cell_prop,
                               canonical_in_cell_prop,
@@ -1670,10 +1692,12 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                                                         novel_ujc_bin1_perc, novel_ujc_bin2_3_perc, novel_ujc_bin4_5_perc, novel_ujc_bin6plus_perc,
                                                         RTS_in_cell_prop,
                                                         non_canonical_in_cell_prop,
-                                                        intrapriming_in_cell_prop, 
+                                                        intrapriming_in_cell_prop,
+                                                        NMD_in_cell_prop,
                                                         FSM_RTS_prop, ISM_RTS_prop, NIC_RTS_prop, NNC_RTS_prop,
                                                         FSM_noncanon_prop, ISM_noncanon_prop, NIC_noncanon_prop, NNC_noncanon_prop,
-                                                        FSM_intrapriming_prop, ISM_intrapriming_prop, NIC_intrapriming_prop, NNC_intrapriming_prop, # Features of bad quality
+                                                        FSM_intrapriming_prop, ISM_intrapriming_prop, NIC_intrapriming_prop, NNC_intrapriming_prop,
+                                                        FSM_NMD_prop, ISM_NMD_prop, NIC_NMD_prop, NNC_NMD_prop, # Features of bad quality
                                                         annotated_genes_in_cell_prop,
                                                         anno_models_in_cell_prop,
                                                         canonical_in_cell_prop,
@@ -1873,16 +1897,18 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                                     "novel_ujc_bin1_perc", "novel_ujc_bin2_3_perc", "novel_ujc_bin4_5_perc", "novel_ujc_bin6plus_perc",
                                     "RTS_prop_in_cell",
                                     "Non_canonical_prop_in_cell",
-                                    "Intrapriming_prop_in_cell", 
+                                    "Intrapriming_prop_in_cell",
+                                    "NMD_prop_in_cell", 
                                     "FSM_RTS_prop", "ISM_RTS_prop", "NIC_RTS_prop", "NNC_RTS_prop",
                                     "FSM_noncanon_prop", "ISM_noncanon_prop", "NIC_noncanon_prop", "NNC_noncanon_prop",
-                                    "FSM_intrapriming_prop", "ISM_intrapriming_prop", "NIC_intrapriming_prop", "NNC_intrapriming_prop", # Features of bad quality
+                                    "FSM_intrapriming_prop", "ISM_intrapriming_prop", "NIC_intrapriming_prop", "NNC_intrapriming_prop",
+                                    "FSM_NMD_prop", "ISM_NMD_prop", "NIC_NMD_prop", "NNC_NMD_prop", # Features of bad quality
                                     "Annotated_genes_prop_in_cell",
                                     "Annotated_juction_strings_prop_in_cell",
                                     "Canonical_prop_in_cell",
                                     "FSM_anno_genes_prop", "ISM_anno_genes_prop", "NIC_anno_genes_prop", "NNC_anno_genes_prop",
                                     "FSM_canon_prop", "ISM_canon_prop", "NIC_canon_prop", "NNC_canon_prop") # Features of good quality. Add annotated genes
-  
+
   # Change data type of columns
   SQANTI_cell_summary <- SQANTI_cell_summary %>%
     mutate(across(2:ncol(.), as.numeric))  
@@ -2154,7 +2180,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
      axis.text.y = element_text(size = 14),
      axis.text.x = element_text(size = 16))
 
-  # Bulk transcript length distribution by structural category
+  # Bulk read length distribution by structural category
   Classification_file$structural_category <- factor(
     Classification_file$structural_category,
     levels = c(
@@ -2216,7 +2242,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       axis.text.x = element_text(size = 16)
     )
 
-  # Bulk transcript length distribution by exonic structure
+  # Bulk read length distribution by exonic structure
   Classification_file$exon_type <- ifelse(
     Classification_file$exons == 1, "Mono-Exon", "Multi-Exon"
   )
@@ -2502,7 +2528,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(size = 16))
-  
+
   # Intergenic
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Intergenic_250b_length_prop", "Intergenic_500b_length_prop",
                                                                 "Intergenic_short_length_prop", "Intergenic_mid_length_prop",
@@ -3417,7 +3443,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
     scale_color_manual(values = rep("#78C679", 4)) +
     scale_fill_manual(values = rep("#78C679", 4)) +
     scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
-    labs(title = "Intrapriming",
+    labs(title = "Intrapriming by Structural Category",
          x = "",
          y = "Reads, %") +
     theme(
@@ -3448,7 +3474,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
     scale_color_manual(values = rep("#FF9933", 4)) +
     scale_fill_manual(values = rep("#FF9933", 4)) +
     scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
-    labs(title = "RT-switching",
+    labs(title = "RT-switching by Structural Category",
          x = "",
          y = "Reads, %") +
     theme(
@@ -3480,7 +3506,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
     scale_color_manual(values = rep("#41B6C4", 4)) +
     scale_fill_manual(values = rep("#41B6C4", 4)) +
     scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
-    labs(title = "Non-Canonical Junctions",
+    labs(title = "Non-Canonical Junctions by Structural Category",
          x = "",
          y = "Reads, %") +
     theme(
@@ -3490,14 +3516,44 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(size = 16))
 
+  # NMD  (split between categories)
+  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
+                                  cols = c("FSM_NMD_prop", "ISM_NMD_prop", 
+                                           "NIC_NMD_prop", "NNC_NMD_prop"), 
+                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
+  
+  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, 
+                                    levels = c("FSM_NMD_prop", "ISM_NMD_prop", 
+                                               "NIC_NMD_prop", "NNC_NMD_prop"))
+  
+  gg_NMD_by_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
+    geom_violin(aes(color = Variable, fill = Variable), alpha = 0.7, scale = "width") +  
+    geom_point(aes(color = Variable), position = position_dodge2(width = 0.8), 
+               size = 0.5, alpha = 0.8) + 
+    geom_boxplot(aes(fill = Variable), color = "grey20",
+                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
+    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
+    theme_classic(base_size = 14) +
+    scale_color_manual(values = rep("#969696", 4)) +
+    scale_fill_manual(values = rep("#969696", 4)) +
+    scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
+    labs(title = "Nonsense-Mediated Decay by Structural Category",
+         x = "",
+         y = "Reads, %") +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
+      axis.title = element_text(size = 16), 
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 16))
 
-
+  ## Bad quality features combined figure
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Intrapriming_prop_in_cell", "RTS_prop_in_cell",
-                                                                "Non_canonical_prop_in_cell"), 
+                                                                "Non_canonical_prop_in_cell", "NMD_prop_in_cell"), 
                                   names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
   
   gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Intrapriming_prop_in_cell, RTS_prop_in_cell,
-                                                                                                       Non_canonical_prop_in_cell)))
+                                                                                                       Non_canonical_prop_in_cell, NMD_prop_in_cell)))
   gg_bad_feature <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_violin(aes(color = Variable, 
                     fill = Variable),
@@ -3511,12 +3567,14 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
     theme_classic(base_size = 14) +
     scale_color_manual(values = c("Intrapriming_prop_in_cell" = "#78C679",
                                   "RTS_prop_in_cell" = "#FF9933",
-                                  "Non_canonical_prop_in_cell" = "#41B6C4")) +
+                                  "Non_canonical_prop_in_cell" = "#41B6C4",
+                                  "NMD_prop_in_cell" = "#969696")) +
     scale_fill_manual(values = c("Intrapriming_prop_in_cell" = "#78C679",
                                  "RTS_prop_in_cell" = "#FF9933",
-                                 "Non_canonical_prop_in_cell" = "#41B6C4")) +
+                                 "Non_canonical_prop_in_cell" = "#41B6C4",
+                                 "NMD_prop_in_cell" = "#969696")) +
     scale_x_discrete(labels = c("Intrapriming", "RT-switching",
-                                "Non-Canonical Junctions")) +
+                                "Non-Canonical Junctions", "Predicted NMD")) +
     labs(title = "Bad Quality Control Attributes Across Cells",
          x = "",
          y = "Reads, %") +
@@ -3564,12 +3622,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       axis.text.x = element_text(size = 16))
 
 
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Annotated_juction_strings_prop_in_cell",
-                                                                "Canonical_prop_in_cell"), 
+  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Canonical_prop_in_cell"), 
                                   names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
   
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Annotated_juction_strings_prop_in_cell,
-                                                                                                       Canonical_prop_in_cell)))
+  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Canonical_prop_in_cell)))
   gg_good_feature <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_violin(aes(color = Variable, 
                     fill = Variable),
@@ -3581,12 +3637,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
                  width = 0.08, outlier.shape = NA, alpha = 0.6) +
     stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
     theme_classic(base_size = 14) +
-    scale_color_manual(values = c("Annotated_juction_strings_prop_in_cell" = "#6699CC",
-                                  "Canonical_prop_in_cell" = "#CC6633")) +
-    scale_fill_manual(values = c("Annotated_juction_strings_prop_in_cell" = "#6699CC",
-                                 "Canonical_prop_in_cell" = "#CC6633")) +
-    scale_x_discrete(labels = c("Annotated UJCs",
-                                "Reads with\ncanonical splice\njunctions")) +
+    scale_color_manual(values = c("Canonical_prop_in_cell" = "#CC6633")) +
+    scale_fill_manual(values = c("Canonical_prop_in_cell" = "#CC6633")) +
+    scale_x_discrete(labels = c("Reads with\ncanonical splice\njunctions")) +
     labs(title = "Good Quality Control Attributes Across Cells",
          x = "",
          y = "Percentage, %") + #       Maybe we need to do two/three plots. Y axis is different 
@@ -3623,34 +3676,24 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
   print(gg_bulk_length_by_exon_type)
   print(gg_read_distr)
   print(gg_read_distr_mono)
-  grid.arrange(gg_read_distr, gg_read_distr_mono, nrow=2)
   print(gg_FSM_read_distr)
   print(gg_FSM_mono_read_distr)
-  grid.arrange(gg_FSM_read_distr, gg_FSM_mono_read_distr, nrow=2)
   print(gg_ISM_read_distr)
   print(gg_ISM_mono_read_distr)
-  grid.arrange(gg_ISM_read_distr, gg_ISM_mono_read_distr, nrow=2)
   print(gg_NIC_read_distr)
   print(gg_NIC_mono_read_distr)
-  grid.arrange(gg_NIC_read_distr, gg_NIC_mono_read_distr, nrow=2)
   print(gg_NNC_read_distr)
   print(gg_NNC_mono_read_distr)
-  grid.arrange(gg_NNC_read_distr, gg_NNC_mono_read_distr, nrow=2)
   print(gg_genic_read_distr)
   print(gg_genic_mono_read_distr)
-  grid.arrange(gg_genic_read_distr, gg_genic_mono_read_distr, nrow=2)
   print(gg_antisense_read_distr)
   print(gg_antisense_mono_read_distr)
-  grid.arrange(gg_antisense_read_distr, gg_antisense_mono_read_distr, nrow=2)
   print(gg_fusion_read_distr)
   print(gg_fusion_mono_read_distr)
-  grid.arrange(gg_fusion_read_distr, gg_fusion_mono_read_distr, nrow=2)
   print(gg_intergenic_read_distr)
   print(gg_intergenic_mono_read_distr)
-  grid.arrange(gg_intergenic_read_distr, gg_intergenic_mono_read_distr, nrow=2)
   print(gg_genic_intron_read_distr)
   print(gg_genic_intron_mono_read_distr)
-  grid.arrange(gg_genic_intron_read_distr, gg_genic_intron_mono_read_distr, nrow=2)
   ### SQANTI structural categories ###
   print(gg_SQANTI_across_category)
   print(gg_SQANTI_across_FSM)
@@ -3665,21 +3708,21 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
   ### Coding/non-coding ###
   print(gg_coding_across_category)
   print(gg_non_coding_across_category)
-  grid.arrange(gg_coding_across_category, gg_non_coding_across_category, nrow=2)
-  ### Coverage (TSS/TES in the future) ###
+  ### Coverage (TSS/TTS in the future) ###
   print(gg_ref_coverage_across_category)
   ### Unique Splice Junctions ###
   print(gg_known_novel_canon)
-  ### Bad features ###
-  print(gg_bad_feature)
   ### Bad features by structural category ###
   print(gg_intrapriming_by_category)
   print(gg_RTS_by_category)
   print(gg_noncanon_by_category)
-  ### Good features ###
-  print(gg_good_feature)
+  print(gg_NMD_by_category)
+  ### Bad features ###
+  print(gg_bad_feature)
   ### Good features by structural category ###
   print(gg_canon_by_category)
+  ### Good features ###
+  print(gg_good_feature)
   dev.off()
 }
 
