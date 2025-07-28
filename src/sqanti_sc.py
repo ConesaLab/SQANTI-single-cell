@@ -281,6 +281,7 @@ def add_cell_data(args, df):
         # 1. Try to read cell data from BAM file (if exists)
         if bam_files:
             bam_file = bam_files[0]
+            print(f"Extracting CBs and UMIs from {bam_file} ...", file=sys.stderr)
             if not os.path.isfile(bam_file):
                 print(f"[ERROR] BAM file {bam_file} is not accessible. Skipping...", file=sys.stderr)
                 continue
@@ -342,6 +343,9 @@ def add_cell_data(args, df):
                 # Fix boolean values
                 classification_df['RTS_stage'] = classification_df['RTS_stage'].map({True: 'TRUE', False: 'FALSE'})
                 classification_df['predicted_NMD'] = classification_df['predicted_NMD'].map({True: 'TRUE', False: 'FALSE'})
+                classification_df['within_CAGE_peak'] = classification_df['within_CAGE_peak'].map({True: 'TRUE', False: 'FALSE'})
+                classification_df['polyA_motif_found'] = classification_df['polyA_motif_found'].map({True: 'TRUE', False: 'FALSE'})
+
 
                 # Replace empty strings with NaN, then NaN with 'NA'
                 classification_df = classification_df.fillna('NA')
@@ -371,12 +375,19 @@ def generate_report(args, df):
         if os.path.isfile(classification_file):
             try:
                 ignore_flag  = " --ignore_cell_summary" if args.ignore_cell_summary else ""
+                skiporf_flag = " --skipORF" if args.skipORF else ""
+                CAGE_flag = " --CAGE_peak" if args.CAGE_peak else ""
+                polyAmotif_flag = " --polyA_motif_list" if args.polyA_motif_list else ""
+
                 cmd = (
                     f"Rscript {utilitiesPath}/SQANTI-sc_reads.R "
                     f"{classification_file} "
                     f"{args.report} "
                     f"{outputPathPrefix}"
                     f"{ignore_flag}"
+                    f"{skiporf_flag}"
+                    f"{CAGE_flag}"
+                    f"{polyAmotif_flag}"
                 )
                 subprocess.run(cmd, shell=True, check=True)
                 print(f"**** SQANTI3 report successfully generated for {file_acc}", file=sys.stdout)
