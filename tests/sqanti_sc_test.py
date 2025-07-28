@@ -256,7 +256,10 @@ def test_add_cell_data_metadata(mock_to_csv, mock_remove, mock_glob, mock_isfile
         "isoform": ["iso1", "iso2"],
         "chr": ["chr1", "chr2"],
         "strand": ["+", "-"],
-        "RTS_stage": [True, False]
+        "RTS_stage": [True, False],
+        "predicted_NMD": [False, True],
+        "within_CAGE_peak": [True, False],
+        "polyA_motif_found": [False, False]
     })
 
     # Mock metadata DataFrame
