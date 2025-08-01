@@ -1,37 +1,51 @@
-import sys
-import pytest
-import pandas as pd
 import os
-import subprocess
-from unittest.mock import patch, MagicMock, mock_open
-import pysam
-import glob
-import hashlib
+import sys
 from io import StringIO
+from unittest.mock import MagicMock, mock_open, patch
 
-# Add SQANTI3 to Python path
-sqanti3_src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../SQANTI3"))
+import pandas as pd
+import pytest
+
+# Add package paths for imports
+sqanti3_src_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../SQANTI3")
+)
 if sqanti3_src_path not in sys.path:
     sys.path.insert(0, sqanti3_src_path)
-from src.commands import run_command
-from src.module_logging import qc_logger, update_logger
 
-sqanti_sc_src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../src"))
+sqanti_sc_src_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../src")
+)
 if sqanti_sc_src_path not in sys.path:
     sys.path.insert(0, sqanti_sc_src_path)
-from sqanti_sc import *
 
-# Fixture for creating a mock arguments object
+# Now import from the module under test
+from sqanti_sc import (
+    add_cell_data,
+    fill_design_table,
+    generate_report,
+    get_files_runSQANTI3,
+    make_UJC_hash,
+)
+
+
 @pytest.fixture
 def mock_args(tmpdir):
+    """Fixture for creating a mock arguments object."""
     class MockArgs:
         def __init__(self):
             # Set default values for all arguments
-            self.test_data_dir = os.path.join(os.path.dirname(__file__), "test_data")
+            self.test_data_dir = os.path.join(
+                os.path.dirname(__file__), "test_data"
+            )
             self.inDESIGN = str(tmpdir.join("design.csv"))
             self.input_dir = str(tmpdir)
-            self.refGTF = os.path.join(self.test_data_dir, "reference_transcriptome.gtf")
-            self.refFasta = os.path.join(self.test_data_dir, "reference_genome.fasta")
+            self.refGTF = os.path.join(
+                self.test_data_dir, "reference_transcriptome.gtf"
+            )
+            self.refFasta = os.path.join(
+                self.test_data_dir, "reference_genome.fasta"
+            )
             self.mode = "reads"
             self.out_dir = str(tmpdir.join("output_dir"))
             self.report = "pdf"
@@ -67,32 +81,53 @@ def mock_args(tmpdir):
             self.fl_count = None
             self.isoAnnotLite = False
             self.gff3 = None
-            self.version = "0.1.0"
+            self.version = "0.1.1"
             self.log_level = "INFO"
 
-            # Create dummy design file
-            design_content = "sampleID,file_acc\nsample1,file1\nsample2,file2"
+            # Create dummy design file and output directory
+            design_content = "sampleID,file_acc\nsample1,file1"
             tmpdir.join("design.csv").write(design_content)
-
             os.makedirs(self.out_dir, exist_ok=True)
 
     return MockArgs()
 
-def test_fill_design_table(mock_args):
+
+@patch('sqanti_sc.glob.glob')
+@patch('sqanti_sc.os.path.isfile')
+def test_fill_design_table(mock_isfile, mock_glob, mock_args, tmpdir):
+    """Test discovery of cell association files (BAM and text)."""
+    bam_file_path = os.path.join(mock_args.input_dir, "file1.bam")
+    assoc_file_path = os.path.join(
+        mock_args.input_dir, "file2_cell_association.txt"
+    )
+
+    # For file1, glob finds a bam. For file2, glob finds nothing,
+    # isfile finds assoc txt.
+    mock_glob.side_effect = [[bam_file_path], []]
+    mock_isfile.side_effect = lambda path: path == assoc_file_path
+
+    # Update design to have two samples
+    design_content = "sampleID,file_acc\nsample1,file1\nsample2,file2"
+    with open(mock_args.inDESIGN, 'w') as f:
+        f.write(design_content)
+
     df = fill_design_table(mock_args)
 
     assert isinstance(df, pd.DataFrame)
-    assert 'classification_file' in df.columns
-    assert 'junction_file' in df.columns
-    assert df['classification_file'][0] == f"{mock_args.input_dir}/file1/sample1_classification.txt"
-    assert df['junction_file'][0] == f"{mock_args.input_dir}/file1/sample1_junctions.txt"
+    assert 'cell_association_file' in df.columns
+    assert df['cell_association_file'][0] == os.path.abspath(bam_file_path)
+    assert df['cell_association_file'][1] == os.path.abspath(assoc_file_path)
+
 
 @patch('sqanti_sc.run_command')
 @patch('sqanti_sc.os.path.isfile')
 @patch('sqanti_sc.glob.glob')
-def test_get_files_runSQANTI3_gtf(mock_glob, mock_isfile, mock_run_command, mock_args, capsys):
+def test_get_files_runSQANTI3_gtf(
+        mock_glob, mock_isfile, mock_run_command, mock_args, capsys):
+    """Test running the QC step with a GTF file."""
     # Mock glob and isfile to simulate finding files
-    mock_glob.return_value = [os.path.join(mock_args.test_data_dir, "isoforms.gtf")]
+    gtf_path = os.path.join(mock_args.test_data_dir, "isoforms.gtf")
+    mock_glob.return_value = [gtf_path]
     mock_isfile.return_value = True
 
     # Mock design file DataFrame
@@ -107,250 +142,230 @@ def test_get_files_runSQANTI3_gtf(mock_glob, mock_isfile, mock_run_command, mock
 
     # Capture printed output and check for expected messages
     captured = capsys.readouterr()
-    assert "[INFO] Running SQANTI-sc qc for sample" in captured.out
+    assert "[INFO] Running SQANTI-sc qc for" in captured.out
 
     # Assert that run_command was called
     mock_run_command.assert_called()
 
+
 @patch('sqanti_sc.subprocess.check_call')
-@patch('sqanti_sc.subprocess.call')
 @patch('sqanti_sc.os.path.exists')
 @patch('sqanti_sc.os.remove')
+@patch('sqanti_sc.os.rename')
 @patch('sqanti_sc.pd.read_csv')
 @patch('sqanti_sc.pd.DataFrame.to_csv')
-@patch('builtins.open', new_callable=mock_open, read_data="chr1\tHAVANA\ttranscript\t1\t1000\t.\t+\t.\ttranscript_id \"ENST00000456328.2\";\n")
-def test_make_UJC_hash(mock_file, mock_to_csv, mock_read_csv, mock_remove, mock_exists, mock_call, mock_check_call, mock_args):
+@patch('builtins.open', new_callable=mock_open)
+def test_make_UJC_hash(
+        mock_open, mock_to_csv, mock_read_csv, mock_rename, mock_remove,
+        mock_exists, mock_check_call, mock_args):
+    """Test the UJC hashing function."""
     # Mock file existence and subprocess calls
     mock_exists.return_value = False
     mock_check_call.return_value = 0
-    mock_call.return_value = 0
 
-    # Mock DataFrames for classification and UJC files
-    classfile_df = pd.DataFrame({
-        "isoform": ["ENST00000456328.2", "ENST00000456329.2"],
-        "chr": ["chr1", "chr2"],
-        "strand": ["+", "-"],
-        "associated_transcript": ["transcript1", "transcript2"]
-    })
+    # Mock DataFrames
+    class_df_cols = {
+        "isoform": ["PB.1.1", "PB.2.1"], "chr": ["chr1", "chr1"],
+        "strand": ["+", "+"], "structural_category": ["FSM", "FSM"],
+        "associated_gene": ["geneA", "geneB"],
+        "associated_transcript": ["txA", "txB"], "ref_length": [100, 200],
+        "length": [100, 200]
+    }
+    class_df = pd.DataFrame(class_df_cols)
+
+    class_df_for_ujc = class_df[
+        ["isoform", "chr", "strand", "associated_transcript"]
+    ]
 
     ujc_df = pd.DataFrame({
-        "isoform": ["ENST00000456328.2", "ENST00000456329.2"],
-        "jxn_string": ["chr1_+_100_200", "chr2_-_300_400"]
+        "isoform": ["PB.1.1", "PB.2.1"],
+        "jxn_string": ["chr1_+_100_200", pd.NA]
     })
 
-    # Mock read_csv to return these DataFrames in sequence
-    mock_read_csv.side_effect = [classfile_df, ujc_df]
+    # Side effect for pd.read_csv:
+    # 1. Read initial classification file (for UJC calculation)
+    # 2. Read UJC temp file
+    # 3. Read full, original classification file (for merging)
+    mock_read_csv.side_effect = [class_df_for_ujc, ujc_df, class_df]
 
     # Mock input design DataFrame
-    df = pd.DataFrame({
-        "sampleID": ["sample1"],
-        "file_acc": ["file1"]
-    })
+    df = pd.DataFrame({"sampleID": ["sample1"], "file_acc": ["file1"]})
 
-    # Call the function under test
+    # Call the function
     make_UJC_hash(mock_args, df)
 
-    # Verify that commands were executed
-    assert mock_check_call.call_count == 2
-    assert "gtftools" in mock_check_call.call_args_list[0][0][0]
-    assert "bedtools" in mock_check_call.call_args_list[1][0][0]
+    # Verify that gffread, gtftools and bedtools were called
+    assert mock_check_call.call_count == 3
+    assert "gffread" in mock_check_call.call_args_list[0][0][0]
+    assert "gtftools" in mock_check_call.call_args_list[1][0][0]
+    assert "bedtools" in mock_check_call.call_args_list[2][0][0]
 
-    # Verify file operations with corrected paths
-    expected_path = f"{mock_args.out_dir}/file1/sample1"
-    mock_remove.assert_any_call(f"{expected_path}tmp_introns.bed")
-    mock_remove.assert_any_call(f"{expected_path}tmp_UJC.txt")
-    mock_remove.assert_any_call(f"{expected_path}_temp.txt")
-
-    # Verify that to_csv was called once with correct arguments
+    # Verify that the final merged file is written correctly
     mock_to_csv.assert_called_once()
-    args, kwargs = mock_to_csv.call_args
-    assert kwargs['sep'] == '\t'
-    assert kwargs['index'] is False
+    args_to_csv, kwargs_to_csv = mock_to_csv.call_args
+    assert args_to_csv[0].endswith("_classification_tmp.txt")
 
-    # Capture the DataFrame passed to to_csv by mocking its creation earlier in the function
-    merged_df = pd.merge(classfile_df, ujc_df, on="isoform", how="left")
-    
-    # Simulate jxn_string creation for validation
-    def create_jxn_string(row):
-        if pd.isna(row["jxn_string"]):
-            return f"{row['chr']}_{row['strand']}_monoexon_{row['associated_transcript']}"
-        return row["jxn_string"]
 
-    merged_df["jxn_string"] = merged_df.apply(create_jxn_string, axis=1)
-    merged_df["jxnHash"] = merged_df["jxn_string"].apply(lambda x: hashlib.sha256(x.encode("utf-8")).hexdigest())
-
-    # Verify jxn_string and jxnHash creation
-    expected_jxn_strings = [
-        "chr1_+_100_200",
-        "chr2_-_300_400"
-    ]
-    
-    expected_hashes = [
-        hashlib.sha256("chr1_+_100_200".encode("utf-8")).hexdigest(),
-        hashlib.sha256("chr2_-_300_400".encode("utf-8")).hexdigest()
-    ]
-
-    for i, row in merged_df.iterrows():
-        assert row["jxn_string"] == expected_jxn_strings[i]
-        assert row["jxnHash"] == expected_hashes[i]
-
-@patch('sqanti_sc.pysam.AlignmentFile')
-@patch('sqanti_sc.os.path.isfile')
-@patch('sqanti_sc.glob.glob')
 @patch('sqanti_sc.pd.read_csv')
-def test_add_cell_data_bam(mock_read_csv, mock_glob, mock_isfile, mock_alignment_file, mock_args):
-    # Test add_cell_data function with BAM file input
-    mock_isfile.return_value = True
-    mock_glob.return_value = [os.path.join(mock_args.test_data_dir, "unmapped_reads.bam")]
+@patch('sqanti_sc.pd.DataFrame.to_csv', autospec=True)
+@patch('sqanti_sc.os.path.isfile')
+@patch('sqanti_sc.os.remove')
+@patch('sqanti_sc.os.rename')
+@patch('sqanti_sc.pysam.AlignmentFile')
+def test_add_cell_data_reads_mode_bam(
+        mock_alignment_file, mock_rename, mock_remove, mock_isfile,
+        mock_to_csv, mock_read_csv, mock_args):
+    """Test adding cell data in 'reads' mode with a BAM file."""
+    # Test read mode with a BAM file
+    mock_args.mode = "reads"
+    bam_path = os.path.join(mock_args.input_dir, "file1.bam")
+    design_df = pd.DataFrame({
+        "sampleID": ["sample1"], "file_acc": ["file1"],
+        "cell_association_file": [bam_path]
+    })
 
-    mock_bam = MagicMock()
+    # Mocks for file system and pysam
+    mock_isfile.return_value = True
     mock_read = MagicMock()
     mock_read.has_tag.side_effect = lambda tag: tag in ["XM", "CB"]
-    mock_read.get_tag.side_effect = lambda tag: {"XM": "UMI1", "CB": "cell1"}[tag]
+    mock_read.get_tag.side_effect = \
+        lambda tag: {"XM": "UMI1", "CB": "CELL1"}[tag]
     mock_read.query_name = "iso1"
-    mock_bam.return_value.__enter__.return_value = [mock_read]
-    mock_alignment_file.return_value = mock_bam
+    mock_alignment_file.return_value.__enter__.return_value = [mock_read]
 
-    classification_df = pd.DataFrame({
-        "isoform": ["iso1", "iso2"],
-        "chr": ["chr1", "chr2"],
-        "strand": ["+", "-"]
-    })
-    mock_read_csv.return_value = classification_df
+    # Mock for classification and junction files
+    class_df = pd.DataFrame({"isoform": ["iso1", "iso2_dup1"]})
+    junc_df = pd.DataFrame({"isoform": ["iso1", "iso2"]})
+    mock_read_csv.side_effect = [class_df, junc_df]
 
-    df = pd.DataFrame({
-        "sampleID": ["sample1"],
-        "file_acc": ["file1"]
-    })
+    # Use a side effect to capture the dataframes passed to to_csv
+    saved_dfs = []
 
-    add_cell_data(mock_args, df)
+    def to_csv_side_effect(self, path, *args, **kwargs):
+        saved_dfs.append(self.copy())
+    mock_to_csv.side_effect = to_csv_side_effect
 
-    mock_alignment_file.assert_called_with(os.path.join(mock_args.test_data_dir, "unmapped_reads.bam"), "rb", check_sq=False)
+    # Run function
+    add_cell_data(mock_args, design_df)
+
+    # Assertions
+    mock_alignment_file.assert_called_with(bam_path, "rb", check_sq=False)
+    assert mock_to_csv.call_count == 2  # Called for class file and junc file
+
+    # Check that the classification df has CB and UMI
+    final_class_df = saved_dfs[0]
+    assert "CB" in final_class_df.columns
+    assert "UMI" in final_class_df.columns
+    assert final_class_df.loc[
+        final_class_df.isoform == 'iso1', 'CB'
+    ].iloc[0] == 'CELL1'
+
+    # Check that the junctions df has CB
+    final_junc_df = saved_dfs[1]
+    assert "CB" in final_junc_df.columns
+
 
 @patch('sqanti_sc.pd.read_csv')
+@patch('sqanti_sc.pd.DataFrame.to_csv', autospec=True)
 @patch('sqanti_sc.os.path.isfile')
-@patch('sqanti_sc.glob.glob')
 @patch('sqanti_sc.os.remove')
-@patch('sqanti_sc.pd.DataFrame.to_csv')
-def test_add_cell_data_metadata(mock_to_csv, mock_remove, mock_glob, mock_isfile, mock_read_csv, mock_args, tmpdir, capsys):
-    # Define file paths
-    metadata_file = tmpdir.join("file1_cell_association.txt")
-    tmp_classification_file = tmpdir.join("output_dir", "file1", "sample1_classification_tmp.txt")  # Adjusted path
-    output_dir = tmpdir.join("output_dir", "file1")  # Adjusted path
+@patch('sqanti_sc.os.rename')
+def test_add_cell_data_isoform_mode_tsv(
+        mock_rename, mock_remove, mock_isfile, mock_to_csv,
+        mock_read_csv, mock_args):
+    """Test adding cell data in 'isoforms' mode with a TSV file."""
+    # Test isoform mode with a TSV file
+    mock_args.mode = "isoforms"
+    assoc_path = os.path.join(mock_args.input_dir, "file1_assoc.tsv")
+    design_df = pd.DataFrame({
+        "sampleID": ["sample1"], "file_acc": ["file1"],
+        "cell_association_file": [assoc_path]
+    })
 
-    # Create correct metadata content
-    metadata_content = "id\tcell_barcode\tumi\niso1\tcell1\tumi1\niso2\tcell2\tumi2"
-    metadata_file.write(metadata_content)
-
-    # Create the expected directory structure
-    output_dir.ensure(dir=True)
-
-    # Mock file existence checks
-    mock_isfile.side_effect = lambda path: str(path) in [str(metadata_file), str(tmp_classification_file)]
-
-    # Mock BAM files as empty
-    mock_glob.return_value = []
-
-    # Mock classification DataFrame *with* 'RTS_stage' column
-    classification_df = pd.DataFrame({
+    # Mocks for file system and dataframes
+    mock_isfile.return_value = True
+    assoc_df = pd.DataFrame({
+        "pbid": ["iso1", "iso2"],
+        "cell_barcodes": ["CELL1,CELL2", "CELL3"]
+    })
+    class_df = pd.DataFrame({
         "isoform": ["iso1", "iso2"],
-        "chr": ["chr1", "chr2"],
-        "strand": ["+", "-"],
-        "RTS_stage": [True, False],
-        "predicted_NMD": [False, True],
-        "within_CAGE_peak": [True, False],
-        "polyA_motif_found": [False, False]
+        "RTS_stage": [True, False], "predicted_NMD": [False, True],
+        "within_CAGE_peak": [True, True], "polyA_motif_found": [False, True]
     })
+    mock_read_csv.side_effect = [assoc_df, class_df]
 
-    # Mock metadata DataFrame
-    metadata_df = pd.DataFrame({
-        "id": ["iso1", "iso2"],
-        "cell_barcode": ["cell1", "cell2"],
-        "umi": ["umi1", "umi2"]
-    })
+    # Use a side effect to capture the dataframe passed to to_csv
+    saved_dfs = []
 
-    # Configure mock_read_csv to return different DataFrames based on input path
-    def read_csv_side_effect(filepath, *args, **kwargs):
-        if filepath == str(metadata_file):
-            return metadata_df
-        elif filepath == str(tmp_classification_file):
-            return classification_df
-        raise ValueError(f"Unexpected file path: {filepath}")
+    def to_csv_side_effect(self, path, *args, **kwargs):
+        saved_dfs.append(self.copy())
+    mock_to_csv.side_effect = to_csv_side_effect
 
-    mock_read_csv.side_effect = read_csv_side_effect
+    # Run function
+    add_cell_data(mock_args, design_df)
 
-    # Create input dataframe
-    df = pd.DataFrame({
-        "sampleID": ["sample1"],
-        "file_acc": ["file1"]
-    })
+    # Assertions
+    assert mock_to_csv.call_count == 1  # Not called for junctions in this mode
 
-    # Set mock_args.input_dir to tmpdir
-    mock_args.input_dir = str(tmpdir)
+    final_class_df = saved_dfs[0]
+    assert "CB" in final_class_df.columns
+    assert "UMI" not in final_class_df.columns  # No UMI in isoform mode
+    assert final_class_df.loc[
+        final_class_df.isoform == 'iso1', 'CB'
+    ].iloc[0] == 'CELL1,CELL2'
+    assert final_class_df.loc[
+        final_class_df.isoform == 'iso1', 'RTS_stage'
+    ].iloc[0] == 'TRUE'
 
-    # Execute function
-    add_cell_data(mock_args, df)
-
-    # Verify output
-    captured = capsys.readouterr()
-    assert "UMI and cell barcode information successfully added" in captured.out
-
-    # Verify file removal
-    mock_remove.assert_called_once_with(str(tmp_classification_file))
-
-    # Verify to_csv was called
-    mock_to_csv.assert_called_once()
 
 @patch('sqanti_sc.subprocess.run')
 @patch('sqanti_sc.os.path.isfile')
-@patch('sqanti_sc.utilitiesPath', 'utilities')  # Mock the global utilitiesPath
+@patch('sqanti_sc.utilitiesPath', 'utilities')
 def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
+    """Test report generation command."""
     mock_isfile.return_value = True
-
-    # Add necessary attributes to mock_args
-    mock_args.ignore_cell_summary = False
-    mock_args.report = "pdf"
-    mock_args.input_dir = "input"
-    mock_args.out_dir = "output"
-
-    df = pd.DataFrame({
-        "sampleID": ["sample1"],
-        "file_acc": ["file1"]
-    })
+    mock_args.mode = "reads"
+    df = pd.DataFrame({"sampleID": ["sample1"], "file_acc": ["file1"]})
 
     generate_report(mock_args, df)
 
-    # Capture printed output
     captured = capsys.readouterr()
+    assert "SQANTI3 report generated for file1" in captured.out
 
-    # Check stdout for the report generation message
-    assert "Generating SQANTI3 report for file1" in captured.out  # Match the exact message
-    assert "SQANTI3 report successfully generated for file1" in captured.out
-
-    # Verify subprocess.run was called with the correct command
+    # Verify subprocess.run was called with the correct new command
+    class_file = f"{mock_args.out_dir}/file1/sample1_classification.txt"
+    junc_file = f"{mock_args.out_dir}/file1/sample1_junctions.txt"
+    prefix = f"{mock_args.out_dir}/file1/sample1"
     expected_cmd = (
-        "Rscript utilities/SQANTI-sc_reads.R "
-        "output/file1/sample1_classification.txt "
-        "pdf output/file1/sample1"
-    )
-    mock_run.assert_called_once_with(expected_cmd, shell=True, check=True)
+        f"Rscript utilities/SQANTI-sc_reads.R "
+        f"{class_file} {junc_file} {mock_args.report} {prefix} "
+        f"{mock_args.mode} "
+    ).strip()
 
-# Additional tests for edge cases and error handling
+    # Extract the actual command, handle potential whitespace differences
+    actual_cmd = " ".join(mock_run.call_args[0][0].split())
+
+    assert actual_cmd == expected_cmd
+
 
 def test_fill_design_table_missing_columns(mock_args):
+    """Test error handling for design file with missing columns."""
     # Create a design file with missing columns
     design_content = "sampleID\nsample1\nsample2"
     mock_args.inDESIGN = mock_args.input_dir + "/design_missing_columns.csv"
     with open(mock_args.inDESIGN, 'w') as f:
         f.write(design_content)
 
-    with pytest.raises(ValueError, match="Missing required columns in design table"):
+    with pytest.raises(ValueError, match="Missing required columns"):
         fill_design_table(mock_args)
+
 
 @patch('sqanti_sc.os.path.isfile')
 def test_get_files_runSQANTI3_missing_files(mock_isfile, mock_args, capsys):
+    """Test error handling for missing reference files."""
     mock_isfile.return_value = False
-    
+
     df = pd.DataFrame({
         "sampleID": ["sample1"],
         "file_acc": ["file1"]
@@ -365,64 +380,53 @@ def test_get_files_runSQANTI3_missing_files(mock_isfile, mock_args, capsys):
     captured = capsys.readouterr()
     assert "[ERROR] Genome or annotation file is missing." in captured.err
 
+
 @patch('sqanti_sc.pysam.AlignmentFile')
 @patch('sqanti_sc.os.path.isfile')
-@patch('sqanti_sc.glob.glob')
 @patch('sqanti_sc.pd.read_csv')
-def test_add_cell_data_missing_tags(mock_read_csv, mock_glob, mock_isfile, mock_alignment_file, mock_args, capsys):
+@patch('sqanti_sc.pd.DataFrame.to_csv')
+def test_add_cell_data_missing_tags(
+        mock_to_csv, mock_read_csv, mock_isfile, mock_alignment_file,
+        mock_args, capsys):
+    """Test handling of BAM files missing CB/XM tags."""
+    mock_args.mode = "reads"
+    bam_path = os.path.join(mock_args.input_dir, "file1.bam")
+    design_df = pd.DataFrame({
+        "sampleID": ["sample1"], "file_acc": ["file1"],
+        "cell_association_file": [bam_path]
+    })
+
     mock_isfile.return_value = True
-    mock_glob.return_value = [os.path.join(mock_args.test_data_dir, "unmapped_reads.bam")]
-
-    mock_bam = MagicMock()
     mock_read = MagicMock()
-    mock_read.has_tag.side_effect = lambda tag: False  # Simulate missing tags
+    mock_read.has_tag.return_value = False  # Simulate missing tags
     mock_read.query_name = "iso1"
-    mock_bam.return_value.__enter__.return_value = [mock_read]
-    mock_alignment_file.return_value = mock_bam
+    mock_alignment_file.return_value.__enter__.return_value = [mock_read]
 
-    classification_df = pd.DataFrame({
-        "isoform": ["iso1"],
-        "chr": ["chr1"],
-        "strand": ["+"]
-    })
-    mock_read_csv.return_value = classification_df
-
-    df = pd.DataFrame({
-        "sampleID": ["sample1"],
-        "file_acc": ["file1"]
-    })
-
-    add_cell_data(mock_args, df)
+    add_cell_data(mock_args, design_df)
 
     captured = capsys.readouterr()
-    assert "No valid reads found in the BAM or cell association file" in captured.out
+    assert "No cell data for file1. Skipping." in captured.out
+
 
 @patch('sqanti_sc.pd.read_csv')
 @patch('sqanti_sc.os.path.isfile')
-@patch('sqanti_sc.glob.glob')
-def test_add_cell_data_metadata_missing_columns(mock_glob, mock_isfile, mock_read_csv, mock_args, tmpdir, capsys):
-    # Test add_cell_data function with metadata file input but missing mandatory column
-    metadata_content = "id\tumi\niso1\tumi1\niso2\tumi2" # No cell_barcode column
-    metadata_file = tmpdir.join("file1_cell_association.txt")  # Changed to match the expected filename
-    metadata_file.write(metadata_content)
-
-    mock_glob.return_value = []  # No BAM files
-    mock_isfile.side_effect = lambda x: x == str(metadata_file)
-
-    classification_df = pd.DataFrame({
-        "isoform": ["iso1", "iso2"],
-        "chr": ["chr1", "chr2"],
-        "strand": ["+", "-"]  # Fixed to match the length of other columns
-    })
-    mock_read_csv.side_effect = [pd.read_csv(StringIO(metadata_content), sep='\t'), classification_df]
-
-    df = pd.DataFrame({
-        "sampleID": ["sample1"],
-        "file_acc": ["file1"]
+def test_add_cell_data_metadata_missing_columns(
+        mock_isfile, mock_read_csv, mock_args, capsys):
+    """Test error handling for metadata file with missing columns."""
+    mock_args.mode = 'reads'
+    assoc_path = os.path.join(mock_args.input_dir, "file1_assoc.tsv")
+    design_df = pd.DataFrame({
+        "sampleID": ["sample1"], "file_acc": ["file1"],
+        "cell_association_file": [assoc_path]
     })
 
-    add_cell_data(mock_args, df)
+    metadata_content = "id\tumi\niso1\tumi1"  # No cell_barcode column
+    mock_isfile.return_value = True
+    mock_read_csv.return_value = pd.read_csv(
+        StringIO(metadata_content), sep='\t'
+    )
+
+    add_cell_data(mock_args, design_df)
 
     captured = capsys.readouterr()
-    assert "Cell association file" in captured.err
-    assert "does not contain the required columns" in captured.err
+    assert "missing required columns" in captured.err

@@ -27,12 +27,24 @@ outputPathPrefix <- args[3]
 
 # Initialize ignore_cell_summary flag
 ignore_cell_summary <- FALSE
+skipORF <- FALSE
+CAGE_peak <- FALSE
+polyA_motif_list <- FALSE
 
 # Check for optional arguments
 if (length(args) > 3) {
   for (arg in args[4:length(args)]) {
     if (arg == "--ignore_cell_summary") {
       ignore_cell_summary <- TRUE
+    }
+    if (arg == "--skipORF") {
+      skipORF <- TRUE
+    }
+    if (arg == "--CAGE_peak") {
+      CAGE_peak <- TRUE
+    }
+    if (arg == "--polyA_motif_list") {
+      polyA_motif_list <- TRUE
     }
   }
 }
@@ -63,6 +75,7 @@ report_output <- file.path(paste0(outputPathPrefix, "_SQANTI_sc_report_reads"))
 calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save){
   CBs <- Classification %>% select(CB) %>% distinct() %>% .$CB
   maxCB <- length(CBs)
+  SQANTI_cell_summary <- data.frame()
   for (CB_id in CBs){
     if (CB_id==""){
       print("There are reads with no cell barcode assigned and they will not be considered. Check your classification file.")
@@ -447,15 +460,6 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
       ref_body_cover_FSM <- sorted_classification %>%
                             filter(structural_category=="full-splice_match" & length/ref_length*100>=45) %>%
                             nrow()/FSM_count*100
-      
-      # Coding/non-coding
-      cod_FSM <- sorted_classification %>%
-                 filter(structural_category=="full-splice_match" & coding=="coding") %>%
-                 nrow()/FSM_count*100
-      
-      ncod_FSM <- sorted_classification %>%
-                  filter(structural_category=="full-splice_match" & coding=="non_coding") %>%
-                  nrow()/FSM_count*100
     }
     
     if (ISM_count==0){
@@ -548,15 +552,6 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
       ref_body_cover_ISM <- sorted_classification %>%
                             filter(structural_category=="incomplete-splice_match" & length/ref_length*100>=45) %>%
                             nrow()/ISM_count*100
-      
-      # Coding/non_coding
-      cod_ISM <- sorted_classification %>%
-                 filter(structural_category=="incomplete-splice_match" & coding=="coding") %>%
-                 nrow()/ISM_count*100
-      
-      ncod_ISM <- sorted_classification %>%
-                  filter(structural_category=="incomplete-splice_match" & coding=="non_coding") %>%
-                  nrow()/ISM_count*100
     }
     
     if (NIC_count==0){
@@ -644,15 +639,6 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
       ref_body_cover_NIC <- sorted_classification %>%
                             filter(structural_category=="novel_in_catalog" & length/ref_length*100>=45) %>%
                             nrow()/NIC_count*100
-      
-      # Coding/non-coding
-      cod_NIC <- sorted_classification %>%
-                 filter(structural_category=="novel_in_catalog" & coding=="coding") %>%
-                 nrow()/NIC_count*100
-      
-      ncod_NIC <- sorted_classification %>%
-                  filter(structural_category=="novel_in_catalog" & coding=="non_coding") %>%
-                  nrow()/NIC_count*100
     }
     
     if (NNC_count==0){
@@ -731,15 +717,6 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
       ref_body_cover_NNC <- sorted_classification %>%
                             filter(structural_category=="novel_not_in_catalog" & length/ref_length*100>=45) %>%
                             nrow()/NNC_count*100
-      
-      # Coding/non-coding
-      cod_NNC <- sorted_classification %>%
-                 filter(structural_category=="novel_not_in_catalog" & coding=="coding") %>%
-                 nrow()/NNC_count*100
-      
-      ncod_NNC <- sorted_classification %>%
-                  filter(structural_category=="novel_not_in_catalog" & coding=="non_coding") %>%
-                  nrow()/NNC_count*100
     }
     
     if (Fusion_count==0){
@@ -818,15 +795,6 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
       ref_body_cover_fusion <- sorted_classification %>%
                                filter(structural_category=="fusion" & length/ref_length*100>=45) %>% ####  Take a decision about this
                                nrow()/Fusion_count*100
-      
-      # Coding/non-coding
-      cod_fusion <- sorted_classification %>%
-                    filter(structural_category=="fusion" & coding=="coding") %>%
-                    nrow()/Fusion_count*100
-      
-      ncod_fusion <- sorted_classification %>%
-                     filter(structural_category=="fusion" & coding=="non_coding") %>%
-                     nrow()/Fusion_count*100
     }
     
     if (Genic_count==0){
@@ -905,15 +873,6 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
       ref_body_cover_genic <- sorted_classification %>%
                               filter(structural_category=="genic" & length/ref_length*100>=45) %>%
                               nrow()/Genic_count*100
-      
-      # Coding/non-coding
-      cod_genic <- sorted_classification %>%
-                   filter(structural_category=="genic" & coding=="coding") %>%
-                   nrow()/Genic_count*100
-      
-      ncod_genic <- sorted_classification %>%
-                    filter(structural_category=="genic" & coding=="non_coding") %>%
-                    nrow()/Genic_count*100
     } 
     
     if (Genic_intron_count==0){
@@ -992,15 +951,6 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
       ref_body_cover_genic_intron <- sorted_classification %>%
                                      filter(structural_category=="genic_intron" & (length/ref_length*100)>=45) %>%
                                      nrow()/Genic_intron_count*100
-      
-      # Coding/non-coding
-      cod_genic_intron <- sorted_classification %>%
-                          filter(structural_category=="genic_intron" & coding=="coding") %>%
-                          nrow()/Genic_intron_count*100
-      
-      ncod_genic_intron <- sorted_classification %>%
-                           filter(structural_category=="genic_intron" & coding=="non_coding") %>%
-                           nrow()/Genic_intron_count*100
     } 
     
     if (Antisense_count==0){
@@ -1079,15 +1029,6 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
       ref_body_cover_antisense <- sorted_classification %>%
                                   filter(structural_category=="antisense" & length/ref_length*100>=45) %>%
                                   nrow()/Antisense_count*100
-      
-      # Coding/non-coding
-      cod_antisense <- sorted_classification %>%
-                       filter(structural_category=="antisense" & coding=="coding") %>%
-                       nrow()/Antisense_count*100
-      
-      ncod_antisense <- sorted_classification %>%
-                        filter(structural_category=="antisense" & coding=="non_coding") %>%
-                        nrow()/Antisense_count*100
       }
     
     if (Intergenic_count==0){
@@ -1166,17 +1107,83 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
       ref_body_cover_intergenic <- sorted_classification %>%
                                    filter(structural_category=="intergenic" & length/ref_length*100>=45) %>%
                                    nrow()/Intergenic_count*100
-      
-      # Coding/non-coding
-      cod_intergenic <- sorted_classification %>%
+    }
+
+    # Coding/non-coding by category
+    if (!skipORF) {
+        cod_FSM <- sorted_classification %>%
+                    filter(structural_category=="full-splice_match" & coding=="coding") %>%
+                    nrow()/FSM_count*100
+          
+        ncod_FSM <- sorted_classification %>%
+                    filter(structural_category=="full-splice_match" & coding=="non_coding") %>%
+                    nrow()/FSM_count*100
+        
+        cod_ISM <- sorted_classification %>%
+                  filter(structural_category=="incomplete-splice_match" & coding=="coding") %>%
+                  nrow()/ISM_count*100
+        
+        ncod_ISM <- sorted_classification %>%
+                    filter(structural_category=="incomplete-splice_match" & coding=="non_coding") %>%
+                    nrow()/ISM_count*100
+        
+        cod_NIC <- sorted_classification %>%
+                  filter(structural_category=="novel_in_catalog" & coding=="coding") %>%
+                  nrow()/NIC_count*100
+        
+        ncod_NIC <- sorted_classification %>%
+                    filter(structural_category=="novel_in_catalog" & coding=="non_coding") %>%
+                    nrow()/NIC_count*100
+
+        cod_NNC <- sorted_classification %>%
+                    filter(structural_category=="novel_not_in_catalog" & coding=="coding") %>%
+                    nrow()/NNC_count*100
+        
+        ncod_NNC <- sorted_classification %>%
+                    filter(structural_category=="novel_not_in_catalog" & coding=="non_coding") %>%
+                    nrow()/NNC_count*100
+
+        cod_genic <- sorted_classification %>%
+                    filter(structural_category=="genic" & coding=="coding") %>%
+                    nrow()/Genic_count*100
+
+        ncod_genic <- sorted_classification %>%
+                      filter(structural_category=="genic" & coding=="non_coding") %>%
+                      nrow()/Genic_count*100
+        
+        cod_antisense <- sorted_classification %>%
+                        filter(structural_category=="antisense" & coding=="coding") %>%
+                        nrow()/Antisense_count*100
+        
+        ncod_antisense <- sorted_classification %>%
+                          filter(structural_category=="antisense" & coding=="non_coding") %>%
+                          nrow()/Antisense_count*100
+
+        cod_fusion <- sorted_classification %>%
+                      filter(structural_category=="fusion" & coding=="coding") %>%
+                      nrow()/Fusion_count*100
+        
+        ncod_fusion <- sorted_classification %>%
+                      filter(structural_category=="fusion" & coding=="non_coding") %>%
+                      nrow()/Fusion_count*100
+
+        cod_intergenic <- sorted_classification %>%
                         filter(structural_category=="intergenic" & coding=="coding") %>%
                         nrow()/Intergenic_count*100
-      
-      ncod_intergenic <- sorted_classification %>%
-                         filter(structural_category=="intergenic" & coding=="non_coding") %>%
-                         nrow()/Intergenic_count*100
+        
+        ncod_intergenic <- sorted_classification %>%
+                          filter(structural_category=="intergenic" & coding=="non_coding") %>%
+                          nrow()/Intergenic_count*100
+        
+        cod_genic_intron <- sorted_classification %>%
+                            filter(structural_category=="genic_intron" & coding=="coding") %>%
+                            nrow()/Genic_intron_count*100
+        
+        ncod_genic_intron <- sorted_classification %>%
+                            filter(structural_category=="genic_intron" & coding=="non_coding") %>%
+                            nrow()/Genic_intron_count*100
     }
-    
+                    
     ### BAD QUALITY METRICS ###
     # Percentage of RTS
     RTS_in_cell_prop <- sorted_classification %>%
@@ -1250,26 +1257,28 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                              nrow() / NNC_count * 100
 
     # Percentage of predicted NMD
-    NMD_in_cell_prop <- sorted_classification %>%
-                        filter(predicted_NMD==TRUE) %>%
-                        nrow()/total_reads*100
+    if (!skipORF) {
+      NMD_in_cell_prop <- sorted_classification %>%
+                          filter(predicted_NMD==TRUE) %>%
+                          nrow()/total_reads*100
 
     # NMD by category
-    FSM_NMD_prop <- if(FSM_count == 0) 0 else sorted_classification %>%
-                    filter(structural_category == "full-splice_match" & predicted_NMD == TRUE) %>%
-                    nrow() / FSM_count * 100
-  
-    ISM_NMD_prop <- if(ISM_count == 0) 0 else sorted_classification %>%
-                    filter(structural_category == "incomplete-splice_match" & predicted_NMD == TRUE) %>%
-                    nrow() / ISM_count * 100
+      FSM_NMD_prop <- if(FSM_count == 0) 0 else sorted_classification %>%
+                      filter(structural_category == "full-splice_match" & predicted_NMD == TRUE) %>%
+                      nrow() / FSM_count * 100
     
-    NIC_NMD_prop <- if(NIC_count == 0) 0 else sorted_classification %>%
-                    filter(structural_category == "novel_in_catalog" & predicted_NMD == TRUE) %>%
-                    nrow() / NIC_count * 100
-    
-    NNC_NMD_prop <- if(NNC_count == 0) 0 else sorted_classification %>%
-                    filter(structural_category == "novel_not_in_catalog" & predicted_NMD == TRUE) %>%
-                    nrow() / NNC_count * 100 
+      ISM_NMD_prop <- if(ISM_count == 0) 0 else sorted_classification %>%
+                      filter(structural_category == "incomplete-splice_match" & predicted_NMD == TRUE) %>%
+                      nrow() / ISM_count * 100
+      
+      NIC_NMD_prop <- if(NIC_count == 0) 0 else sorted_classification %>%
+                      filter(structural_category == "novel_in_catalog" & predicted_NMD == TRUE) %>%
+                      nrow() / NIC_count * 100
+      
+      NNC_NMD_prop <- if(NNC_count == 0) 0 else sorted_classification %>%
+                      filter(structural_category == "novel_not_in_catalog" & predicted_NMD == TRUE) %>%
+                      nrow() / NNC_count * 100
+    }
     ##   Maybe also dist to TTS/TES
     
     ### GOOD QUALITY METRICS ###
@@ -1350,565 +1359,285 @@ calculate_metrics_per_cell <- function(Classification, cell_summary_output, Save
                       filter(structural_category == "novel_not_in_catalog" & exons > 1 & all_canonical == "canonical") %>%
                       nrow() / max(1, nrow(sorted_classification %>% filter(structural_category == "novel_not_in_catalog" & exons > 1))) * 100
 
-    # Hacer tabla intermadia con los datos por celula (guardar en temp o al final del report?)
-    if (exists("SQANTI_cell_summary")==FALSE){
-      SQANTI_cell_summary <- c(CB_id,
-                              total_reads,
-                              total_UMI,
-                              genes_in_cell,
-                              models_in_cell,
-                              annotated_genes,
-                              novel_genes, # Std cell counts
-                              MT_perc,
-                              known_canonical_prop,
-                              known_non_canonical_prop,
-                              novel_canonical_prop,
-                              novel_non_canonical_prop, # Add canonical/non-canonical per (sub)structural category 
-                              FSM_count,
-                              ISM_count,
-                              NIC_count,
-                              NNC_count,
-                              Genic_count,
-                              Antisense_count,
-                              Fusion_count,
-                              Intergenic_count,
-                              Genic_intron_count, # Structural categories counts (reads)
-                              sqanti_props, # Structural categories props (reads)
-                              cod_FSM,
-                              ncod_FSM,
-                              cod_ISM,
-                              ncod_ISM,
-                              cod_NIC,
-                              ncod_NIC,
-                              cod_NNC,
-                              ncod_NNC,
-                              cod_genic,
-                              ncod_genic,
-                              cod_antisense,
-                              ncod_antisense,
-                              cod_fusion,
-                              ncod_fusion,
-                              cod_intergenic,
-                              ncod_intergenic,
-                              cod_genic_intron,
-                              ncod_genic_intron, # Coding and non-coding per structural category (reads)
-                              sub_FSM_sqanti_props,
-                              sub_ISM_sqanti_props,
-                              sub_NIC_sqanti_probs,
-                              sub_NNC_sqanti_probs,
-                              sub_genic_sqanti_props,
-                              sub_antisense_sqanti_props,
-                              sub_fusion_sqanti_props,
-                              sub_intergenic_sqanti_props,
-                              sub_genic_intron_sqanti_props, # Structural subcategories props (reads)
-                              two_fifty_length_reads,
-                              mono_two_fifty_length_reads,
-                              five_hund_length_reads,
-                              mono_five_hund_length_reads,
-                              short_length_reads,
-                              mono_short_length_reads,
-                              mid_length_reads,
-                              mono_mid_length_reads,
-                              long_length_reads,
-                              mono_long_length_reads, # Read lengths breaks general (reads)
-                              two_fifty_length_reads_FSM,
-                              mono_two_fifty_length_reads_FSM,
-                              five_hund_length_reads_FSM,
-                              mono_five_hund_length_reads_FSM,
-                              short_length_reads_FSM,
-                              mono_short_length_reads_FSM,
-                              mid_length_reads_FSM,
-                              mono_mid_length_reads_FSM,
-                              long_length_reads_FSM,
-                              mono_long_length_reads_FSM,
-                              two_fifty_length_reads_ISM,
-                              mono_two_fifty_length_reads_ISM,
-                              five_hund_length_reads_ISM,
-                              mono_five_hund_length_reads_ISM,
-                              short_length_reads_ISM,
-                              mono_short_length_reads_ISM,
-                              mid_length_reads_ISM,
-                              mono_mid_length_reads_ISM,
-                              long_length_reads_ISM,
-                              mono_long_length_reads_ISM,
-                              two_fifty_length_reads_NIC,
-                              mono_two_fifty_length_reads_NIC,
-                              five_hund_length_reads_NIC,
-                              mono_five_hund_length_reads_NIC,
-                              short_length_reads_NIC,
-                              mono_short_length_reads_NIC,
-                              mid_length_reads_NIC,
-                              mono_mid_length_reads_NIC,
-                              long_length_reads_NIC,
-                              mono_long_length_reads_NIC,
-                              two_fifty_length_reads_NNC,
-                              mono_two_fifty_length_reads_NNC,
-                              five_hund_length_reads_NNC,
-                              mono_five_hund_length_reads_NNC,
-                              short_length_reads_NNC,
-                              mono_short_length_reads_NNC,
-                              mid_length_reads_NNC,
-                              mono_mid_length_reads_NNC,
-                              long_length_reads_NNC,
-                              mono_long_length_reads_NNC,
-                              two_fifty_length_reads_genic,
-                              mono_two_fifty_length_reads_genic,
-                              five_hund_length_reads_genic,
-                              mono_five_hund_length_reads_genic,
-                              short_length_reads_genic,
-                              mono_short_length_reads_genic,
-                              mid_length_reads_genic,
-                              mono_mid_length_reads_genic,
-                              long_length_reads_genic,
-                              mono_long_length_reads_genic,
-                              two_fifty_length_reads_antisense,
-                              mono_two_fifty_length_reads_antisense,
-                              five_hund_length_reads_antisense,
-                              mono_five_hund_length_reads_antisense,
-                              short_length_reads_antisense,
-                              mono_short_length_reads_antisense,
-                              mid_length_reads_antisense,
-                              mono_mid_length_reads_antisense,
-                              long_length_reads_antisense,
-                              mono_long_length_reads_antisense, 
-                              two_fifty_length_reads_fusion,
-                              mono_two_fifty_length_reads_fusion,
-                              five_hund_length_reads_fusion,
-                              mono_five_hund_length_reads_fusion,
-                              short_length_reads_fusion,
-                              mono_short_length_reads_fusion,
-                              mid_length_reads_fusion,
-                              mono_mid_length_reads_fusion,
-                              long_length_reads_fusion,
-                              mono_long_length_reads_fusion,
-                              two_fifty_length_reads_intergenic,
-                              mono_two_fifty_length_reads_intergenic,
-                              five_hund_length_reads_intergenic,
-                              mono_five_hund_length_reads_intergenic,
-                              short_length_reads_intergenic,
-                              mono_short_length_reads_intergenic,
-                              mid_length_reads_intergenic,
-                              mono_mid_length_reads_intergenic,
-                              long_length_reads_intergenic,
-                              mono_long_length_reads_intergenic,
-                              two_fifty_length_reads_genic_intron,
-                              mono_two_fifty_length_reads_genic_intron,
-                              five_hund_length_reads_genic_intron,
-                              mono_five_hund_length_reads_genic_intron,
-                              short_length_reads_genic_intron,
-                              mono_short_length_reads_genic_intron,
-                              mid_length_reads_genic_intron,
-                              mono_mid_length_reads_genic_intron,
-                              long_length_reads_genic_intron,
-                              mono_long_length_reads_genic_intron, # Reads length breaks per structural category (including monoexon breaks)
-                              ref_body_cover_FSM,
-                              ref_body_cover_ISM,
-                              ref_body_cover_NIC,
-                              ref_body_cover_NNC,
-                              ref_body_cover_genic,
-                              ref_body_cover_antisense,
-                              ref_body_cover_fusion,
-                              ref_body_cover_intergenic,
-                              ref_body_cover_genic_intron, # Coverage of reference length (set at 45% default)
-                              anno_bin1_perc, anno_bin2_3_perc, anno_bin4_5_perc, anno_bin6plus_perc,
-                              novel_bin1_perc, novel_bin2_3_perc, novel_bin4_5_perc, novel_bin6plus_perc,
-                              anno_ujc_bin1_perc, anno_ujc_bin2_3_perc, anno_ujc_bin4_5_perc, anno_ujc_bin6plus_perc,
-                              novel_ujc_bin1_perc, novel_ujc_bin2_3_perc, novel_ujc_bin4_5_perc, novel_ujc_bin6plus_perc,
-                              RTS_in_cell_prop,
-                              non_canonical_in_cell_prop,
-                              intrapriming_in_cell_prop,
-                              NMD_in_cell_prop,
-                              FSM_RTS_prop, ISM_RTS_prop, NIC_RTS_prop, NNC_RTS_prop,
-                              FSM_noncanon_prop, ISM_noncanon_prop, NIC_noncanon_prop, NNC_noncanon_prop,
-                              FSM_intrapriming_prop, ISM_intrapriming_prop, NIC_intrapriming_prop, NNC_intrapriming_prop,
-                              FSM_NMD_prop, ISM_NMD_prop, NIC_NMD_prop, NNC_NMD_prop, # Features of bad quality
-                              annotated_genes_in_cell_prop,
-                              anno_models_in_cell_prop,
-                              canonical_in_cell_prop,
-                              FSM_anno_genes_prop, ISM_anno_genes_prop, NIC_anno_genes_prop, NNC_anno_genes_prop,
-                              FSM_canon_prop, ISM_canon_prop, NIC_canon_prop, NNC_canon_prop) # Features of good quality
-    } else {
-      SQANTI_cell_summary <- rbind(SQANTI_cell_summary, c(CB_id,
-                                                        total_reads,
-                                                        total_UMI,
-                                                        genes_in_cell,
-                                                        models_in_cell,
-                                                        annotated_genes,
-                                                        novel_genes, # Std cell counts
-                                                        MT_perc,
-                                                        known_canonical_prop,
-                                                        known_non_canonical_prop,
-                                                        novel_canonical_prop,
-                                                        novel_non_canonical_prop, # Add canonical/non-canonical per (sub)structural category 
-                                                        FSM_count,
-                                                        ISM_count,
-                                                        NIC_count,
-                                                        NNC_count,
-                                                        Genic_count,
-                                                        Antisense_count,
-                                                        Fusion_count,
-                                                        Intergenic_count,
-                                                        Genic_intron_count, # Structural categories counts (reads)
-                                                        sqanti_props, # Structural categories props (reads)
-                                                        cod_FSM,
-                                                        ncod_FSM,
-                                                        cod_ISM,
-                                                        ncod_ISM,
-                                                        cod_NIC,
-                                                        ncod_NIC,
-                                                        cod_NNC,
-                                                        ncod_NNC,
-                                                        cod_genic,
-                                                        ncod_genic,
-                                                        cod_antisense,
-                                                        ncod_antisense,
-                                                        cod_fusion,
-                                                        ncod_fusion,
-                                                        cod_intergenic,
-                                                        ncod_intergenic,
-                                                        cod_genic_intron,
-                                                        ncod_genic_intron, # Coding and non-coding per structural category (reads)
-                                                        sub_FSM_sqanti_props,
-                                                        sub_ISM_sqanti_props,
-                                                        sub_NIC_sqanti_probs,
-                                                        sub_NNC_sqanti_probs,
-                                                        sub_genic_sqanti_props,
-                                                        sub_antisense_sqanti_props,
-                                                        sub_fusion_sqanti_props,
-                                                        sub_intergenic_sqanti_props,
-                                                        sub_genic_intron_sqanti_props, # Structural subcategories props (reads)
-                                                        two_fifty_length_reads,
-                                                        mono_two_fifty_length_reads,
-                                                        five_hund_length_reads,
-                                                        mono_five_hund_length_reads,
-                                                        short_length_reads,
-                                                        mono_short_length_reads,
-                                                        mid_length_reads,
-                                                        mono_mid_length_reads,
-                                                        long_length_reads,
-                                                        mono_long_length_reads, # Read lengths breaks general (reads)
-                                                        two_fifty_length_reads_FSM,
-                                                        mono_two_fifty_length_reads_FSM,
-                                                        five_hund_length_reads_FSM,
-                                                        mono_five_hund_length_reads_FSM,
-                                                        short_length_reads_FSM,
-                                                        mono_short_length_reads_FSM,
-                                                        mid_length_reads_FSM,
-                                                        mono_mid_length_reads_FSM,
-                                                        long_length_reads_FSM,
-                                                        mono_long_length_reads_FSM,
-                                                        two_fifty_length_reads_ISM,
-                                                        mono_two_fifty_length_reads_ISM,
-                                                        five_hund_length_reads_ISM,
-                                                        mono_five_hund_length_reads_ISM,
-                                                        short_length_reads_ISM,
-                                                        mono_short_length_reads_ISM,
-                                                        mid_length_reads_ISM,
-                                                        mono_mid_length_reads_ISM,
-                                                        long_length_reads_ISM,
-                                                        mono_long_length_reads_ISM,
-                                                        two_fifty_length_reads_NIC,
-                                                        mono_two_fifty_length_reads_NIC,
-                                                        five_hund_length_reads_NIC,
-                                                        mono_five_hund_length_reads_NIC,
-                                                        short_length_reads_NIC,
-                                                        mono_short_length_reads_NIC,
-                                                        mid_length_reads_NIC,
-                                                        mono_mid_length_reads_NIC,
-                                                        long_length_reads_NIC,
-                                                        mono_long_length_reads_NIC,
-                                                        two_fifty_length_reads_NNC,
-                                                        mono_two_fifty_length_reads_NNC,
-                                                        five_hund_length_reads_NNC,
-                                                        mono_five_hund_length_reads_NNC,
-                                                        short_length_reads_NNC,
-                                                        mono_short_length_reads_NNC,
-                                                        mid_length_reads_NNC,
-                                                        mono_mid_length_reads_NNC,
-                                                        long_length_reads_NNC,
-                                                        mono_long_length_reads_NNC,
-                                                        two_fifty_length_reads_genic,
-                                                        mono_two_fifty_length_reads_genic,
-                                                        five_hund_length_reads_genic,
-                                                        mono_five_hund_length_reads_genic,
-                                                        short_length_reads_genic,
-                                                        mono_short_length_reads_genic,
-                                                        mid_length_reads_genic,
-                                                        mono_mid_length_reads_genic,
-                                                        long_length_reads_genic,
-                                                        mono_long_length_reads_genic,
-                                                        two_fifty_length_reads_antisense,
-                                                        mono_two_fifty_length_reads_antisense,
-                                                        five_hund_length_reads_antisense,
-                                                        mono_five_hund_length_reads_antisense,
-                                                        short_length_reads_antisense,
-                                                        mono_short_length_reads_antisense,
-                                                        mid_length_reads_antisense,
-                                                        mono_mid_length_reads_antisense,
-                                                        long_length_reads_antisense,
-                                                        mono_long_length_reads_antisense, 
-                                                        two_fifty_length_reads_fusion,
-                                                        mono_two_fifty_length_reads_fusion,
-                                                        five_hund_length_reads_fusion,
-                                                        mono_five_hund_length_reads_fusion,
-                                                        short_length_reads_fusion,
-                                                        mono_short_length_reads_fusion,
-                                                        mid_length_reads_fusion,
-                                                        mono_mid_length_reads_fusion,
-                                                        long_length_reads_fusion,
-                                                        mono_long_length_reads_fusion,
-                                                        two_fifty_length_reads_intergenic,
-                                                        mono_two_fifty_length_reads_intergenic,
-                                                        five_hund_length_reads_intergenic,
-                                                        mono_five_hund_length_reads_intergenic,
-                                                        short_length_reads_intergenic,
-                                                        mono_short_length_reads_intergenic,
-                                                        mid_length_reads_intergenic,
-                                                        mono_mid_length_reads_intergenic,
-                                                        long_length_reads_intergenic,
-                                                        mono_long_length_reads_intergenic,
-                                                        two_fifty_length_reads_genic_intron,
-                                                        mono_two_fifty_length_reads_genic_intron,
-                                                        five_hund_length_reads_genic_intron,
-                                                        mono_five_hund_length_reads_genic_intron,
-                                                        short_length_reads_genic_intron,
-                                                        mono_short_length_reads_genic_intron,
-                                                        mid_length_reads_genic_intron,
-                                                        mono_mid_length_reads_genic_intron,
-                                                        long_length_reads_genic_intron,
-                                                        mono_long_length_reads_genic_intron, # Reads length breaks per structural category (including monoexon breaks)
-                                                        ref_body_cover_FSM,
-                                                        ref_body_cover_ISM,
-                                                        ref_body_cover_NIC,
-                                                        ref_body_cover_NNC,
-                                                        ref_body_cover_genic,
-                                                        ref_body_cover_antisense,
-                                                        ref_body_cover_fusion,
-                                                        ref_body_cover_intergenic,
-                                                        ref_body_cover_genic_intron, # Coverage of reference length (set at 45% default)
-                                                        anno_bin1_perc, anno_bin2_3_perc, anno_bin4_5_perc, anno_bin6plus_perc,
-                                                        novel_bin1_perc, novel_bin2_3_perc, novel_bin4_5_perc, novel_bin6plus_perc,
-                                                        anno_ujc_bin1_perc, anno_ujc_bin2_3_perc, anno_ujc_bin4_5_perc, anno_ujc_bin6plus_perc,
-                                                        novel_ujc_bin1_perc, novel_ujc_bin2_3_perc, novel_ujc_bin4_5_perc, novel_ujc_bin6plus_perc,
-                                                        RTS_in_cell_prop,
-                                                        non_canonical_in_cell_prop,
-                                                        intrapriming_in_cell_prop,
-                                                        NMD_in_cell_prop,
-                                                        FSM_RTS_prop, ISM_RTS_prop, NIC_RTS_prop, NNC_RTS_prop,
-                                                        FSM_noncanon_prop, ISM_noncanon_prop, NIC_noncanon_prop, NNC_noncanon_prop,
-                                                        FSM_intrapriming_prop, ISM_intrapriming_prop, NIC_intrapriming_prop, NNC_intrapriming_prop,
-                                                        FSM_NMD_prop, ISM_NMD_prop, NIC_NMD_prop, NNC_NMD_prop, # Features of bad quality
-                                                        annotated_genes_in_cell_prop,
-                                                        anno_models_in_cell_prop,
-                                                        canonical_in_cell_prop,
-                                                        FSM_anno_genes_prop, ISM_anno_genes_prop, NIC_anno_genes_prop, NNC_anno_genes_prop,
-                                                        FSM_canon_prop, ISM_canon_prop, NIC_canon_prop, NNC_canon_prop)) # Features of good quality
+    # TSS Annotation Support across cells
+    if ("diff_to_gene_TSS" %in% colnames(sorted_classification)) {
+      tss_annotation_support_in_cell_prop <- sum(abs(sorted_classification$diff_to_gene_TSS) <= 50, na.rm=TRUE) / nrow(sorted_classification) * 100
+      } else {
+      tss_annotation_support_in_cell_prop <- 0
     }
-  }
-  SQANTI_cell_summary <- as.data.frame(SQANTI_cell_summary)
-  rownames(SQANTI_cell_summary) <- NULL
-  colnames(SQANTI_cell_summary) <- c("CB",
-                                    "Reads_in_cell",
-                                    "UMIs_in_cell",
-                                    "Genes_in_cell",
-                                    "UJCs_in_cell",
-                                    "Annotated_genes",
-                                    "Novel_genes", # Std cell counts
-                                    "MT_perc",
-                                    "Known_canonical_prop",
-                                    "Known_non_canonical_prop",
-                                    "Novel_canonical_prop",
-                                    "Novel_non_canonical_prop", # Canonical/non-canonical (reads without monoexons)
-                                    "FSM",
-                                    "ISM",
-                                    "NIC",
-                                    "NNC",
-                                    "Genic_Genomic",
-                                    "Antisense",
-                                    "Fusion",
-                                    "Intergenic",
-                                    "Genic_intron", # Structural categories counts (reads) 
-                                    "FSM_prop", 
-                                    "ISM_prop", 
-                                    "NIC_prop", 
-                                    "NNC_prop", 
-                                    "Genic_Genomic_prop",
-                                    "Antisense_prop",
-                                    "Fusion_prop",
-                                    "Intergenic_prop", 
-                                    "Genic_intron_prop", # Structural categories props (reads)
-                                    "Coding_FSM_prop",
-                                    "Non_coding_FSM_prop",
-                                    "Coding_ISM_prop",
-                                    "Non_coding_ISM_prop",
-                                    "Coding_NIC_prop",
-                                    "Non_coding_NIC_prop",
-                                    "Coding_NNC_prop",
-                                    "Non_coding_NNC_prop",
-                                    "Coding_genic_prop",
-                                    "Non_coding_genic_prop",
-                                    "Coding_antisense_prop",
-                                    "Non_coding_antisense_prop",
-                                    "Coding_fusion_prop",
-                                    "Non_coding_fusion_prop",
-                                    "Coding_intergenic_prop",
-                                    "Non_coding_intergenic_prop",
-                                    "Coding_genic_intron_prop",
-                                    "Non_coding_genic_intron_prop", # Coding and non-coding per structural category (reads)
-                                    "FSM_alternative_3.end_prop",
-                                    "FSM_alternative_3.5.end_prop",
-                                    "FSM_alternative_5.end_prop",
-                                    "FSM_reference_match_prop",
-                                    "FSM_mono.exon_prop",
-                                    "ISM_3._fragment_prop",
-                                    "ISM_internal_fragment_prop",
-                                    "ISM_5._fragment_prop",
-                                    "ISM_intron_retention_prop",
-                                    "ISM_mono.exon_prop",
-                                    "NIC_comb_annot_junctions_prop", 
-                                    "NIC_comb_annot_splice_sites_prop",
-                                    "NIC_intron_retention_prop",
-                                    "NIC_mono.exon_prop",
-                                    "NIC_mono.exon_by_intron_retention_prop",
-                                    "NNC_at_least_1_don_accept_prop",
-                                    "NNC_intron_retention_prop",
-                                    "Genic_mono.exon_prop", 
-                                    "Genic_multi.exon_prop", 
-                                    "Antisense_mono.exon_prop", 
-                                    "Antisense_multi.exon_prop",
-                                    "Fusion_intron_retention_prop",
-                                    "Fusion_multi.exon_prop", 
-                                    "Intergenic_mono.exon_prop",
-                                    "Intergenic_multi.exon_prop",
-                                    "Genic_intron_mono.exon_prop",
-                                    "Genic_intron_multi.exon_prop", # Structural subcategories props (reads)
-                                    "Total_250b_length_prop",
-                                    "Total_250b_length_mono_prop",
-                                    "Total_500b_length_prop",
-                                    "Total_500b_length_mono_prop",
-                                    "Total_short_length_prop",
-                                    "Total_short_length_mono_prop",
-                                    "Total_mid_length_prop",
-                                    "Total_mid_length_mono_prop",
-                                    "Total_long_length_prop",
-                                    "Total_long_length_mono_prop", # Read lengths breaks general + monoexons (reads)
-                                    "FSM_250b_length_prop",
-                                    "FSM_250b_length_mono_prop",
-                                    "FSM_500b_length_prop",
-                                    "FSM_500b_length_mono_prop",
-                                    "FSM_short_length_prop",
-                                    "FSM_short_length_mono_prop",
-                                    "FSM_mid_length_prop",
-                                    "FSM_mid_length_mono_prop",
-                                    "FSM_long_length_prop",
-                                    "FSM_long_length_mono_prop",
-                                    "ISM_250b_length_prop",
-                                    "ISM_250b_length_mono_prop",
-                                    "ISM_500b_length_prop",
-                                    "ISM_500b_length_mono_prop",
-                                    "ISM_short_length_prop",
-                                    "ISM_short_length_mono_prop",
-                                    "ISM_mid_length_prop",
-                                    "ISM_mid_length_mono_prop",
-                                    "ISM_long_length_prop",
-                                    "ISM_long_length_mono_prop",
-                                    "NIC_250b_length_prop",
-                                    "NIC_250b_length_mono_prop",
-                                    "NIC_500b_length_prop",
-                                    "NIC_500b_length_mono_prop",
-                                    "NIC_short_length_prop",
-                                    "NIC_short_length_mono_prop",
-                                    "NIC_mid_length_prop",
-                                    "NIC_mid_length_mono_prop",
-                                    "NIC_long_length_prop",
-                                    "NIC_long_length_mono_prop",
-                                    "NNC_250b_length_prop",
-                                    "NNC_250b_length_mono_prop",
-                                    "NNC_500b_length_prop",
-                                    "NNC_500b_length_mono_prop",
-                                    "NNC_short_length_prop",
-                                    "NNC_short_length_mono_prop",
-                                    "NNC_mid_length_prop",
-                                    "NNC_mid_length_mono_prop",
-                                    "NNC_long_length_prop",
-                                    "NNC_long_length_mono_prop",
-                                    "Genic_250b_length_prop",
-                                    "Genic_250b_length_mono_prop",
-                                    "Genic_500b_length_prop",
-                                    "Genic_500b_length_mono_prop",
-                                    "Genic_short_length_prop",
-                                    "Genic_short_length_mono_prop",
-                                    "Genic_mid_length_prop",
-                                    "Genic_mid_length_mono_prop",
-                                    "Genic_long_length_prop",
-                                    "Genic_long_length_mono_prop",
-                                    "Antisense_250b_length_prop",
-                                    "Antisense_250b_length_mono_prop",
-                                    "Antisense_500b_length_prop",
-                                    "Antisense_500b_length_mono_prop",
-                                    "Antisense_short_length_prop",
-                                    "Antisense_short_length_mono_prop",
-                                    "Antisense_mid_length_prop",
-                                    "Antisense_mid_length_mono_prop",
-                                    "Antisense_long_length_prop",
-                                    "Antisense_long_length_mono_prop",
-                                    "Fusion_250b_length_prop",
-                                    "Fusion_250b_length_mono_prop",
-                                    "Fusion_500b_length_prop",
-                                    "Fusion_500b_length_mono_prop",
-                                    "Fusion_short_length_prop",
-                                    "Fusion_short_length_mono_prop",
-                                    "Fusion_mid_length_prop",
-                                    "Fusion_mid_length_mono_prop",
-                                    "Fusion_long_length_prop",
-                                    "Fusion_long_length_mono_prop",
-                                    "Intergenic_250b_length_prop",
-                                    "Intergenic_250b_length_mono_prop",
-                                    "Intergenic_500b_length_prop",
-                                    "Intergenic_500b_length_mono_prop",
-                                    "Intergenic_short_length_prop",
-                                    "Intergenic_short_length_mono_prop",
-                                    "Intergenic_mid_length_prop",
-                                    "Intergenic_mid_length_mono_prop",
-                                    "Intergenic_long_length_prop",
-                                    "Intergenic_long_length_mono_prop",
-                                    "Genic_intron_250b_length_prop",
-                                    "Genic_intron_250b_length_mono_prop",
-                                    "Genic_intron_500b_length_prop",
-                                    "Genic_intron_500b_length_mono_prop",
-                                    "Genic_intron_short_length_prop",
-                                    "Genic_intron_short_length_mono_prop",
-                                    "Genic_intron_mid_length_prop",
-                                    "Genic_intron_mid_length_mono_prop",
-                                    "Genic_intron_long_length_prop",
-                                    "Genic_intron_long_length_mono_prop", # Reads length breaks per structural category
-                                    "FSM_ref_coverage_prop",
-                                    "ISM_ref_coverage_prop",
-                                    "NIC_ref_coverage_prop",
-                                    "NNC_ref_coverage_prop",
-                                    "Genic_ref_coverage_prop",
-                                    "Antisense_ref_coverage_prop",
-                                    "Fusion_ref_coverage_prop",
-                                    "Intergenic_ref_coverage_prop",
-                                    "Genic_intron_ref_coverage_prop", # Coverage of reference length (set at 45% default)
-                                    "anno_bin1_perc", "anno_bin2_3_perc", "anno_bin4_5_perc", "anno_bin6plus_perc",
-                                    "novel_bin1_perc", "novel_bin2_3_perc", "novel_bin4_5_perc", "novel_bin6plus_perc",
-                                    "anno_ujc_bin1_perc", "anno_ujc_bin2_3_perc", "anno_ujc_bin4_5_perc", "anno_ujc_bin6plus_perc",
-                                    "novel_ujc_bin1_perc", "novel_ujc_bin2_3_perc", "novel_ujc_bin4_5_perc", "novel_ujc_bin6plus_perc",
-                                    "RTS_prop_in_cell",
-                                    "Non_canonical_prop_in_cell",
-                                    "Intrapriming_prop_in_cell",
-                                    "NMD_prop_in_cell", 
-                                    "FSM_RTS_prop", "ISM_RTS_prop", "NIC_RTS_prop", "NNC_RTS_prop",
-                                    "FSM_noncanon_prop", "ISM_noncanon_prop", "NIC_noncanon_prop", "NNC_noncanon_prop",
-                                    "FSM_intrapriming_prop", "ISM_intrapriming_prop", "NIC_intrapriming_prop", "NNC_intrapriming_prop",
-                                    "FSM_NMD_prop", "ISM_NMD_prop", "NIC_NMD_prop", "NNC_NMD_prop", # Features of bad quality
-                                    "Annotated_genes_prop_in_cell",
-                                    "Annotated_juction_strings_prop_in_cell",
-                                    "Canonical_prop_in_cell",
-                                    "FSM_anno_genes_prop", "ISM_anno_genes_prop", "NIC_anno_genes_prop", "NNC_anno_genes_prop",
-                                    "FSM_canon_prop", "ISM_canon_prop", "NIC_canon_prop", "NNC_canon_prop") # Features of good quality. Add annotated genes
 
+    # TSS Annotation Support by category
+    FSM_tss_annotation_support <- if(FSM_count == 0) 0 else sorted_classification %>%
+                                  filter(structural_category == "full-splice_match" & abs(diff_to_gene_TSS) <= 50) %>%
+                                  nrow() / max(1, nrow(sorted_classification %>% filter(structural_category == "full-splice_match"))) * 100
+
+    ISM_tss_annotation_support <- if(ISM_count == 0) 0 else sorted_classification %>%
+                                  filter(structural_category == "incomplete-splice_match" & abs(diff_to_gene_TSS) <= 50) %>%
+                                  nrow() / max(1, nrow(sorted_classification %>% filter(structural_category == "incomplete-splice_match"))) * 100
+                                  
+    NIC_tss_annotation_support <- if(NIC_count == 0) 0 else sorted_classification %>%
+                                  filter(structural_category == "novel_in_catalog" & abs(diff_to_gene_TSS) <= 50) %>%
+                                  nrow() / max(1, nrow(sorted_classification %>% filter(structural_category == "novel_in_catalog"))) * 100
+                                  
+    NNC_tss_annotation_support <- if(NNC_count == 0) 0 else sorted_classification %>%
+                                  filter(structural_category == "novel_not_in_catalog" & abs(diff_to_gene_TSS) <= 50) %>%
+                                  nrow() / max(1, nrow(sorted_classification %>% filter(structural_category == "novel_not_in_catalog"))) * 100
+
+    # CAGE peak support across cells
+    if (CAGE_peak) {
+      CAGE_peak_support_in_cell_prop <- sum(sorted_classification$within_CAGE_peak == TRUE) / nrow(sorted_classification) * 100
+    
+    # CAGE peak support by category
+      FSM_cage_peak_support <- if(FSM_count == 0) 0 else sorted_classification %>%
+                                    filter(structural_category == "full-splice_match" & within_CAGE_peak == TRUE) %>%
+                                    nrow() / max(1, nrow(sorted_classification %>% filter(structural_category == "full-splice_match"))) * 100
+
+      ISM_cage_peak_support <- if(ISM_count == 0) 0 else sorted_classification %>%
+                                    filter(structural_category == "incomplete-splice_match" & within_CAGE_peak == TRUE) %>%
+                                    nrow() / max(1, nrow(sorted_classification %>% filter(structural_category == "incomplete-splice_match"))) * 100
+                                    
+      NIC_cage_peak_support <- if(NIC_count == 0) 0 else sorted_classification %>%
+                                    filter(structural_category == "novel_in_catalog" & within_CAGE_peak == TRUE) %>%
+                                    nrow() / max(1, nrow(sorted_classification %>% filter(structural_category == "novel_in_catalog"))) * 100
+                                    
+      NNC_cage_peak_support <- if(NNC_count == 0) 0 else sorted_classification %>%
+                                    filter(structural_category == "novel_not_in_catalog" & within_CAGE_peak == TRUE) %>%
+                                    nrow() / max(1, nrow(sorted_classification %>% filter(structural_category == "novel_not_in_catalog"))) * 100
+    }
+
+    # PolyA motif support across cells
+    if (polyA_motif_list) {
+      polyA_motif_support_in_cell_prop <- sum(sorted_classification$polyA_motif_found == TRUE) / nrow(sorted_classification) * 100
+
+    # PolyA motif support by category
+      FSM_polyA_motif_support <- if(FSM_count == 0) 0 else sorted_classification %>%
+                                    filter(structural_category == "full-splice_match" & polyA_motif != NA) %>%
+                                    nrow() / max(1, nrow(sorted_classification %>% filter(structural_category == "full-splice_match"))) * 100 
+                                    
+      ISM_polyA_motif_support <- if(ISM_count == 0) 0 else sorted_classification %>%
+                                    filter(structural_category == "incomplete-splice_match" & polyA_motif != NA) %>%
+                                    nrow() / max(1, nrow(sorted_classification %>% filter(structural_category == "incomplete-splice_match"))) * 100
+                                    
+      NIC_polyA_motif_support <- if(NIC_count == 0) 0 else sorted_classification %>%
+                                    filter(structural_category == "novel_in_catalog" & polyA_motif != NA) %>%
+                                    nrow() / max(1, nrow(sorted_classification %>% filter(structural_category == "novel_in_catalog"))) * 100
+
+      NNC_polyA_motif_support <- if(NNC_count == 0) 0 else sorted_classification %>%
+                                    filter(structural_category == "novel_not_in_catalog" & polyA_motif != NA) %>%
+                                    nrow() / max(1, nrow(sorted_classification %>% filter(structural_category == "novel_not_in_catalog"))) * 100
+    }
+
+    row_data <- c(
+      CB_id,
+      total_reads,
+      total_UMI,
+      genes_in_cell,
+      models_in_cell,
+      annotated_genes,
+      novel_genes, # Std cell counts
+      MT_perc,
+      known_canonical_prop, known_non_canonical_prop,
+      novel_canonical_prop, novel_non_canonical_prop, # Add canonical/non-canonical per (sub)structural category 
+      FSM_count, ISM_count, NIC_count, NNC_count, Genic_count, Antisense_count, Fusion_count, Intergenic_count, Genic_intron_count, # Structural categories counts (reads)
+      sqanti_props, # Structural categories props (reads)
+      sub_FSM_sqanti_props, sub_ISM_sqanti_props, sub_NIC_sqanti_probs, sub_NNC_sqanti_probs,
+      sub_genic_sqanti_props, sub_antisense_sqanti_props, sub_fusion_sqanti_props, sub_intergenic_sqanti_props, sub_genic_intron_sqanti_props, # Structural subcategories props (reads)
+      two_fifty_length_reads, mono_two_fifty_length_reads, 
+      five_hund_length_reads, mono_five_hund_length_reads,
+      short_length_reads, mono_short_length_reads,
+      mid_length_reads, mono_mid_length_reads,
+      long_length_reads, mono_long_length_reads, # Read lengths breaks general (reads)
+      two_fifty_length_reads_FSM, mono_two_fifty_length_reads_FSM,
+      five_hund_length_reads_FSM, mono_five_hund_length_reads_FSM,
+      short_length_reads_FSM, mono_short_length_reads_FSM,
+      mid_length_reads_FSM, mono_mid_length_reads_FSM,
+      long_length_reads_FSM, mono_long_length_reads_FSM,
+      two_fifty_length_reads_ISM, mono_two_fifty_length_reads_ISM,
+      five_hund_length_reads_ISM, mono_five_hund_length_reads_ISM,
+      short_length_reads_ISM, mono_short_length_reads_ISM,
+      mid_length_reads_ISM, mono_mid_length_reads_ISM,
+      long_length_reads_ISM, mono_long_length_reads_ISM,
+      two_fifty_length_reads_NIC, mono_two_fifty_length_reads_NIC,
+      five_hund_length_reads_NIC, mono_five_hund_length_reads_NIC,
+      short_length_reads_NIC, mono_short_length_reads_NIC,
+      mid_length_reads_NIC, mono_mid_length_reads_NIC,
+      long_length_reads_NIC, mono_long_length_reads_NIC,
+      two_fifty_length_reads_NNC, mono_two_fifty_length_reads_NNC,
+      five_hund_length_reads_NNC, mono_five_hund_length_reads_NNC,
+      short_length_reads_NNC, mono_short_length_reads_NNC,
+      mid_length_reads_NNC, mono_mid_length_reads_NNC,
+      long_length_reads_NNC, mono_long_length_reads_NNC,
+      two_fifty_length_reads_genic, mono_two_fifty_length_reads_genic,
+      five_hund_length_reads_genic, mono_five_hund_length_reads_genic,
+      short_length_reads_genic, mono_short_length_reads_genic,
+      mid_length_reads_genic, mono_mid_length_reads_genic,
+      long_length_reads_genic, mono_long_length_reads_genic,
+      two_fifty_length_reads_antisense, mono_two_fifty_length_reads_antisense,
+      five_hund_length_reads_antisense, mono_five_hund_length_reads_antisense,
+      short_length_reads_antisense, mono_short_length_reads_antisense,
+      mid_length_reads_antisense, mono_mid_length_reads_antisense,
+      long_length_reads_antisense, mono_long_length_reads_antisense,
+      two_fifty_length_reads_fusion, mono_two_fifty_length_reads_fusion,
+      five_hund_length_reads_fusion, mono_five_hund_length_reads_fusion,
+      short_length_reads_fusion, mono_short_length_reads_fusion,
+      mid_length_reads_fusion, mono_mid_length_reads_fusion,
+      long_length_reads_fusion, mono_long_length_reads_fusion,
+      two_fifty_length_reads_intergenic, mono_two_fifty_length_reads_intergenic,
+      five_hund_length_reads_intergenic, mono_five_hund_length_reads_intergenic,
+      short_length_reads_intergenic, mono_short_length_reads_intergenic,
+      mid_length_reads_intergenic, mono_mid_length_reads_intergenic,
+      long_length_reads_intergenic, mono_long_length_reads_intergenic,
+      two_fifty_length_reads_genic_intron, mono_two_fifty_length_reads_genic_intron,
+      five_hund_length_reads_genic_intron, mono_five_hund_length_reads_genic_intron,
+      short_length_reads_genic_intron, mono_short_length_reads_genic_intron,
+      mid_length_reads_genic_intron, mono_mid_length_reads_genic_intron,
+      long_length_reads_genic_intron, mono_long_length_reads_genic_intron, # Reads length breaks per structural category (including monoexon breaks)
+      ref_body_cover_FSM, ref_body_cover_ISM, ref_body_cover_NIC, ref_body_cover_NNC,
+      ref_body_cover_genic, ref_body_cover_antisense, ref_body_cover_fusion, ref_body_cover_intergenic, ref_body_cover_genic_intron, # Coverage of reference length (set at 45% default)
+      anno_bin1_perc, anno_bin2_3_perc, anno_bin4_5_perc, anno_bin6plus_perc,
+      novel_bin1_perc, novel_bin2_3_perc, novel_bin4_5_perc, novel_bin6plus_perc,
+      anno_ujc_bin1_perc, anno_ujc_bin2_3_perc, anno_ujc_bin4_5_perc, anno_ujc_bin6plus_perc,
+      novel_ujc_bin1_perc, novel_ujc_bin2_3_perc, novel_ujc_bin4_5_perc, novel_ujc_bin6plus_perc,
+      RTS_in_cell_prop, FSM_RTS_prop, ISM_RTS_prop, NIC_RTS_prop, NNC_RTS_prop,
+      non_canonical_in_cell_prop, FSM_noncanon_prop, ISM_noncanon_prop, NIC_noncanon_prop, NNC_noncanon_prop,
+      intrapriming_in_cell_prop, FSM_intrapriming_prop, ISM_intrapriming_prop, NIC_intrapriming_prop, NNC_intrapriming_prop, # Features of bad quality
+      tss_annotation_support_in_cell_prop, FSM_tss_annotation_support, ISM_tss_annotation_support, NIC_tss_annotation_support, NNC_tss_annotation_support,
+      annotated_genes_in_cell_prop, FSM_anno_genes_prop, ISM_anno_genes_prop, NIC_anno_genes_prop, NNC_anno_genes_prop,
+      anno_models_in_cell_prop, 
+      canonical_in_cell_prop, FSM_canon_prop, ISM_canon_prop, NIC_canon_prop, NNC_canon_prop # Features of good quality
+    )
+
+    if (!skipORF) {
+      row_data <- c(row_data, 
+      cod_FSM, ncod_FSM, cod_ISM, ncod_ISM, cod_NIC, ncod_NIC, cod_NNC, ncod_NNC, 
+      cod_genic, ncod_genic, cod_antisense, ncod_antisense, cod_fusion, ncod_fusion, 
+      cod_intergenic, ncod_intergenic, cod_genic_intron, ncod_genic_intron, 
+      NMD_in_cell_prop, FSM_NMD_prop, ISM_NMD_prop, NIC_NMD_prop, NNC_NMD_prop
+      )
+    }
+
+    if (CAGE_peak) {
+      row_data <- c(row_data,
+      CAGE_peak_support_in_cell_prop, FSM_cage_peak_support, ISM_cage_peak_support, NIC_cage_peak_support, NNC_cage_peak_support
+      )
+    }
+
+    if (polyA_motif_list) {
+      row_data <- c(row_data,
+      polyA_motif_support_in_cell_prop, FSM_polyA_motif_support, ISM_polyA_motif_support, NIC_polyA_motif_support, NNC_polyA_motif_support
+      )
+    }
+    SQANTI_cell_summary <- rbind(SQANTI_cell_summary, row_data)
+  }
+
+  rownames(SQANTI_cell_summary) <- NULL
+  col_names <- c(
+    "CB", "Reads_in_cell", "UMIs_in_cell", "Genes_in_cell", "UJCs_in_cell",
+    "Annotated_genes", "Novel_genes", # Std cell counts
+    "MT_perc",
+    "Known_canonical_prop", "Known_non_canonical_prop", "Novel_canonical_prop", "Novel_non_canonical_prop", # Canonical/non-canonical (reads without monoexons)
+    "FSM", "ISM", "NIC", "NNC", 
+    "Genic_Genomic", "Antisense", "Fusion", "Intergenic", "Genic_intron", # Structural categories counts (reads) 
+    "FSM_prop", "ISM_prop", "NIC_prop", "NNC_prop", 
+    "Genic_Genomic_prop", "Antisense_prop", "Fusion_prop", "Intergenic_prop", "Genic_intron_prop", # Structural categories props (reads)
+    "FSM_alternative_3.end_prop", "FSM_alternative_3.5.end_prop", "FSM_alternative_5.end_prop", "FSM_reference_match_prop", "FSM_mono.exon_prop",
+    "ISM_3._fragment_prop", "ISM_internal_fragment_prop", "ISM_5._fragment_prop", "ISM_intron_retention_prop", "ISM_mono.exon_prop",
+    "NIC_comb_annot_junctions_prop", "NIC_comb_annot_splice_sites_prop", "NIC_intron_retention_prop", "NIC_mono.exon_prop", "NIC_mono.exon_by_intron_retention_prop",
+    "NNC_at_least_1_don_accept_prop", "NNC_intron_retention_prop",
+    "Genic_mono.exon_prop", "Genic_multi.exon_prop", 
+    "Antisense_mono.exon_prop", "Antisense_multi.exon_prop",
+    "Fusion_intron_retention_prop", "Fusion_multi.exon_prop", 
+    "Intergenic_mono.exon_prop", "Intergenic_multi.exon_prop",
+    "Genic_intron_mono.exon_prop", "Genic_intron_multi.exon_prop", # Structural subcategories props (reads)
+    "Total_250b_length_prop", "Total_250b_length_mono_prop",
+    "Total_500b_length_prop", "Total_500b_length_mono_prop",
+    "Total_short_length_prop", "Total_short_length_mono_prop",
+    "Total_mid_length_prop", "Total_mid_length_mono_prop",
+    "Total_long_length_prop", "Total_long_length_mono_prop", # Read lengths breaks general + monoexons (reads)
+    "FSM_250b_length_prop", "FSM_250b_length_mono_prop",
+    "FSM_500b_length_prop", "FSM_500b_length_mono_prop",
+    "FSM_short_length_prop", "FSM_short_length_mono_prop",
+    "FSM_mid_length_prop", "FSM_mid_length_mono_prop",
+    "FSM_long_length_prop", "FSM_long_length_mono_prop",
+    "ISM_250b_length_prop", "ISM_250b_length_mono_prop",
+    "ISM_500b_length_prop", "ISM_500b_length_mono_prop",
+    "ISM_short_length_prop", "ISM_short_length_mono_prop",
+    "ISM_mid_length_prop", "ISM_mid_length_mono_prop",
+    "ISM_long_length_prop", "ISM_long_length_mono_prop",
+    "NIC_250b_length_prop", "NIC_250b_length_mono_prop",
+    "NIC_500b_length_prop", "NIC_500b_length_mono_prop",
+    "NIC_short_length_prop", "NIC_short_length_mono_prop",
+    "NIC_mid_length_prop", "NIC_mid_length_mono_prop",
+    "NIC_long_length_prop", "NIC_long_length_mono_prop",
+    "NNC_250b_length_prop", "NNC_250b_length_mono_prop",
+    "NNC_500b_length_prop", "NNC_500b_length_mono_prop",
+    "NNC_short_length_prop", "NNC_short_length_mono_prop",
+    "NNC_mid_length_prop", "NNC_mid_length_mono_prop",
+    "NNC_long_length_prop", "NNC_long_length_mono_prop",
+    "Genic_250b_length_prop", "Genic_250b_length_mono_prop",
+    "Genic_500b_length_prop", "Genic_500b_length_mono_prop",
+    "Genic_short_length_prop", "Genic_short_length_mono_prop",
+    "Genic_mid_length_prop", "Genic_mid_length_mono_prop",
+    "Genic_long_length_prop", "Genic_long_length_mono_prop",
+    "Antisense_250b_length_prop", "Antisense_250b_length_mono_prop",
+    "Antisense_500b_length_prop", "Antisense_500b_length_mono_prop",
+    "Antisense_short_length_prop", "Antisense_short_length_mono_prop",
+    "Antisense_mid_length_prop", "Antisense_mid_length_mono_prop",
+    "Antisense_long_length_prop", "Antisense_long_length_mono_prop",
+    "Fusion_250b_length_prop", "Fusion_250b_length_mono_prop",
+    "Fusion_500b_length_prop", "Fusion_500b_length_mono_prop",
+    "Fusion_short_length_prop", "Fusion_short_length_mono_prop",
+    "Fusion_mid_length_prop", "Fusion_mid_length_mono_prop",
+    "Fusion_long_length_prop", "Fusion_long_length_mono_prop",
+    "Intergenic_250b_length_prop", "Intergenic_250b_length_mono_prop",
+    "Intergenic_500b_length_prop", "Intergenic_500b_length_mono_prop",
+    "Intergenic_short_length_prop", "Intergenic_short_length_mono_prop",
+    "Intergenic_mid_length_prop", "Intergenic_mid_length_mono_prop",
+    "Intergenic_long_length_prop", "Intergenic_long_length_mono_prop",
+    "Genic_intron_250b_length_prop", "Genic_intron_250b_length_mono_prop",
+    "Genic_intron_500b_length_prop", "Genic_intron_500b_length_mono_prop",
+    "Genic_intron_short_length_prop", "Genic_intron_short_length_mono_prop",
+    "Genic_intron_mid_length_prop", "Genic_intron_mid_length_mono_prop",
+    "Genic_intron_long_length_prop", "Genic_intron_long_length_mono_prop",
+    "FSM_ref_coverage_prop", "ISM_ref_coverage_prop", "NIC_ref_coverage_prop", "NNC_ref_coverage_prop",
+    "Genic_ref_coverage_prop", "Antisense_ref_coverage_prop", "Fusion_ref_coverage_prop", "Intergenic_ref_coverage_prop", "Genic_intron_ref_coverage_prop", # Coverage of reference length (set at 45% default)
+    "anno_bin1_perc", "anno_bin2_3_perc", "anno_bin4_5_perc", "anno_bin6plus_perc", # Gene count bins
+    "novel_bin1_perc", "novel_bin2_3_perc", "novel_bin4_5_perc", "novel_bin6plus_perc",
+    "anno_ujc_bin1_perc", "anno_ujc_bin2_3_perc", "anno_ujc_bin4_5_perc", "anno_ujc_bin6plus_perc", # Junction count bins
+    "novel_ujc_bin1_perc", "novel_ujc_bin2_3_perc", "novel_ujc_bin4_5_perc", "novel_ujc_bin6plus_perc",
+    "RTS_prop_in_cell", "FSM_RTS_prop", "ISM_RTS_prop", "NIC_RTS_prop", "NNC_RTS_prop", # Features of bad quality
+    "Non_canonical_prop_in_cell", "FSM_noncanon_prop", "ISM_noncanon_prop", "NIC_noncanon_prop", "NNC_noncanon_prop",
+    "Intrapriming_prop_in_cell", "FSM_intrapriming_prop", "ISM_intrapriming_prop", "NIC_intrapriming_prop", "NNC_intrapriming_prop", # Features of bad quality
+    "TSSAnnotationSupport_prop", "FSM_TSSAnnotationSupport", "ISM_TSSAnnotationSupport", "NIC_TSSAnnotationSupport", "NNC_TSSAnnotationSupport",
+    "Annotated_genes_prop_in_cell", "FSM_anno_genes_prop", "ISM_anno_genes_prop", "NIC_anno_genes_prop", "NNC_anno_genes_prop",
+    "Annotated_juction_strings_prop_in_cell",
+    "Canonical_prop_in_cell", "FSM_canon_prop", "ISM_canon_prop", "NIC_canon_prop", "NNC_canon_prop" # Features of good quality
+    )
+
+  if (!skipORF) {
+  col_names <- c(col_names,
+    "Coding_FSM_prop", "Non_coding_FSM_prop", "Coding_ISM_prop", "Non_coding_ISM_prop",
+    "Coding_NIC_prop", "Non_coding_NIC_prop", "Coding_NNC_prop", "Non_coding_NNC_prop",
+    "Coding_genic_prop", "Non_coding_genic_prop", "Coding_antisense_prop", "Non_coding_antisense_prop",
+    "Coding_fusion_prop", "Non_coding_fusion_prop", "Coding_intergenic_prop", "Non_coding_intergenic_prop",
+    "Coding_genic_intron_prop", "Non_coding_genic_intron_prop",
+    "NMD_prop_in_cell", "FSM_NMD_prop", "ISM_NMD_prop", "NIC_NMD_prop", "NNC_NMD_prop"
+    )
+  }
+
+  if (CAGE_peak) {
+  col_names <- c(col_names,
+  "CAGE_peak_support_prop", "FSM_CAGE_peak_support_prop", "ISM_CAGE_peak_support_prop", "NIC_CAGE_peak_support_prop", "NNC_CAGE_peak_support_prop"
+    )
+  }
+
+  if (polyA_motif_list) {
+    col_names <- c(col_names,
+    "PolyA_motif_support_prop", "FSM_PolyA_motif_support_prop", "ISM_PolyA_motif_support_prop", "NIC_PolyA_motif_support_prop", "NNC_PolyA_motif_support_prop"
+    )
+  } 
+
+  colnames(SQANTI_cell_summary) <- col_names
   # Change data type of columns
   SQANTI_cell_summary <- SQANTI_cell_summary %>%
     mutate(across(2:ncol(.), as.numeric))  
@@ -2670,34 +2399,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(size = 16))
   
-  # NNC
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("NNC_250b_length_mono_prop", "NNC_500b_length_mono_prop",
-                                                                "NNC_short_length_mono_prop", "NNC_mid_length_mono_prop",
-                                                                "NNC_long_length_mono_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(NNC_250b_length_mono_prop, NNC_500b_length_mono_prop,
-                                                                                                       NNC_short_length_mono_prop, NNC_mid_length_mono_prop,
-                                                                                                       NNC_long_length_mono_prop)))
-  gg_NNC_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_point(alpha = 0.5, color = "#EE6A50", size = 0.5, position = position_dodge2(width = 0.8)) +
-    geom_violin(fill = "#EE6A50", color = "#EE6A50", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "#EE6A50", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "NNC Mono-exonic Reads Length Distribution per Cell",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
-  
   # Genic
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Genic_250b_length_mono_prop", "Genic_500b_length_mono_prop",
                                                                 "Genic_short_length_mono_prop", "Genic_mid_length_mono_prop",
@@ -2745,34 +2446,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
                                 "500-1000bp", "1000-2000bp",
                                 ">2000bp")) +
     labs(title = "Antisense Mono-exonic Reads Length Distribution per Cell",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
-  
-  # Fusion
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Fusion_250b_length_mono_prop", "Fusion_500b_length_mono_prop",
-                                                                "Fusion_short_length_mono_prop", "Fusion_mid_length_mono_prop",
-                                                                "Fusion_long_length_mono_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Fusion_250b_length_mono_prop, Fusion_500b_length_mono_prop,
-                                                                                                       Fusion_short_length_mono_prop, Fusion_mid_length_mono_prop,
-                                                                                                       Fusion_long_length_mono_prop)))
-  gg_fusion_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_point(alpha = 0.5, color = "goldenrod1", size = 0.5, position = position_dodge2(width = 0.8)) +
-    geom_violin(fill = "goldenrod1", color = "goldenrod1", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "goldenrod1", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "Fusion Mono-exonic Reads Length Distribution per Cell",
          x = "",
          y = "Reads, %") +
     theme(
@@ -3421,7 +3094,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
   ### Bad features plots ###
   ##########################
   
-  # Intrapriming  (split between categories)
+  # Intrapriming  (split between categories)
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
                                   cols = c("FSM_intrapriming_prop", "ISM_intrapriming_prop", 
                                            "NIC_intrapriming_prop", "NNC_intrapriming_prop"), 
@@ -3453,7 +3126,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(size = 16))
 
-  # RTS  (split between categories)
+  # RTS  (split between categories)
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
                                   cols = c("FSM_RTS_prop", "ISM_RTS_prop", 
                                            "NIC_RTS_prop", "NNC_RTS_prop"), 
@@ -3484,7 +3157,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(size = 16))
 
-  # Non-canonical  (split between categories)
+  # Non-canonical  (split between categories)
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
                                   cols = c("FSM_noncanon_prop", "ISM_noncanon_prop", 
                                            "NIC_noncanon_prop", "NNC_noncanon_prop"), 
@@ -3516,7 +3189,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(size = 16))
 
-  # NMD  (split between categories)
+  # NMD  (split between categories)
+  nmd_cols <- c("FSM_NMD_prop", "ISM_NMD_prop", "NIC_NMD_prop", "NNC_NMD_prop")
+  if (all  (nmd_cols %in% colnames(SQANTI_cell_summary))) {
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
                                   cols = c("FSM_NMD_prop", "ISM_NMD_prop", 
                                            "NIC_NMD_prop", "NNC_NMD_prop"), 
@@ -3546,14 +3221,19 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(size = 16))
+  }
 
   ## Bad quality features combined figure
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Intrapriming_prop_in_cell", "RTS_prop_in_cell",
-                                                                "Non_canonical_prop_in_cell", "NMD_prop_in_cell"), 
+  bad_feature_cols <- c("Intrapriming_prop_in_cell", "RTS_prop_in_cell", "Non_canonical_prop_in_cell")
+  if ("NMD_prop_in_cell" %in% colnames(SQANTI_cell_summary)) {
+    bad_feature_cols <- c(bad_feature_cols, "NMD_prop_in_cell")
+  }
+
+  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = all_of(bad_feature_cols), 
                                   names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
   
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Intrapriming_prop_in_cell, RTS_prop_in_cell,
-                                                                                                       Non_canonical_prop_in_cell, NMD_prop_in_cell)))
+  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, bad_feature_cols)
+
   gg_bad_feature <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_violin(aes(color = Variable, 
                     fill = Variable),
@@ -3584,13 +3264,112 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
-  
-  #  NMD  (split between categories)
-  
-  ### Good features plot ###
+    
+  ### Good features plots ###
   ##########################
-  # Junction strings mapped to annotated transcripts  (split between categories) # maybe not
-  # Canonical  (split between categories)
+  # Junction strings mapped to annotated transcripts  (split between categories) # maybe not
+  # TSS annotation support (split between categories)
+  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
+                                  cols = c("FSM_TSSAnnotationSupport", "ISM_TSSAnnotationSupport", 
+                                  "NIC_TSSAnnotationSupport", "NNC_TSSAnnotationSupport"), 
+                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
+  
+  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, 
+                                    levels = c("FSM_TSSAnnotationSupport", "ISM_TSSAnnotationSupport", 
+                                    "NIC_TSSAnnotationSupport", "NNC_TSSAnnotationSupport"))
+
+  gg_tss_annotation_support <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
+    geom_violin(aes(color = Variable, fill = Variable), alpha = 0.7, scale = "width") +  
+    geom_point(aes(color = Variable), position = position_dodge2(width = 0.8), 
+               size = 0.5, alpha = 0.8) + 
+    geom_boxplot(aes(fill = Variable), color = "grey20",
+                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
+    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
+    theme_classic(base_size = 14) +
+    scale_color_manual(values = rep("#66C2A4", 4)) +
+    scale_fill_manual(values = rep("#66C2A4", 4)) +
+    scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
+    labs(title = "TSS Annotation Support by Structural Category",
+         x = "",
+         y = "Reads, %") +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
+      axis.title = element_text(size = 16), 
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 16))
+
+  # CAGE peak support  (split between categories)
+  cage_peak_cols <- c("FSM_CAGE_peak_support_prop", "ISM_CAGE_peak_support_prop", 
+                      "NIC_CAGE_peak_support_prop", "NNC_CAGE_peak_support_prop")
+  if (all(cage_peak_cols %in% colnames(SQANTI_cell_summary))) {
+    gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
+                                  cols = c("FSM_CAGE_peak_support_prop", "ISM_CAGE_peak_support_prop", 
+                                           "NIC_CAGE_peak_support_prop", "NNC_CAGE_peak_support_prop"), 
+                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
+  
+    gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, 
+                                      levels = c("FSM_CAGE_peak_support_prop", "ISM_CAGE_peak_support_prop", 
+                                                "NIC_CAGE_peak_support_prop", "NNC_CAGE_peak_support_prop")) 
+
+    gg_cage_peak_support <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
+      geom_violin(aes(color = Variable, fill = Variable), alpha = 0.7, scale = "width") +  
+      geom_point(aes(color = Variable), position = position_dodge2(width = 0.8), 
+                size = 0.5, alpha = 0.8) +  
+      geom_boxplot(aes(fill = Variable), color = "grey20",
+                  width = 0.08, outlier.shape = NA, alpha = 0.6) +
+      stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
+      theme_classic(base_size = 14) +
+      scale_color_manual(values = rep("#EE6A50", 4)) +
+      scale_fill_manual(values = rep("#EE6A50", 4)) + 
+      scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
+      labs(title = "CAGE Peak Support by Structural Category",
+          x = "",
+          y = "Reads, %") +
+      theme(
+        legend.position = "none", 
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
+        axis.title = element_text(size = 16), 
+        axis.text.y = element_text(size = 14),
+        axis.text.x = element_text(size = 16))
+  }
+
+  # PolyA motif support  (split between categories)
+  polyA_motif_cols <- c("FSM_PolyA_motif_support_prop", "ISM_PolyA_motif_support_prop", 
+                       "NIC_PolyA_motif_support_prop", "NNC_PolyA_motif_support_prop")
+  if (all(polyA_motif_cols %in% colnames(SQANTI_cell_summary))) {
+    gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
+                                  cols = c("FSM_PolyA_motif_support_prop", "ISM_PolyA_motif_support_prop", 
+                                           "NIC_PolyA_motif_support_prop", "NNC_PolyA_motif_support_prop"), 
+                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value) 
+
+    gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, 
+                                      levels = c("FSM_PolyA_motif_support_prop", "ISM_PolyA_motif_support_prop", 
+                                                "NIC_PolyA_motif_support_prop", "NNC_PolyA_motif_support_prop"))
+
+    gg_polyA_motif_support <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
+      geom_violin(aes(color = Variable, fill = Variable), alpha = 0.7, scale = "width") +  
+      geom_point(aes(color = Variable), position = position_dodge2(width = 0.8), 
+                size = 0.5, alpha = 0.8) +  
+      geom_boxplot(aes(fill = Variable), color = "grey20",
+                  width = 0.08, outlier.shape = NA, alpha = 0.6) +
+      stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
+      theme_classic(base_size = 14) +
+      scale_color_manual(values = rep("#78C679", 4)) +
+      scale_fill_manual(values = rep("#78C679", 4)) + 
+      scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
+      labs(title = "PolyA Support by Structural Category",
+          x = "",
+          y = "Reads, %") +
+      theme(
+        legend.position = "none", 
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),   
+        axis.title = element_text(size = 16), 
+        axis.text.y = element_text(size = 14),
+        axis.text.x = element_text(size = 16))
+  } 
+
+  # Canonical  (split between categories)
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
                                   cols = c("FSM_canon_prop", "ISM_canon_prop", 
                                            "NIC_canon_prop", "NNC_canon_prop"), 
@@ -3611,7 +3390,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
     scale_color_manual(values = rep("#CC6633", 4)) +
     scale_fill_manual(values = rep("#CC6633", 4)) +
     scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
-    labs(title = "Canonical Junctions",
+    labs(title = "Canonical Junctions by Structural Category",
          x = "",
          y = "Reads, %") +
     theme(
@@ -3621,11 +3400,36 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(size = 16))
 
+  ## Good quality features combined figure
+  good_feature_cols <- c("TSSAnnotationSupport_prop")
 
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Canonical_prop_in_cell"), 
+  if ("CAGE_peak_support_prop" %in% colnames(SQANTI_cell_summary)) {
+    good_feature_cols <- c(good_feature_cols, "CAGE_peak_support_prop")
+  }
+  if ("PolyA_motif_support_prop" %in% colnames(SQANTI_cell_summary)) {
+    good_feature_cols <- c(good_feature_cols, "PolyA_motif_support_prop")
+  }
+  good_feature_cols <- c(good_feature_cols, "Canonical_prop_in_cell")
+
+  color_map <- c(
+    "TSSAnnotationSupport_prop" = "#66C2A4",
+    "CAGE_peak_support_prop" = "#EE6A50",
+    "PolyA_motif_support_prop" = "#78C679",
+    "Canonical_prop_in_cell" = "#CC6633"
+  )
+  label_map <- c(
+    "TSSAnnotationSupport_prop" = "TSS Annotated",
+    "CAGE_peak_support_prop" = "Has Coverage CAGE",
+    "PolyA_motif_support_prop" = "Has PolyA Motif",
+    "Canonical_prop_in_cell" = "Canonical Junctions"
+  )
+  color_map <- color_map[good_feature_cols]
+  label_map <- label_map[good_feature_cols]
+  
+  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = all_of(good_feature_cols), 
                                   names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
   
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Canonical_prop_in_cell)))
+  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, good_feature_cols)
   gg_good_feature <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
     geom_violin(aes(color = Variable, 
                     fill = Variable),
@@ -3637,12 +3441,12 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
                  width = 0.08, outlier.shape = NA, alpha = 0.6) +
     stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
     theme_classic(base_size = 14) +
-    scale_color_manual(values = c("Canonical_prop_in_cell" = "#CC6633")) +
-    scale_fill_manual(values = c("Canonical_prop_in_cell" = "#CC6633")) +
-    scale_x_discrete(labels = c("Reads with\ncanonical splice\njunctions")) +
+    scale_color_manual(values = color_map) +
+    scale_fill_manual(values = color_map) +
+    scale_x_discrete(labels = label_map) +
     labs(title = "Good Quality Control Attributes Across Cells",
          x = "",
-         y = "Percentage, %") + #       Maybe we need to do two/three plots. Y axis is different 
+         y = "Reads, %") +
     theme(
       legend.position = "none",
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
@@ -3660,10 +3464,273 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
   ###########################
   
   pdf(file.path(paste0(report_output,".pdf")), paper = "a4r", width = 14, height = 11)
-  ### Basic cell informtion ###
-  grid.arrange(tableGrob(summary(SQANTI_cell_summary[,12:20]), rows = NULL),
-               tableGrob(summary(SQANTI_cell_summary[,21:29]), rows = NULL),
-               nrow=2)
+  # Add cover page
+  grid.newpage()
+  cover <- textGrob("SQANTI-single cell report",
+                    gp=gpar(fontface="italic", fontsize=40, col="orangered"))
+  grid.draw(cover)
+  # Bulk tables
+  s <- textGrob("Bulk summary", gp=gpar(fontface="italic", fontsize=30), vjust = 0)
+  grid.arrange(s)
+
+  # Calculate bulk-level stats
+  unique_genes <- length(unique(Classification$associated_gene))
+  unique_junctions <- length(unique(Classification$jxn_string))
+
+  # Gene Classification table
+  gene_class_table <- data.frame(
+    Category = c("Annotated Genes", "Novel Genes"),
+    "Genes, count" = c(
+      length(unique(Classification$associated_gene[!grepl("^novel", Classification$associated_gene)])),
+      length(unique(Classification$associated_gene[grepl("^novel", Classification$associated_gene)]))
+    ),
+    check.names = FALSE
+  )
+
+  # Read Classification table (counts per structural category)
+  read_cat_levels <- c(
+    "full-splice_match", "incomplete-splice_match", "novel_in_catalog", "novel_not_in_catalog",
+    "genic", "antisense", "fusion", "intergenic", "genic_intron"
+  )
+  read_cat_names <- c(
+    "FSM", "ISM", "NIC", "NNC",
+    "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron"
+  )
+
+  read_class_table <- as.data.frame(table(factor(Classification$structural_category, levels = read_cat_levels)))
+  colnames(read_class_table) <- c("Category", "Reads, count")
+  read_class_table$Category <- read_cat_names
+
+  # Splice Junction Classification table
+  sj_types <- c("Known canonical", "Known Non-canonical", "Novel canonical", "Novel Non-canonical")
+  sj_counts <- c(
+    sum(!grepl("^novel", Classification$associated_transcript) & Classification$all_canonical == "canonical", na.rm=TRUE),
+    sum(!grepl("^novel", Classification$associated_transcript) & Classification$all_canonical == "non_canonical", na.rm=TRUE),
+    sum(grepl("^novel", Classification$associated_transcript) & Classification$all_canonical == "canonical", na.rm=TRUE),
+    sum(grepl("^novel", Classification$associated_transcript) & Classification$all_canonical == "non_canonical", na.rm=TRUE)
+  )
+  sj_perc <- round(100 * sj_counts / sum(sj_counts), 2)
+  sj_table <- data.frame(
+    Category = sj_types,
+    `SJs, count` = sj_counts,
+    Percent = sj_perc,
+    check.names = FALSE
+  )
+
+  # Table theme with larger font
+  big_table_theme <- ttheme_default(
+    core = list(fg_params = list(cex = 1.5)),
+    colhead = list(fg_params = list(cex = 1.5, fontface = "bold"))
+  )
+
+  # Titles with larger font and negative vjust to bring them closer to tables
+  title_genes <- textGrob("Gene Classification", gp=gpar(fontface="italic", fontsize=24), vjust = -3)
+  title_reads <- textGrob("Read Classification", gp=gpar(fontface="italic", fontsize=24), vjust = -7.7)
+  title_sj <- textGrob("Splice Junction Classification", gp=gpar(fontface="italic", fontsize=24), vjust = -4.3)
+
+  # Table grobs with bigger font
+  table_genes <- tableGrob(gene_class_table, rows = NULL, theme = big_table_theme)
+  table_reads <- tableGrob(read_class_table, rows = NULL, theme = big_table_theme)
+  table_sj <- tableGrob(sj_table, rows = NULL, theme = big_table_theme)
+
+  # Unique counts grob, bigger font
+  unique_counts_grob <- textGrob(
+    sprintf("Unique Genes: %d\nUnique Junction Chains: %d", unique_genes, unique_junctions),
+    gp=gpar(fontface="italic", fontsize=28), vjust = 0, hjust = 0.5
+  )
+
+  # Create gTree objects to overlay titles and tables
+  gt_genes <- gTree(children = gList(table_genes, title_genes))
+  gt_reads <- gTree(children = gList(table_reads, title_reads))
+  gt_sj <- gTree(children = gList(table_sj, title_sj))
+
+  # Arrange left column: Gene Classification + Splice Junction Classification
+  left_col <- arrangeGrob(
+    gt_genes,
+    gt_sj,
+    ncol=1,
+    heights=c(1, 1.2)
+  )
+
+  # Arrange right column: Read Classification
+  right_col <- arrangeGrob(
+    gt_reads,
+    ncol=1
+  )
+
+  # Final page layout
+  grid.arrange(
+    unique_counts_grob,
+    arrangeGrob(left_col, right_col, ncol=2, widths=c(1.3, 1.3)),
+    nrow=2,
+    heights=c(0.7, 2.2)
+  )
+
+  # Single cell tables
+  s <- textGrob("Cell summary", gp=gpar(fontface="italic", fontsize=30), vjust = 0)
+  grid.arrange(s)
+
+  # Number of cells
+  num_cells <- nrow(SQANTI_cell_summary)
+  num_cells_grob <- textGrob(
+    sprintf("Unique Cell Barcodes: %d", num_cells),
+    gp=gpar(fontface="italic", fontsize=28), vjust=0.5, hjust=0.5
+  )
+  
+  # 1. Unique Genes and Unique Junction Chains summary table
+  unique_genes_stats <- c(
+    Mean = mean(SQANTI_cell_summary$Genes_in_cell, na.rm=TRUE),
+    Median = median(SQANTI_cell_summary$Genes_in_cell, na.rm=TRUE),
+    Min = min(SQANTI_cell_summary$Genes_in_cell, na.rm=TRUE),
+    Max = max(SQANTI_cell_summary$Genes_in_cell, na.rm=TRUE),
+    SD = sd(SQANTI_cell_summary$Genes_in_cell, na.rm=TRUE)
+  )
+  unique_junctions_stats <- c(
+    Mean = mean(SQANTI_cell_summary$UJCs_in_cell, na.rm=TRUE),
+    Median = median(SQANTI_cell_summary$UJCs_in_cell, na.rm=TRUE),
+    Min = min(SQANTI_cell_summary$UJCs_in_cell, na.rm=TRUE),
+    Max = max(SQANTI_cell_summary$UJCs_in_cell, na.rm=TRUE),
+    SD = sd(SQANTI_cell_summary$UJCs_in_cell, na.rm=TRUE)
+  )
+  reads_stats <- c(
+    Mean = mean(SQANTI_cell_summary$Reads_in_cell, na.rm=TRUE),
+    Median = median(SQANTI_cell_summary$Reads_in_cell, na.rm=TRUE),
+    Min = min(SQANTI_cell_summary$Reads_in_cell, na.rm=TRUE),
+    Max = max(SQANTI_cell_summary$Reads_in_cell, na.rm=TRUE),
+    SD = sd(SQANTI_cell_summary$Reads_in_cell, na.rm=TRUE)
+  )
+  umis_stats <- c(
+    Mean = mean(SQANTI_cell_summary$UMIs_in_cell, na.rm=TRUE),
+    Median = median(SQANTI_cell_summary$UMIs_in_cell, na.rm=TRUE),
+    Min = min(SQANTI_cell_summary$UMIs_in_cell, na.rm=TRUE),
+    Max = max(SQANTI_cell_summary$UMIs_in_cell, na.rm=TRUE),
+    SD = sd(SQANTI_cell_summary$UMIs_in_cell, na.rm=TRUE)
+  )
+  summary_table1 <- data.frame(
+    Feature = c("Reads in cell", "UMIs in cell", "Unique Genes", "Unique Junction Chains"),
+    Mean = c(reads_stats["Mean"], umis_stats["Mean"], unique_genes_stats["Mean"], unique_junctions_stats["Mean"]),
+    Median = c(reads_stats["Median"], umis_stats["Median"], unique_genes_stats["Median"], unique_junctions_stats["Median"]),
+    Min = c(reads_stats["Min"], umis_stats["Min"], unique_genes_stats["Min"], unique_junctions_stats["Min"]),
+    Max = c(reads_stats["Max"], umis_stats["Max"], unique_genes_stats["Max"], unique_junctions_stats["Max"]),
+    SD = c(reads_stats["SD"], umis_stats["SD"], unique_genes_stats["SD"], unique_junctions_stats["SD"])
+  )
+  summary_table1[, 2:6] <- round(summary_table1[, 2:6], 3)
+  table_summary1 <- tableGrob(summary_table1, rows = NULL, theme = big_table_theme)
+  gt_summary1 <- gTree(children = gList(table_summary1))
+
+  # 2. Gene Classification summary table (across all cells)
+  gene_class_stats <- data.frame(
+    Category = c("Annotated Genes", "Novel Genes"),
+    Mean = c(mean(SQANTI_cell_summary$Annotated_genes, na.rm=TRUE), mean(SQANTI_cell_summary$Novel_genes, na.rm=TRUE)),
+    Median = c(median(SQANTI_cell_summary$Annotated_genes, na.rm=TRUE), median(SQANTI_cell_summary$Novel_genes, na.rm=TRUE)),
+    Min = c(min(SQANTI_cell_summary$Annotated_genes, na.rm=TRUE), min(SQANTI_cell_summary$Novel_genes, na.rm=TRUE)),
+    Max = c(max(SQANTI_cell_summary$Annotated_genes, na.rm=TRUE), max(SQANTI_cell_summary$Novel_genes, na.rm=TRUE)),
+    SD = c(sd(SQANTI_cell_summary$Annotated_genes, na.rm=TRUE), sd(SQANTI_cell_summary$Novel_genes, na.rm=TRUE))
+  )
+  gene_class_stats[, 2:6] <- round(gene_class_stats[, 2:6], 3)
+  table_gene_class_stats <- tableGrob(gene_class_stats, rows = NULL, theme = big_table_theme)
+  title_gene_class_stats <- textGrob("Gene Classification (per cell)", gp=gpar(fontface="italic", fontsize=22), vjust = -2.9)
+  gt_gene_class_stats <- gTree(children = gList(table_gene_class_stats, title_gene_class_stats))
+
+  # 3. Splice Junction Classification summary table (across all cells)
+  sj_types <- c("Known canonical", "Known Non-canonical", "Novel canonical", "Novel Non-canonical")
+  sj_stats <- sapply(sj_types, function(type) {
+    if (type == "Known canonical") {
+      vals <- SQANTI_cell_summary$Known_canonical_prop
+    } else if (type == "Known Non-canonical") {
+      vals <- SQANTI_cell_summary$Known_non_canonical_prop
+    } else if (type == "Novel canonical") {
+      vals <- SQANTI_cell_summary$Novel_canonical_prop
+    } else if (type == "Novel Non-canonical") {
+      vals <- SQANTI_cell_summary$Novel_non_canonical_prop
+    }
+    c(Mean = mean(vals, na.rm=TRUE),
+      Median = median(vals, na.rm=TRUE),
+      Min = min(vals, na.rm=TRUE),
+      Max = max(vals, na.rm=TRUE),
+      SD = sd(vals, na.rm=TRUE))
+  })
+  sj_stats_df <- data.frame(
+    Category = sj_types,
+    t(sj_stats)
+  )
+  colnames(sj_stats_df)[2:6] <- c("Mean", "Median", "Min", "Max", "SD")
+  sj_stats_df[, 2:6] <- round(sj_stats_df[, 2:6], 3)
+  table_sj_stats <- tableGrob(sj_stats_df, rows = NULL, theme = big_table_theme)
+  title_sj_stats <- textGrob("Splice Junction Classification (per cell, %)", gp=gpar(fontface="italic", fontsize=22), vjust = -4.4)
+  gt_sj_stats <- gTree(children = gList(table_sj_stats, title_sj_stats))
+
+  grid.arrange(
+    num_cells_grob,
+    gt_summary1,
+    gt_gene_class_stats,
+    gt_sj_stats,
+    ncol=1,
+    heights=c(0.3, 1, 0.7, 0.9)
+  )
+
+  #Cell Summary Statistics Page 2: Read Classification
+  title_read_class <- textGrob("Read Classification", gp=gpar(fontface="italic", fontsize=28), vjust = 0, hjust = 0.5)
+  desc_counts <- textGrob("Summary of per cell read counts by structural category", gp=gpar(fontface="italic", fontsize=18), vjust = 0.5)
+  desc_props <- textGrob("Summary of per cell read percentages by structural category", gp=gpar(fontface="italic", fontsize=18), vjust = 0.5)
+  struct_cat_cols <- c(
+    "FSM", "ISM", "NIC", "NNC", "Genic_Genomic", "Antisense", "Fusion", "Intergenic", "Genic_intron"
+  )
+  struct_cat_names <- c(
+    "FSM", "ISM", "NIC", "NNC", "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron"
+  )
+
+  # Smaller table theme for these two tables
+  small_table_theme <- ttheme_default(
+    core = list(fg_params = list(cex = 1.2)),
+    colhead = list(fg_params = list(cex = 1.2, fontface = "bold"))
+  )
+
+  # 1. Counts summary table
+  count_stats <- sapply(struct_cat_cols, function(col) {
+    vals <- SQANTI_cell_summary[[col]]
+    c(Mean = mean(vals, na.rm=TRUE),
+      Median = median(vals, na.rm=TRUE),
+      Min = min(vals, na.rm=TRUE),
+      Max = max(vals, na.rm=TRUE),
+      SD = sd(vals, na.rm=TRUE))
+  })
+  count_stats_df <- data.frame(
+    Category = struct_cat_names,
+    t(count_stats)
+  )
+  colnames(count_stats_df)[2:6] <- c("Mean", "Median", "Min", "Max", "SD")
+  count_stats_df[, 2:6] <- round(count_stats_df[, 2:6], 3)
+  table_count_stats <- tableGrob(count_stats_df, rows = NULL, theme = small_table_theme)
+
+  # 2. Proportions summary table
+  prop_cat_cols <- paste0(struct_cat_cols, "_prop")
+  prop_stats <- sapply(prop_cat_cols, function(col) {
+    vals <- SQANTI_cell_summary[[col]]
+    c(Mean = mean(vals, na.rm=TRUE),
+      Median = median(vals, na.rm=TRUE),
+      Min = min(vals, na.rm=TRUE),
+      Max = max(vals, na.rm=TRUE),
+      SD = sd(vals, na.rm=TRUE))
+  })
+  prop_stats_df <- data.frame(
+    Category = struct_cat_names,
+    t(prop_stats)
+  )
+  colnames(prop_stats_df)[2:6] <- c("Mean", "Median", "Min", "Max", "SD")
+  prop_stats_df[, 2:6] <- round(prop_stats_df[, 2:6], 3)
+  table_prop_stats <- tableGrob(prop_stats_df, rows = NULL, theme = small_table_theme)
+
+  grid.arrange(
+    title_read_class,
+    desc_counts,
+    table_count_stats,
+    desc_props,
+    table_prop_stats,
+    ncol=1,
+    heights=c(0.3, 0.12, 1, 0.12, 1)
+  )
+
   grid.arrange(gg_reads_in_cells, gg_umis_in_cells, ncol=2)
   grid.arrange(gg_genes_in_cells, gg_JCs_in_cell, ncol=2)
   print(gg_annotation_of_genes_in_cell)
@@ -3683,13 +3750,11 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
   print(gg_NIC_read_distr)
   print(gg_NIC_mono_read_distr)
   print(gg_NNC_read_distr)
-  print(gg_NNC_mono_read_distr)
   print(gg_genic_read_distr)
   print(gg_genic_mono_read_distr)
   print(gg_antisense_read_distr)
   print(gg_antisense_mono_read_distr)
   print(gg_fusion_read_distr)
-  print(gg_fusion_mono_read_distr)
   print(gg_intergenic_read_distr)
   print(gg_intergenic_mono_read_distr)
   print(gg_genic_intron_read_distr)
@@ -3706,23 +3771,35 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, re
   print(gg_SQANTI_across_Intergenic)
   print(gg_SQANTI_across_Genic_Intron)
   ### Coding/non-coding ###
-  print(gg_coding_across_category)
-  print(gg_non_coding_across_category)
+  if (!skipORF) {
+    print(gg_coding_across_category)
+    print(gg_non_coding_across_category)
+  }
   ### Coverage (TSS/TTS in the future) ###
   print(gg_ref_coverage_across_category)
   ### Unique Splice Junctions ###
   print(gg_known_novel_canon)
+  ### Bad features ###
+  print(gg_bad_feature)
   ### Bad features by structural category ###
   print(gg_intrapriming_by_category)
   print(gg_RTS_by_category)
   print(gg_noncanon_by_category)
-  print(gg_NMD_by_category)
-  ### Bad features ###
-  print(gg_bad_feature)
-  ### Good features by structural category ###
-  print(gg_canon_by_category)
+  if (!skipORF) {
+    print(gg_NMD_by_category)
+  }
   ### Good features ###
   print(gg_good_feature)
+  ### Good features by structural category ###
+  print(gg_tss_annotation_support)
+  if (CAGE_peak) {
+    print(gg_cage_peak_support)
+  }
+  if (polyA_motif_list) {
+    print(gg_polyA_motif_support)
+  } 
+  print(gg_canon_by_category)
+
   dev.off()
 }
 
