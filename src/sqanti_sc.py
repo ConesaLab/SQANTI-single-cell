@@ -167,7 +167,7 @@ def get_files_runSQANTI3(args, df):
         logs_dir = os.path.join(file_acc_dir, "logs")
         os.makedirs(logs_dir, exist_ok=True)
         log_file = os.path.join(logs_dir, "sqanti3.log")
-        update_logger(qc_logger, file_acc_dir, args.log_level)
+        update_logger(qc_logger, file_acc_dir, "qc", args.log_level)
 
         gtf_pattern = os.path.join(args.input_dir, f"{file_acc}*.g*f")
         gtf_files = glob.glob(gtf_pattern)
