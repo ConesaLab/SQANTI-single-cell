@@ -250,7 +250,7 @@ def make_UJC_hash(args, df):
         if pd.isna(row["jxn_string"]):
             return f"{base}monoexon_{row['associated_transcript']}"
         junctions = row["jxn_string"].split("_")
-        return f"{base}" + "_".join(junctions[2:-1])
+        return f"{base}" + "_".join(junctions[2:])
 
     for index, row in df.iterrows():
         file_acc = row['file_acc']
