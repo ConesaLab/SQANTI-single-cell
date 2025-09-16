@@ -260,9 +260,7 @@ def make_UJC_hash(args, df):
         print(f"**** Calculating UJCs for {file_acc}...", file=sys.stdout)
 
         # Ensure the corrected GTF contains gene_id attributes on every exon/CDS line so that
-        # downstream `gtftools` does not fail with `IndexError: list index out of range`.
-        # `gffread` will rewrite the file adding the missing attributes. We write to a
-        # temporary file and then move it back so the final filename remains unchanged.
+        # downstream `gtftools` does not fail.
         gffread_tmp = f"{outputPathPrefix}_corrected.gtf.gffread_tmp"
         gffread_cmd = f"gffread {outputPathPrefix}_corrected.gtf -T -o {gffread_tmp} && mv {gffread_tmp} {outputPathPrefix}_corrected.gtf"
 
@@ -964,6 +962,60 @@ def generate_report(args, df):
                   file=sys.stdout)
 
 
+def generate_multisample_report(args, df):
+    """
+    Generate a multisample report by aggregating per-sample SQANTI single-cell summaries.
+    It searches for <out_dir>/<file_acc>/<sampleID>_SQANTI_cell_summary.txt.gz
+    for each row in the design file and invokes the cohort R script.
+    """
+    try:
+        total_samples = df.shape[0]
+    except Exception:
+        total_samples = 0
+
+    if total_samples < 2:
+        print("[INFO] Design has fewer than 2 samples. Skipping multisample report.",
+              file=sys.stdout)
+        return
+
+    # Collect existing cell summary files
+    cell_summaries = []
+    for _, row in df.iterrows():
+        file_acc = row['file_acc']
+        sampleID = row['sampleID']
+        outputPathPrefix = os.path.join(args.out_dir, file_acc, sampleID)
+        cell_summary = f"{outputPathPrefix}_SQANTI_cell_summary.txt.gz"
+        if os.path.isfile(cell_summary):
+            cell_summaries.append(os.path.abspath(cell_summary))
+        else:
+            print(f"[INFO] Cell summary not found for {file_acc} ({sampleID}). Skipping this sample.",
+                  file=sys.stdout)
+
+    if len(cell_summaries) < 2:
+        print("[INFO] Fewer than 2 cell summaries found. Skipping multisample report.",
+              file=sys.stdout)
+        return
+
+    # Build command to run the multisample R script
+    prefix = getattr(args, 'multisample_report_prefix', 'SQANTI_sc_multisample_report')
+    files_arg = ",".join(cell_summaries)
+    out_dir = os.path.abspath(args.out_dir)
+    report_fmt = args.report
+    mode = args.mode
+
+    cmd = (
+        f"Rscript {utilitiesPath}/SQANTI-sc_multisample.R "
+        f"--files \"{files_arg}\" --out_dir \"{out_dir}\" "
+        f"--mode {mode} --report {report_fmt} --prefix \"{prefix}\""
+    )
+
+    print("**** Generating multisample SQANTI-sc report...", file=sys.stdout)
+    try:
+        subprocess.run(cmd, shell=True, check=True)
+        print("**** Multisample SQANTI-sc report generated.", file=sys.stdout)
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] Multisample report generation failed: {e}", file=sys.stderr)
+
 def main():
     global utilitiesPath, sqantiqcPath
 
@@ -1000,6 +1052,11 @@ def main():
                       help="Don't save cell summary table in report.")
     apsc.add_argument('-cm', '--count_matrix',
                       help='Cellxisoform count matrix.')
+    # Multisample report options
+    apsc.add_argument('--multisample_report', action='store_true', default=False,
+                     help='Generate a multisample cohort report from per-sample cell summaries.')
+    apsc.add_argument('--multisample_report_prefix', default='SQANTI_sc_multisample_report',
+                     help='Output prefix for the multisample report (default: SQANTI_sc_multisample_report).')
 
     apc = ap.add_argument_group("SQANTI3 customization and filtering")
     apc.add_argument('--min_ref_len', type=int, default=0,
@@ -1098,6 +1155,10 @@ def main():
     write_cv_by_cell(args, df)
 
     generate_report(args, df)
+
+    # Generate multi-sample report
+    if getattr(args, 'multisample_report', False):
+        generate_multisample_report(args, df)
 
 
 if __name__ == "__main__":
