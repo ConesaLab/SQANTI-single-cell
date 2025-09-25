@@ -109,6 +109,74 @@ report_output <- file.path(paste0(outputPathPrefix, "_SQANTI_sc_report_reads"))
 
 generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Junctions, report_output){
   
+  # Helper: pivot selected columns to long and return factor-ordered long df
+  pivot_long <- function(df, cols) {
+    out <- pivot_longer(df, cols = all_of(cols), names_to = "Variable", values_to = "Value") %>%
+      select(Variable, Value)
+    out$Variable <- factor(out$Variable, levels = cols)
+    out
+  }
+
+  # Helper: generic violin + box + mean-cross plot with shared theme
+  build_violin_plot <- function(df_long,
+                                title,
+                                x_labels,
+                                fill_map,
+                                color_map = fill_map,
+                                y_label = "Reads, %",
+                                legend = FALSE,
+                                ylim = NULL) {
+    p <- ggplot(df_long, aes(x = Variable, y = Value)) +
+      geom_violin(aes(color = Variable, fill = Variable), alpha = 0.7, scale = "width") +
+      geom_boxplot(aes(fill = Variable), color = "grey20", width = 0.08, outlier.shape = NA, alpha = 0.6) +
+      stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
+      scale_fill_manual(values = fill_map) +
+      scale_color_manual(values = color_map) +
+      scale_x_discrete(labels = x_labels) +
+      labs(title = title, x = "", y = y_label) +
+      theme_classic(base_size = 14) +
+      theme(
+        legend.position = if (legend) "bottom" else "none",
+        legend.title = element_blank(),
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 16),
+        axis.text.y = element_text(size = 14),
+        axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16)
+      )
+    if (!is.null(ylim)) p <- p + coord_cartesian(ylim = ylim)
+    p
+  }
+
+  # Helper: build length-distribution violins for given column prefix
+  # If mono=TRUE, uses *_length_mono_prop columns; otherwise *_length_prop
+  build_len_violin_for_prefix <- function(df, prefix, title, fill_color, box_fill = NULL, mono = FALSE) {
+    if (is.null(box_fill)) box_fill <- fill_color
+    suffix <- if (mono) "_length_mono_prop" else "_length_prop"
+    cols <- c(
+      paste0(prefix, "_250b", suffix),
+      paste0(prefix, "_500b", suffix),
+      paste0(prefix, "_short", suffix),
+      paste0(prefix, "_mid", suffix),
+      paste0(prefix, "_long", suffix)
+    )
+    df_long <- pivot_longer(df, cols = all_of(cols), names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
+    df_long$Variable <- factor(df_long$Variable, levels = cols)
+    ggplot(df_long, aes(x = Variable, y = Value)) +
+      geom_violin(fill = fill_color, color = fill_color, alpha = 0.7, scale = "width") +
+      geom_boxplot(fill = box_fill, color = if (box_fill == "grey90") "grey90" else "grey20", alpha = 0.3, outlier.shape = NA, width = 0.05) +
+      stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
+      theme_classic(base_size = 14) +
+      scale_x_discrete(labels = c("0-250bp", "250-500bp", "500-1000bp", "1000-2000bp", ">2000bp")) +
+      labs(title = title, x = "", y = "Reads, %") +
+      theme(
+        legend.position = "none",
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 16),
+        axis.text.y = element_text(size = 14),
+        axis.text.x = element_text(size = 16)
+      )
+  }
+
   ### Basic cell informtion ###
   #############################
   
@@ -175,10 +243,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       axis.title = element_text(size = 16), 
       axis.text.y = element_text(size = 14),
       axis.text.x = element_text(size = 14))
-  
-  # Composite plot of all cell info plots
-  # gg_cell_report1 <- grid.arrange(gg_reads_in_cells, gg_umis_in_cells, ncol=2)
-  # gg_cell_report2 <- grid.arrange(gg_genes_in_cells, gg_JCs_in_cell, ncol=2)
   
   # Anno/novel genes in cell
   gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Annotated_genes", "Novel_genes"), 
@@ -450,587 +514,235 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
 
   # Length distribution per break (cells)
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Total_250b_length_prop", "Total_500b_length_prop",
-                                                                "Total_short_length_prop", "Total_mid_length_prop",
-                                                                "Total_long_length_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Total_250b_length_prop, Total_500b_length_prop,
-                                                                                                       Total_short_length_prop, Total_mid_length_prop,
-                                                                                                       Total_long_length_prop)))
-  gg_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#CC6633", color = "black", alpha = 0.5, scale = "width") +
-    geom_boxplot(width = 0.05, fill = "#CC6633", color = "grey20", outlier.shape = NA, alpha=0.3) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "Total",
+    title = "Reads Length Distribution Across Cells",
+    fill_color = "#CC6633",
+    box_fill = "#CC6633",
+    mono = FALSE
+  )
   
   # Mono-exon length distribution per break
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Total_250b_length_mono_prop", "Total_500b_length_mono_prop",
-                                                                "Total_short_length_mono_prop", "Total_mid_length_mono_prop",
-                                                                "Total_long_length_mono_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Total_250b_length_mono_prop, Total_500b_length_mono_prop,
-                                                                                                       Total_short_length_mono_prop, Total_mid_length_mono_prop,
-                                                                                                       Total_long_length_mono_prop)))
-  gg_read_distr_mono <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#CC6633", color = "black", alpha = 0.5, scale = "width") +
-    geom_boxplot(width = 0.05, fill = "#CC6633", color = "grey20", outlier.shape = NA, alpha=0.3) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "Distribution of Mono-Exonic Read Length Proportions Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_read_distr_mono <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "Total",
+    title = "Distribution of Mono-Exonic Read Length Proportions Across Cells",
+    fill_color = "#CC6633",
+    box_fill = "#CC6633",
+    mono = TRUE
+  )
   
   # Length distribution per break per structural category (cell)
-  # FSM
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("FSM_250b_length_prop", "FSM_500b_length_prop",
-                                                                "FSM_short_length_prop", "FSM_mid_length_prop",
-                                                                "FSM_long_length_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(FSM_250b_length_prop, FSM_500b_length_prop,
-                                                                                                       FSM_short_length_prop, FSM_mid_length_prop,
-                                                                                                       FSM_long_length_prop)))
-  gg_FSM_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#6BAED6", color = "#6BAED6", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "#6BAED6", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "FSM Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_FSM_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "FSM",
+    title = "FSM Reads Length Distribution Across Cells",
+    fill_color = "#6BAED6",
+    box_fill = "#6BAED6",
+    mono = FALSE
+  )
   
   # ISM
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("ISM_250b_length_prop", "ISM_500b_length_prop",
-                                                                "ISM_short_length_prop", "ISM_mid_length_prop",
-                                                                "ISM_long_length_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(ISM_250b_length_prop, ISM_500b_length_prop,
-                                                                                                       ISM_short_length_prop, ISM_mid_length_prop,
-                                                                                                       ISM_long_length_prop)))
-  gg_ISM_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#FC8D59", color = "#FC8D59", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "#FC8D59", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "ISM Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_ISM_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "ISM",
+    title = "ISM Reads Length Distribution Across Cells",
+    fill_color = "#FC8D59",
+    box_fill = "#FC8D59",
+    mono = FALSE
+  )
   
   # NIC
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("NIC_250b_length_prop", "NIC_500b_length_prop",
-                                                                "NIC_short_length_prop", "NIC_mid_length_prop",
-                                                                "NIC_long_length_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(NIC_250b_length_prop, NIC_500b_length_prop,
-                                                                                                       NIC_short_length_prop, NIC_mid_length_prop,
-                                                                                                       NIC_long_length_prop)))
-  gg_NIC_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#78C679", color = "#78C679", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "#78C679", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "NIC Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_NIC_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "NIC",
+    title = "NIC Reads Length Distribution Across Cells",
+    fill_color = "#78C679",
+    box_fill = "#78C679",
+    mono = FALSE
+  )
   
   # NNC
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("NNC_250b_length_prop", "NNC_500b_length_prop",
-                                                                "NNC_short_length_prop", "NNC_mid_length_prop",
-                                                                "NNC_long_length_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(NNC_250b_length_prop, NNC_500b_length_prop,
-                                                                                                       NNC_short_length_prop, NNC_mid_length_prop,
-                                                                                                       NNC_long_length_prop)))
-  gg_NNC_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#EE6A50", color = "#EE6A50", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "#EE6A50", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "NNC Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_NNC_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "NNC",
+    title = "NNC Reads Length Distribution Across Cells",
+    fill_color = "#EE6A50",
+    box_fill = "#EE6A50",
+    mono = FALSE
+  )
   
   # Genic
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Genic_250b_length_prop", "Genic_500b_length_prop",
-                                                                "Genic_short_length_prop", "Genic_mid_length_prop",
-                                                                "Genic_long_length_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Genic_250b_length_prop, Genic_500b_length_prop,
-                                                                                                       Genic_short_length_prop, Genic_mid_length_prop,
-                                                                                                       Genic_long_length_prop)))
-  gg_genic_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#969696", color = "#969696", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "#969696", color = "grey90", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "Genic Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_genic_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "Genic",
+    title = "Genic Reads Length Distribution Across Cells",
+    fill_color = "#969696",
+    box_fill = "#969696",
+    mono = FALSE
+  )
   
   # Antisense
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Antisense_250b_length_prop", "Antisense_500b_length_prop",
-                                                                "Antisense_short_length_prop", "Antisense_mid_length_prop",
-                                                                "Antisense_long_length_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Antisense_250b_length_prop, Antisense_500b_length_prop,
-                                                                                                       Antisense_short_length_prop, Antisense_mid_length_prop,
-                                                                                                       Antisense_long_length_prop)))
-  gg_antisense_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#66C2A4", color = "#66C2A4", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "#66C2A4", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "Antisense Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_antisense_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "Antisense",
+    title = "Antisense Reads Length Distribution Across Cells",
+    fill_color = "#66C2A4",
+    box_fill = "#66C2A4",
+    mono = FALSE
+  )
   
   # Fusion
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Fusion_250b_length_prop", "Fusion_500b_length_prop",
-                                                                "Fusion_short_length_prop", "Fusion_mid_length_prop",
-                                                                "Fusion_long_length_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Fusion_250b_length_prop, Fusion_500b_length_prop,
-                                                                                                       Fusion_short_length_prop, Fusion_mid_length_prop,
-                                                                                                       Fusion_long_length_prop)))
-  gg_fusion_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "goldenrod1", color = "goldenrod1", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "goldenrod1", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "Fusion Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_fusion_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "Fusion",
+    title = "Fusion Reads Length Distribution Across Cells",
+    fill_color = "goldenrod1",
+    box_fill = "goldenrod1",
+    mono = FALSE
+  )
 
   # Intergenic
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Intergenic_250b_length_prop", "Intergenic_500b_length_prop",
-                                                                "Intergenic_short_length_prop", "Intergenic_mid_length_prop",
-                                                                "Intergenic_long_length_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Intergenic_250b_length_prop, Intergenic_500b_length_prop,
-                                                                                                       Intergenic_short_length_prop, Intergenic_mid_length_prop,
-                                                                                                       Intergenic_long_length_prop)))
-  gg_intergenic_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "darksalmon", color = "darksalmon", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "darksalmon", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "Intergenic Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_intergenic_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "Intergenic",
+    title = "Intergenic Reads Length Distribution Across Cells",
+    fill_color = "darksalmon",
+    box_fill = "darksalmon",
+    mono = FALSE
+  )
   
   # Genic intron
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Genic_intron_250b_length_prop", "Genic_intron_500b_length_prop",
-                                                                "Genic_intron_short_length_prop", "Genic_intron_mid_length_prop",
-                                                                "Genic_intron_long_length_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Genic_intron_250b_length_prop, Genic_intron_500b_length_prop,
-                                                                                                       Genic_intron_short_length_prop, Genic_intron_mid_length_prop,
-                                                                                                       Genic_intron_long_length_prop)))
-  gg_genic_intron_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#41B6C4", color = "#41B6C4", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "#41B6C4", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "Genic Intron Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_genic_intron_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "Genic_intron",
+    title = "Genic Intron Reads Length Distribution Across Cells",
+    fill_color = "#41B6C4",
+    box_fill = "#41B6C4",
+    mono = FALSE
+  )
   
   # Mono-exon length distribution across categories
   # FSM
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("FSM_250b_length_mono_prop", "FSM_500b_length_mono_prop",
-                                                                "FSM_short_length_mono_prop", "FSM_mid_length_mono_prop",
-                                                                "FSM_long_length_mono_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(FSM_250b_length_mono_prop, FSM_500b_length_mono_prop,
-                                                                                                       FSM_short_length_mono_prop, FSM_mid_length_mono_prop,
-                                                                                                       FSM_long_length_mono_prop)))
-  gg_FSM_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#6BAED6", color = "#6BAED6", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "#6BAED6", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "FSM Mono-exonic Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_FSM_mono_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "FSM",
+    title = "FSM Mono-exonic Reads Length Distribution Across Cells",
+    fill_color = "#6BAED6",
+    box_fill = "#6BAED6",
+    mono = TRUE
+  )
   
   # ISM
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("ISM_250b_length_mono_prop", "ISM_500b_length_mono_prop",
-                                                                "ISM_short_length_mono_prop", "ISM_mid_length_mono_prop",
-                                                                "ISM_long_length_mono_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(ISM_250b_length_mono_prop, ISM_500b_length_mono_prop,
-                                                                                                       ISM_short_length_mono_prop, ISM_mid_length_mono_prop,
-                                                                                                       ISM_long_length_mono_prop)))
-  gg_ISM_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#FC8D59", color = "#FC8D59", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "#FC8D59", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "ISM Mono-exonic Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_ISM_mono_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "ISM",
+    title = "ISM Mono-exonic Reads Length Distribution Across Cells",
+    fill_color = "#FC8D59",
+    box_fill = "#FC8D59",
+    mono = TRUE
+  )
   
   # NIC
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("NIC_250b_length_mono_prop", "NIC_500b_length_mono_prop",
-                                                                "NIC_short_length_mono_prop", "NIC_mid_length_mono_prop",
-                                                                "NIC_long_length_mono_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(NIC_250b_length_mono_prop, NIC_500b_length_mono_prop,
-                                                                                                       NIC_short_length_mono_prop, NIC_mid_length_mono_prop,
-                                                                                                       NIC_long_length_mono_prop)))
-  gg_NIC_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#78C679", color = "#78C679", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "#78C679", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "NIC Mono-exonic Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_NIC_mono_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "NIC",
+    title = "NIC Mono-exonic Reads Length Distribution Across Cells",
+    fill_color = "#78C679",
+    box_fill = "#78C679",
+    mono = TRUE
+  )
   
   # Genic
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Genic_250b_length_mono_prop", "Genic_500b_length_mono_prop",
-                                                                "Genic_short_length_mono_prop", "Genic_mid_length_mono_prop",
-                                                                "Genic_long_length_mono_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Genic_250b_length_mono_prop, Genic_500b_length_mono_prop,
-                                                                                                       Genic_short_length_mono_prop, Genic_mid_length_mono_prop,
-                                                                                                       Genic_long_length_mono_prop)))
-  gg_genic_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#969696", color = "#969696", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "#969696", color = "grey90", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "Genic Mono-exonic Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_genic_mono_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "Genic",
+    title = "Genic Mono-exonic Reads Length Distribution Across Cells",
+    fill_color = "#969696",
+    box_fill = "#969696",
+    mono = TRUE
+  )
   
   # Antisense
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Antisense_250b_length_mono_prop", "Antisense_500b_length_mono_prop",
-                                                                "Antisense_short_length_mono_prop", "Antisense_mid_length_mono_prop",
-                                                                "Antisense_long_length_mono_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Antisense_250b_length_mono_prop, Antisense_500b_length_mono_prop,
-                                                                                                       Antisense_short_length_mono_prop, Antisense_mid_length_mono_prop,
-                                                                                                       Antisense_long_length_mono_prop)))
-  gg_antisense_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#66C2A4", color = "#66C2A4", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "#66C2A4", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "Antisense Mono-exonic Reads Length Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_antisense_mono_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "Antisense",
+    title = "Antisense Mono-exonic Reads Length Distribution Across Cells",
+    fill_color = "#66C2A4",
+    box_fill = "#66C2A4",
+    mono = TRUE
+  )
   
   # Intergenic
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Intergenic_250b_length_mono_prop", "Intergenic_500b_length_mono_prop",
-                                                                "Intergenic_short_length_mono_prop", "Intergenic_mid_length_mono_prop",
-                                                                "Intergenic_long_length_mono_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Intergenic_250b_length_mono_prop, Intergenic_500b_length_mono_prop,
-                                                                                                       Intergenic_short_length_mono_prop, Intergenic_mid_length_mono_prop,
-                                                                                                       Intergenic_long_length_mono_prop)))
-  gg_intergenic_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "darksalmon", color = "darksalmon", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "darksalmon", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "Intergenic Mono-exonic Read Lengths Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_intergenic_mono_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "Intergenic",
+    title = "Intergenic Mono-exonic Read Lengths Distribution Across Cells",
+    fill_color = "darksalmon",
+    box_fill = "darksalmon",
+    mono = TRUE
+  )
   
   # Genic intron
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Genic_intron_250b_length_mono_prop", "Genic_intron_500b_length_mono_prop",
-                                                                "Genic_intron_short_length_mono_prop", "Genic_intron_mid_length_mono_prop",
-                                                                "Genic_intron_long_length_mono_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Genic_intron_250b_length_mono_prop, Genic_intron_500b_length_mono_prop,
-                                                                                                       Genic_intron_short_length_mono_prop, Genic_intron_mid_length_mono_prop,
-                                                                                                       Genic_intron_long_length_mono_prop)))
-  gg_genic_intron_mono_read_distr <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(fill = "#41B6C4", color = "#41B6C4", alpha = 0.7, scale = "width") +
-    geom_boxplot(fill = "#41B6C4", color = "grey20", alpha=0.3, outlier.shape = NA, width = 0.05) + 
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_x_discrete(labels = c("0-250bp", "250-500bp",
-                                "500-1000bp", "1000-2000bp",
-                                ">2000bp")) +
-    labs(title = "Genic Intron Mono-exonic Read Lengths Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  gg_genic_intron_mono_read_distr <- build_len_violin_for_prefix(
+    SQANTI_cell_summary,
+    prefix = "Genic_intron",
+    title = "Genic Intron Mono-exonic Read Lengths Distribution Across Cells",
+    fill_color = "#41B6C4",
+    box_fill = "#41B6C4",
+    mono = TRUE
+  )
   
   ### Reference coverage across categories ###
   ############################################
   
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("FSM_ref_coverage_prop",
-                                                                "ISM_ref_coverage_prop",
-                                                                "NIC_ref_coverage_prop",
-                                                                "NNC_ref_coverage_prop",
-                                                                "Genic_ref_coverage_prop",
-                                                                "Antisense_ref_coverage_prop",
-                                                                "Fusion_ref_coverage_prop",
-                                                                "Intergenic_ref_coverage_prop",
-                                                                "Genic_intron_ref_coverage_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(FSM_ref_coverage_prop,
-                                                                                                       ISM_ref_coverage_prop,
-                                                                                                       NIC_ref_coverage_prop,
-                                                                                                       NNC_ref_coverage_prop,
-                                                                                                       Genic_ref_coverage_prop,
-                                                                                                       Antisense_ref_coverage_prop,
-                                                                                                       Fusion_ref_coverage_prop,
-                                                                                                       Intergenic_ref_coverage_prop,
-                                                                                                       Genic_intron_ref_coverage_prop)))
-  
-  gg_ref_coverage_across_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-
-    geom_violin(aes(color = Variable, 
-                    fill = Variable), scale = "width", alpha = 0.7) +  
-    geom_boxplot(aes(fill = Variable), color = c(rep("grey20",4),"grey90",rep("grey20",4)),
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    scale_fill_manual(values = c("FSM_ref_coverage_prop"="#6BAED6", "ISM_ref_coverage_prop"="#FC8D59",
-                                 "NIC_ref_coverage_prop"="#78C679", "NNC_ref_coverage_prop"="#EE6A50", 
-                                 "Genic_ref_coverage_prop"="#969696", "Antisense_ref_coverage_prop"="#66C2A4",
-                                 "Fusion_ref_coverage_prop"="goldenrod1", "Intergenic_ref_coverage_prop"="darksalmon",
-                                 "Genic_intron_ref_coverage_prop"="#41B6C4")) + 
-    scale_color_manual(values = c("FSM_ref_coverage_prop"="#6BAED6", "ISM_ref_coverage_prop"="#FC8D59",
-                                  "NIC_ref_coverage_prop"="#78C679", "NNC_ref_coverage_prop"="#EE6A50", 
-                                  "Genic_ref_coverage_prop"="#969696", "Antisense_ref_coverage_prop"="#66C2A4",
-                                  "Fusion_ref_coverage_prop"="goldenrod1", "Intergenic_ref_coverage_prop"="darksalmon",
-                                  "Genic_intron_ref_coverage_prop"="#41B6C4")) +
-    scale_x_discrete(labels = c("FSM","ISM","NIC","NNC","Genic\nGenomic",
-                                "Antisense","Fusion","Intergenic","Genic\nintron")) +
-    theme_classic(base_size = 14) +  
-    labs(title = "Reference Length Coverage by Structural Category Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16) 
+  {
+    cols <- c("FSM_ref_coverage_prop","ISM_ref_coverage_prop","NIC_ref_coverage_prop","NNC_ref_coverage_prop",
+              "Genic_ref_coverage_prop","Antisense_ref_coverage_prop","Fusion_ref_coverage_prop","Intergenic_ref_coverage_prop",
+              "Genic_intron_ref_coverage_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- c(
+      "FSM_ref_coverage_prop"="#6BAED6", "ISM_ref_coverage_prop"="#FC8D59",
+      "NIC_ref_coverage_prop"="#78C679", "NNC_ref_coverage_prop"="#EE6A50",
+      "Genic_ref_coverage_prop"="#969696", "Antisense_ref_coverage_prop"="#66C2A4",
+      "Fusion_ref_coverage_prop"="goldenrod1", "Intergenic_ref_coverage_prop"="darksalmon",
+      "Genic_intron_ref_coverage_prop"="#41B6C4"
     )
+    x_labels <- c("FSM","ISM","NIC","NNC","Genic\nGenomic","Antisense","Fusion","Intergenic","Genic\nintron")
+    gg_ref_coverage_across_category <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "Reference Length Coverage by Structural Category Across Cells",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
+    )
+  }
   
   
   ### Structural categories ###
   #############################
   
   # Isoform Distribution Across Structural Categories
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("FSM_prop", "ISM_prop", "NIC_prop", "NNC_prop", "Genic_Genomic_prop",
-                                                                "Antisense_prop", "Fusion_prop", "Intergenic_prop", "Genic_intron_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(FSM_prop,ISM_prop,NIC_prop,NNC_prop,
-                                                                                                       Genic_Genomic_prop,Antisense_prop,
-                                                                                                       Fusion_prop,Intergenic_prop,Genic_intron_prop)))
-  
-  gg_SQANTI_across_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, 
-                    fill = Variable),
-                    alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = c(rep("grey20",4),"grey90",rep("grey20",4)),
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    scale_fill_manual(values = c("FSM_prop"="#6BAED6", "ISM_prop"="#FC8D59", "NIC_prop"="#78C679", "NNC_prop"="#EE6A50", 
-                                 "Genic_Genomic_prop"="#969696", "Antisense_prop"="#66C2A4", "Fusion_prop"="goldenrod1",
-                                 "Intergenic_prop"="darksalmon", "Genic_intron_prop"="#41B6C4")) + 
-    scale_color_manual(values = c("FSM_prop"="#6BAED6", "ISM_prop"="#FC8D59", "NIC_prop"="#78C679", "NNC_prop"="#EE6A50",
-                                  "Genic_Genomic_prop"="#969696", "Antisense_prop"="#66C2A4", "Fusion_prop"="goldenrod1",
-                                  "Intergenic_prop"="darksalmon", "Genic_intron_prop"="#41B6C4")) +
-    scale_x_discrete(labels = c("FSM","ISM","NIC","NNC","Genic\nGenomic",
-                                "Antisense","Fusion","Intergenic","Genic\nintron")) +
-    theme_classic(base_size = 14) +  
-    labs(title = "Structural Categories Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16) 
+  {
+    cols <- c("FSM_prop","ISM_prop","NIC_prop","NNC_prop","Genic_Genomic_prop","Antisense_prop","Fusion_prop","Intergenic_prop","Genic_intron_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- c(
+      "FSM_prop"="#6BAED6", "ISM_prop"="#FC8D59", "NIC_prop"="#78C679", "NNC_prop"="#EE6A50",
+      "Genic_Genomic_prop"="#969696", "Antisense_prop"="#66C2A4", "Fusion_prop"="goldenrod1",
+      "Intergenic_prop"="darksalmon", "Genic_intron_prop"="#41B6C4"
     )
+    x_labels <- c("FSM","ISM","NIC","NNC","Genic\nGenomic","Antisense","Fusion","Intergenic","Genic\nintron")
+    gg_SQANTI_across_category <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "Structural Categories Distribution Across Cells",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
+    )
+  }
   
   #  Coding/non-coding across structural categories (change it in the future to a combine plot)
   if (!skipORF) {
@@ -1133,442 +845,238 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   } # End of if (!skipORF)
 
   # Isoform Distribution Across FSM 
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("FSM_alternative_3end_prop","FSM_alternative_3end5end_prop",
-                                                                "FSM_alternative_5end_prop","FSM_reference_match_prop",
-                                                                "FSM_mono_exon_prop"), 
-                                   names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(FSM_alternative_3end_prop,
-                                                                                                       FSM_alternative_3end5end_prop,
-                                                                                                       FSM_alternative_5end_prop,
-                                                                                                       FSM_reference_match_prop,
-                                                                                                       FSM_mono_exon_prop)))
-  
-  gg_SQANTI_across_FSM <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, 
-                    fill = Variable),
-                    alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = c(rep("grey90",2),rep("grey20",3)),
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    scale_color_manual(values = c("FSM_alternative_3end_prop"='#02314d', "FSM_alternative_3end5end_prop"='#0e5a87',
-                                  "FSM_alternative_5end_prop"='#7ccdfc', 'FSM_reference_match_prop'='#c4e1f2',
-                                  "FSM_mono_exon_prop"='#cec2d2')) + 
-    scale_fill_manual(values = c("FSM_alternative_3end_prop"='#02314d', "FSM_alternative_3end5end_prop"='#0e5a87',
-                                 "FSM_alternative_5end_prop"='#7ccdfc', 'FSM_reference_match_prop'='#c4e1f2',
-                                 "FSM_mono_exon_prop"='#cec2d2')) +  
-    scale_x_discrete(labels = c("Alternative 3'end", "Alternative 3'5'end", "Alternative 5'end",
-                                'Reference match', "Mono-exon")) +
-    theme_classic(base_size = 14) +  
-    labs(title = "FSM Structural Subcategories Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16) 
+  {
+    cols <- c("FSM_alternative_3end_prop","FSM_alternative_3end5end_prop","FSM_alternative_5end_prop",
+              "FSM_reference_match_prop","FSM_mono_exon_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- c(
+      "FSM_alternative_3end_prop"='#02314d', "FSM_alternative_3end5end_prop"='#0e5a87',
+      "FSM_alternative_5end_prop"='#7ccdfc', 'FSM_reference_match_prop'='#c4e1f2',
+      "FSM_mono_exon_prop"='#cec2d2'
     )
+    x_labels <- c("Alternative 3'end", "Alternative 3'5'end", "Alternative 5'end", 'Reference match', "Mono-exon")
+    gg_SQANTI_across_FSM <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "FSM Structural Subcategories Distribution Across Cells",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
+    )
+  }
   
   # Isoform Distribution Across ISM
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("ISM_3prime_fragment_prop", "ISM_internal_fragment_prop",
-                                                                "ISM_5prime_fragment_prop", "ISM_intron_retention_prop", "ISM_mono_exon_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(ISM_3prime_fragment_prop,
-                                                                                                       ISM_internal_fragment_prop,
-                                                                                                       ISM_5prime_fragment_prop,
-                                                                                                       ISM_intron_retention_prop,
-                                                                                                       ISM_mono_exon_prop))) 
-  
-  gg_SQANTI_across_ISM <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, 
-                    fill = Variable),
-                    alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = c(rep("grey90",2),rep("grey20",3)),
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    scale_color_manual(values = c("ISM_3prime_fragment_prop"='#c4531d', "ISM_internal_fragment_prop"='#e37744',  
-                                  "ISM_5prime_fragment_prop"='#e0936e', "ISM_intron_retention_prop"='#81eb82',
-                                  "ISM_mono_exon_prop"='#cec2d2')) + 
-    scale_fill_manual(values = c("ISM_3prime_fragment_prop"='#c4531d', "ISM_internal_fragment_prop"='#e37744',  
-                                 "ISM_5prime_fragment_prop"='#e0936e', "ISM_intron_retention_prop"='#81eb82',
-                                 "ISM_mono_exon_prop"='#cec2d2')) +  
-    scale_x_discrete(labels = c("3' fragment", "Internal fragment", "5' fragment",
-                                'Intron retention', "Mono-exon")) +
-    theme_classic(base_size = 14) +  
-    labs(title = "ISM Structural Subcategories Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16) 
+  {
+    cols <- c("ISM_3prime_fragment_prop","ISM_internal_fragment_prop","ISM_5prime_fragment_prop",
+              "ISM_intron_retention_prop","ISM_mono_exon_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- c(
+      "ISM_3prime_fragment_prop"='#c4531d', "ISM_internal_fragment_prop"='#e37744',
+      "ISM_5prime_fragment_prop"='#e0936e', "ISM_intron_retention_prop"='#81eb82',
+      "ISM_mono_exon_prop"='#cec2d2'
     )
+    x_labels <- c("3' fragment", "Internal fragment", "5' fragment", 'Intron retention', "Mono-exon")
+    gg_SQANTI_across_ISM <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "ISM Structural Subcategories Distribution Across Cells",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
+    )
+  }
   
   # Isoform Distribution Across NIC
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("NIC_combination_of_known_junctions_prop", 
-                                                                "NIC_combination_of_known_splicesites_prop",
-                                                                "NIC_intron_retention_prop",
-                                                                "NIC_mono_exon_by_intron_retention_prop",
-                                                                "NIC_mono_exon_prop"), 
-                                  names_to = "Variable", values_to = "Value")
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(NIC_combination_of_known_junctions_prop, 
-                                                                                                       NIC_combination_of_known_splicesites_prop,
-                                                                                                       NIC_intron_retention_prop,
-                                                                                                       NIC_mono_exon_by_intron_retention_prop,
-                                                                                                       NIC_mono_exon_prop)))
-  gg_SQANTI_across_NIC <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, 
-                    fill = Variable),
-                    alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = c(rep("grey90",2),"grey20",rep("grey90",2)),
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    scale_color_manual(values = c("NIC_combination_of_known_junctions_prop"='#014d02', "NIC_combination_of_known_splicesites_prop"='#379637',  
-                                  "NIC_intron_retention_prop"='#81eb82', "NIC_mono_exon_by_intron_retention_prop"="#4aaa72",
-                                  "NIC_mono_exon_prop"="#cec2d2")) + 
-    scale_fill_manual(values = c("NIC_combination_of_known_junctions_prop"='#014d02', "NIC_combination_of_known_splicesites_prop"='#379637',  
-                                 "NIC_intron_retention_prop"='#81eb82', "NIC_mono_exon_by_intron_retention_prop"="#4aaa72",
-                                 "NIC_mono_exon_prop"="#cec2d2")) +  
-    scale_x_discrete(labels = c("Comb. of annot. junctions", "Comb. of annot. splice sites",  
-                                "Intron retention", "Mono-exon by intron ret.", "Mono-exon")) +
-    theme_classic(base_size = 14) +  
-    labs(title = "NIC Structural Subcategories Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16) 
+  {
+    cols <- c("NIC_combination_of_known_junctions_prop","NIC_combination_of_known_splicesites_prop",
+              "NIC_intron_retention_prop","NIC_mono_exon_by_intron_retention_prop","NIC_mono_exon_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- c(
+      "NIC_combination_of_known_junctions_prop"='#014d02', "NIC_combination_of_known_splicesites_prop"='#379637',
+      "NIC_intron_retention_prop"='#81eb82', "NIC_mono_exon_by_intron_retention_prop"="#4aaa72",
+      "NIC_mono_exon_prop"="#cec2d2"
     )
+    x_labels <- c("Comb. of annot. junctions", "Comb. of annot. splice sites", "Intron retention", "Mono-exon by intron ret.", "Mono-exon")
+    gg_SQANTI_across_NIC <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "NIC Structural Subcategories Distribution Across Cells",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
+    )
+  }
   
   # Isoform Distribution Across NNC
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("NNC_at_least_one_novel_splicesite_prop",
-                                                                "NNC_intron_retention_prop"), 
-                                  names_to = "Variable", values_to = "Value")
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(NNC_at_least_one_novel_splicesite_prop,
-                                                                                                       NNC_intron_retention_prop)))
-  
-  gg_SQANTI_across_NNC <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, 
-                    fill = Variable),
-                    alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = c("grey90","grey20"),
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    scale_color_manual(values = c("NNC_at_least_one_novel_splicesite_prop"="#32734d", "NNC_intron_retention_prop"="#81eb82")) + 
-    scale_fill_manual(values = c("NNC_at_least_one_novel_splicesite_prop"="#32734d", "NNC_intron_retention_prop"="#81eb82")) +  
-    scale_x_discrete(labels = c("At least\n1 annot. don./accept.", "Intron retention")) +
-    theme_classic(base_size = 14) +  
-    labs(title = "NNC Structural Subcategories Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16) 
+  {
+    cols <- c("NNC_at_least_one_novel_splicesite_prop","NNC_intron_retention_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- c("NNC_at_least_one_novel_splicesite_prop"="#32734d", "NNC_intron_retention_prop"="#81eb82")
+    x_labels <- c("At least\n1 annot. don./accept.", "Intron retention")
+    gg_SQANTI_across_NNC <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "NNC Structural Subcategories Distribution Across Cells",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
     )
+  }
   
   # Isoform Distribution Across Fusion
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary,
-                                  cols = c("Fusion_intron_retention_prop", 
-                                           "Fusion_multi_exon_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable,
-                                     colnames(SQANTI_cell_summary %>% select(Fusion_intron_retention_prop, 
-                                                                             Fusion_multi_exon_prop)))
-  
-  gg_SQANTI_across_Fusion <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, 
-                    fill = Variable),
-                    alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = c("grey20","grey90"),
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    scale_color_manual(values = c("Fusion_intron_retention_prop"="#81eb82", "Fusion_multi_exon_prop"="#876a91")) +
-    scale_fill_manual(values = c("Fusion_intron_retention_prop"="#81eb82", "Fusion_multi_exon_prop"="#876a91")) +  
-    scale_x_discrete(labels = c("Intron retention", "Multi-exon")) +
-    theme_classic(base_size = 14) +  
-    labs(title = "Fusion Structural Subcategories Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16) 
+  {
+    cols <- c("Fusion_intron_retention_prop","Fusion_multi_exon_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- c("Fusion_intron_retention_prop"="#81eb82", "Fusion_multi_exon_prop"="#876a91")
+    x_labels <- c("Intron retention", "Multi-exon")
+    gg_SQANTI_across_Fusion <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "Fusion Structural Subcategories Distribution Across Cells",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
     )
+  }
   
   # Isoform Distribution Across Genic
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary,
-                                  cols = c("Genic_mono_exon_prop", 
-                                           "Genic_multi_exon_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable,
-                                     colnames(SQANTI_cell_summary %>% select(Genic_mono_exon_prop, 
-                                                                             Genic_multi_exon_prop)))
-  
-  gg_SQANTI_across_Genic <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, 
-                    fill = Variable),
-                    alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = c("grey20","grey90"),
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    scale_color_manual(values = c("Genic_mono_exon_prop"="#81eb82", "Genic_multi_exon_prop"="#876a91")) +
-    scale_fill_manual(values = c("Genic_mono_exon_prop"="#81eb82", "Genic_multi_exon_prop"="#876a91")) +  
-    scale_x_discrete(labels = c("Mono-exon", "Multi-exon")) +
-    theme_classic(base_size = 14) +  
-    labs(title = "Genic Structural Subcategories Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16) 
+  {
+    cols <- c("Genic_mono_exon_prop","Genic_multi_exon_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- c("Genic_mono_exon_prop"="#81eb82", "Genic_multi_exon_prop"="#876a91")
+    x_labels <- c("Mono-exon", "Multi-exon")
+    gg_SQANTI_across_Genic <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "Genic Structural Subcategories Distribution Across Cells",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
     )
+  }
   
   # Isoform Distribution Across Genic Intron
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary,
-                                  cols = c("Genic_intron_mono_exon_prop", 
-                                           "Genic_intron_multi_exon_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable,
-                                     colnames(SQANTI_cell_summary %>% select(Genic_intron_mono_exon_prop, 
-                                                                             Genic_intron_multi_exon_prop)))
-
-  gg_SQANTI_across_Genic_Intron <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, 
-                    fill = Variable),
-                    alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = c("grey20","grey90"),
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    scale_color_manual(values = c("Genic_intron_mono_exon_prop"="#81eb82", "Genic_intron_multi_exon_prop"="#876a91")) +
-    scale_fill_manual(values = c("Genic_intron_mono_exon_prop"="#81eb82", "Genic_intron_multi_exon_prop"="#876a91")) +  
-    scale_x_discrete(labels = c("Mono-exon", "Multi-exon")) +
-    theme_classic(base_size = 14) +  
-    labs(title = "Genic Intron Structural Subcategories Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16) 
+  {
+    cols <- c("Genic_intron_mono_exon_prop","Genic_intron_multi_exon_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- c("Genic_intron_mono_exon_prop"="#81eb82", "Genic_intron_multi_exon_prop"="#876a91")
+    x_labels <- c("Mono-exon", "Multi-exon")
+    gg_SQANTI_across_Genic_Intron <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "Genic Intron Structural Subcategories Distribution Across Cells",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
     )
+  }
   
   # Isoform Distribution Across Antisense
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary,
-                                  cols = c("Antisense_mono_exon_prop", 
-                                           "Antisense_multi_exon_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable,
-                                     colnames(SQANTI_cell_summary %>% select(Antisense_mono_exon_prop, 
-                                                                             Antisense_multi_exon_prop)))
-  
-  gg_SQANTI_across_Antisense <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, 
-                    fill = Variable),
-                    alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = c("grey20","grey90"),
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    scale_color_manual(values = c("Antisense_mono_exon_prop"="#81eb82", "Antisense_multi_exon_prop"="#876a91")) +
-    scale_fill_manual(values = c("Antisense_mono_exon_prop"="#81eb82", "Antisense_multi_exon_prop"="#876a91")) +  
-    scale_x_discrete(labels = c("Mono-exon", "Multi-exon")) +
-    theme_classic(base_size = 14) +  
-    labs(title = "Antisense Structural Subcategories Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16) 
+  {
+    cols <- c("Antisense_mono_exon_prop","Antisense_multi_exon_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- c("Antisense_mono_exon_prop"="#81eb82", "Antisense_multi_exon_prop"="#876a91")
+    x_labels <- c("Mono-exon", "Multi-exon")
+    gg_SQANTI_across_Antisense <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "Antisense Structural Subcategories Distribution Across Cells",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
     )
+  }
   
   # Isoform Distribution Across Intergenic
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary,
-                                  cols = c("Intergenic_mono_exon_prop", 
-                                           "Intergenic_multi_exon_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable,
-                                     colnames(SQANTI_cell_summary %>% select(Intergenic_mono_exon_prop, 
-                                                                             Intergenic_multi_exon_prop)))
-  
-  gg_SQANTI_across_Intergenic <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, 
-                    fill = Variable),
-                    alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = c("grey20","grey90"),
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    scale_color_manual(values = c("Intergenic_mono_exon_prop"="#81eb82", "Intergenic_multi_exon_prop"="#876a91")) +
-    scale_fill_manual(values = c("Intergenic_mono_exon_prop"="#81eb82", "Intergenic_multi_exon_prop"="#876a91")) +  
-    scale_x_discrete(labels = c("Mono-exon", "Multi-exon")) +
-    theme_classic(base_size = 14) +  
-    labs(title = "Intergenic Structural Subcategories Distribution Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16) 
+  {
+    cols <- c("Intergenic_mono_exon_prop","Intergenic_multi_exon_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- c("Intergenic_mono_exon_prop"="#81eb82", "Intergenic_multi_exon_prop"="#876a91")
+    x_labels <- c("Mono-exon", "Multi-exon")
+    gg_SQANTI_across_Intergenic <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "Intergenic Structural Subcategories Distribution Across Cells",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
     )
+  }
   
   ### Splice junctions characterization ###
   #########################################
   
   # Known/novel canonical/non-canonical SJs
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, cols = c("Known_canonical_junctions_prop", "Known_non_canonical_junctions_prop",
-                                                                "Novel_canonical_junctions_prop", "Novel_non_canonical_junctions_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, colnames(SQANTI_cell_summary %>% select(Known_canonical_junctions_prop, Known_non_canonical_junctions_prop,
-                                                                                                       Novel_canonical_junctions_prop, Novel_non_canonical_junctions_prop)))
-  gg_known_novel_canon <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, 
-                    fill = Variable),
-                    alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = "grey20",
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    theme_classic(base_size = 14) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_color_manual(values = c("Known_canonical_junctions_prop" = "#6BAED6",
-                                  "Known_non_canonical_junctions_prop" = "goldenrod1",
-                                  "Novel_canonical_junctions_prop" = "#78C679",
-                                  "Novel_non_canonical_junctions_prop" = "#FC8D59")) +
-    scale_fill_manual(values = c("Known_canonical_junctions_prop" = "#6BAED6",
-                                  "Known_non_canonical_junctions_prop" = "goldenrod1",
-                                  "Novel_canonical_junctions_prop" = "#78C679",
-                                  "Novel_non_canonical_junctions_prop" = "#FC8D59")) +
-    scale_x_discrete(labels = c("Known\nCanonical", "Known\nNon-canonical",
-                                "Novel\nCanonical", "Novel\nNon-canonical")) +
-    labs(title = "Distribution of Splice Junctions Across Cells",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16))
+  {
+    cols <- c("Known_canonical_junctions_prop","Known_non_canonical_junctions_prop","Novel_canonical_junctions_prop","Novel_non_canonical_junctions_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- c(
+      "Known_canonical_junctions_prop"="#6BAED6",
+      "Known_non_canonical_junctions_prop"="goldenrod1",
+      "Novel_canonical_junctions_prop"="#78C679",
+      "Novel_non_canonical_junctions_prop"="#FC8D59"
+    )
+    x_labels <- c("Known\nCanonical","Known\nNon-canonical","Novel\nCanonical","Novel\nNon-canonical")
+    gg_known_novel_canon <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "Distribution of Splice Junctions Across Cells",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
+    )
+  }
   
   ### Bad features plots ###
   ##########################
   
   # Intrapriming  (split between categories)
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
-                                  cols = c("FSM_intrapriming_prop", "ISM_intrapriming_prop", 
-                                           "NIC_intrapriming_prop", "NNC_intrapriming_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, 
-                                    levels = c("FSM_intrapriming_prop", "ISM_intrapriming_prop", 
-                                               "NIC_intrapriming_prop", "NNC_intrapriming_prop"))
-  
-  gg_intrapriming_by_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, fill = Variable), alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = "grey20",
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    # Use the same intrapriming green color from the original bad_feature plot
-    scale_color_manual(values = rep("#78C679", 4)) +
-    scale_fill_manual(values = rep("#78C679", 4)) +
-    scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
-    labs(title = "Intrapriming by Structural Category",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  {
+    cols <- c("FSM_intrapriming_prop","ISM_intrapriming_prop","NIC_intrapriming_prop","NNC_intrapriming_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- setNames(rep("#78C679", length(cols)), cols)
+    x_labels <- c("FSM","ISM","NIC","NNC")
+    gg_intrapriming_by_category <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "Intrapriming by Structural Category",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
+    )
+  }
 
   # RTS  (split between categories)
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
-                                  cols = c("FSM_RTS_prop", "ISM_RTS_prop", 
-                                           "NIC_RTS_prop", "NNC_RTS_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, 
-                                    levels = c("FSM_RTS_prop", "ISM_RTS_prop", 
-                                               "NIC_RTS_prop", "NNC_RTS_prop"))
-  
-  gg_RTS_by_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, fill = Variable), alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = "grey20",
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_color_manual(values = rep("#FF9933", 4)) +
-    scale_fill_manual(values = rep("#FF9933", 4)) +
-    scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
-    labs(title = "RT-switching by Structural Category",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  {
+    cols <- c("FSM_RTS_prop","ISM_RTS_prop","NIC_RTS_prop","NNC_RTS_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- setNames(rep("#FF9933", length(cols)), cols)
+    x_labels <- c("FSM","ISM","NIC","NNC")
+    gg_RTS_by_category <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "RT-switching by Structural Category",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
+    )
+  }
 
   # Non-canonical  (split between categories)
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
-                                  cols = c("FSM_noncanon_prop", "ISM_noncanon_prop", 
-                                           "NIC_noncanon_prop", "NNC_noncanon_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, 
-                                    levels = c("FSM_noncanon_prop", "ISM_noncanon_prop", 
-                                               "NIC_noncanon_prop", "NNC_noncanon_prop"))
-  
-  gg_noncanon_by_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, fill = Variable), alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = "grey20",
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    # Use the same non-canonical blue color from the original bad_feature plot
-    scale_color_manual(values = rep("#41B6C4", 4)) +
-    scale_fill_manual(values = rep("#41B6C4", 4)) +
-    scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
-    labs(title = "Non-Canonical Junctions by Structural Category",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  {
+    cols <- c("FSM_noncanon_prop","ISM_noncanon_prop","NIC_noncanon_prop","NNC_noncanon_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- setNames(rep("#41B6C4", length(cols)), cols)
+    x_labels <- c("FSM","ISM","NIC","NNC")
+    gg_noncanon_by_category <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "Non-Canonical Junctions by Structural Category",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
+    )
+  }
 
   # NMD  (split between categories)
   nmd_cols <- c("FSM_NMD_prop", "ISM_NMD_prop", "NIC_NMD_prop", "NNC_NMD_prop")
@@ -1658,128 +1166,76 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   ##########################
   # Junction strings mapped to annotated transcripts  (split between categories) # maybe not
   # TSS annotation support (split between categories)
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
-                                  cols = c("FSM_TSSAnnotationSupport", "ISM_TSSAnnotationSupport", 
-                                  "NIC_TSSAnnotationSupport", "NNC_TSSAnnotationSupport"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, 
-                                    levels = c("FSM_TSSAnnotationSupport", "ISM_TSSAnnotationSupport", 
-                                    "NIC_TSSAnnotationSupport", "NNC_TSSAnnotationSupport"))
-
-  gg_tss_annotation_support <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, fill = Variable), alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = "grey20",
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_color_manual(values = rep("#66C2A4", 4)) +
-    scale_fill_manual(values = rep("#66C2A4", 4)) +
-    scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
-    labs(title = "TSS Annotation Support by Structural Category",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  {
+    cols <- c("FSM_TSSAnnotationSupport","ISM_TSSAnnotationSupport","NIC_TSSAnnotationSupport","NNC_TSSAnnotationSupport")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- setNames(rep("#66C2A4", length(cols)), cols)
+    x_labels <- c("FSM","ISM","NIC","NNC")
+    gg_tss_annotation_support <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "TSS Annotation Support by Structural Category",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
+    )
+  }
 
   # CAGE peak support  (split between categories)
   cage_peak_cols <- c("FSM_CAGE_peak_support_prop", "ISM_CAGE_peak_support_prop", 
                       "NIC_CAGE_peak_support_prop", "NNC_CAGE_peak_support_prop")
   if (all(cage_peak_cols %in% colnames(SQANTI_cell_summary))) {
-    gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
-                                  cols = c("FSM_CAGE_peak_support_prop", "ISM_CAGE_peak_support_prop", 
-                                           "NIC_CAGE_peak_support_prop", "NNC_CAGE_peak_support_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-    gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, 
-                                      levels = c("FSM_CAGE_peak_support_prop", "ISM_CAGE_peak_support_prop", 
-                                                "NIC_CAGE_peak_support_prop", "NNC_CAGE_peak_support_prop")) 
-
-    gg_cage_peak_support <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-      geom_violin(aes(color = Variable, fill = Variable), alpha = 0.7, scale = "width") +  
-      geom_boxplot(aes(fill = Variable), color = "grey20",
-                  width = 0.08, outlier.shape = NA, alpha = 0.6) +
-      stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-      theme_classic(base_size = 14) +
-      scale_color_manual(values = rep("#EE6A50", 4)) +
-      scale_fill_manual(values = rep("#EE6A50", 4)) + 
-      scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
-      labs(title = "CAGE Peak Support by Structural Category",
-          x = "",
-          y = "Reads, %") +
-      theme(
-        legend.position = "none", 
-        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-        axis.title = element_text(size = 16), 
-        axis.text.y = element_text(size = 14),
-        axis.text.x = element_text(size = 16))
+    {
+      cols <- c("FSM_CAGE_peak_support_prop","ISM_CAGE_peak_support_prop","NIC_CAGE_peak_support_prop","NNC_CAGE_peak_support_prop")
+      gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+      fill_map <- setNames(rep("#EE6A50", length(cols)), cols)
+      x_labels <- c("FSM","ISM","NIC","NNC")
+      gg_cage_peak_support <- build_violin_plot(
+        gg_SQANTI_pivot,
+        title = "CAGE Peak Support by Structural Category",
+        x_labels = x_labels,
+        fill_map = fill_map,
+        y_label = "Reads, %",
+        legend = FALSE
+      )
+    }
   }
 
   # PolyA motif support  (split between categories)
   polyA_motif_cols <- c("FSM_PolyA_motif_support_prop", "ISM_PolyA_motif_support_prop", 
                        "NIC_PolyA_motif_support_prop", "NNC_PolyA_motif_support_prop")
   if (all(polyA_motif_cols %in% colnames(SQANTI_cell_summary))) {
-    gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
-                                  cols = c("FSM_PolyA_motif_support_prop", "ISM_PolyA_motif_support_prop", 
-                                           "NIC_PolyA_motif_support_prop", "NNC_PolyA_motif_support_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value) 
-
-    gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, 
-                                      levels = c("FSM_PolyA_motif_support_prop", "ISM_PolyA_motif_support_prop", 
-                                                "NIC_PolyA_motif_support_prop", "NNC_PolyA_motif_support_prop"))
-
-    gg_polyA_motif_support <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-      geom_violin(aes(color = Variable, fill = Variable), alpha = 0.7, scale = "width") +  
-      geom_boxplot(aes(fill = Variable), color = "grey20",
-                  width = 0.08, outlier.shape = NA, alpha = 0.6) +
-      stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-      theme_classic(base_size = 14) +
-      scale_color_manual(values = rep("#78C679", 4)) +
-      scale_fill_manual(values = rep("#78C679", 4)) + 
-      scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
-      labs(title = "PolyA Support by Structural Category",
-          x = "",
-          y = "Reads, %") +
-      theme(
-        legend.position = "none", 
-        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),   
-        axis.title = element_text(size = 16), 
-        axis.text.y = element_text(size = 14),
-        axis.text.x = element_text(size = 16))
+    {
+      cols <- c("FSM_PolyA_motif_support_prop","ISM_PolyA_motif_support_prop","NIC_PolyA_motif_support_prop","NNC_PolyA_motif_support_prop")
+      gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+      fill_map <- setNames(rep("#78C679", length(cols)), cols)
+      x_labels <- c("FSM","ISM","NIC","NNC")
+      gg_polyA_motif_support <- build_violin_plot(
+        gg_SQANTI_pivot,
+        title = "PolyA Support by Structural Category",
+        x_labels = x_labels,
+        fill_map = fill_map,
+        y_label = "Reads, %",
+        legend = FALSE
+      )
+    }
   } 
 
   # Canonical  (split between categories)
-  gg_SQANTI_pivot <- pivot_longer(SQANTI_cell_summary, 
-                                  cols = c("FSM_canon_prop", "ISM_canon_prop", 
-                                           "NIC_canon_prop", "NNC_canon_prop"), 
-                                  names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-  
-  gg_SQANTI_pivot$Variable <- factor(gg_SQANTI_pivot$Variable, 
-                                    levels = c("FSM_canon_prop", "ISM_canon_prop", 
-                                               "NIC_canon_prop", "NNC_canon_prop"))
-  
-  gg_canon_by_category <- ggplot(gg_SQANTI_pivot, aes(x = Variable, y = Value)) +
-    geom_violin(aes(color = Variable, fill = Variable), alpha = 0.7, scale = "width") +  
-    geom_boxplot(aes(fill = Variable), color = "grey20",
-                 width = 0.08, outlier.shape = NA, alpha = 0.6) +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1) +
-    theme_classic(base_size = 14) +
-    scale_color_manual(values = rep("#CC6633", 4)) +
-    scale_fill_manual(values = rep("#CC6633", 4)) +
-    scale_x_discrete(labels = c("FSM", "ISM", "NIC", "NNC")) +
-    labs(title = "Canonical Junctions by Structural Category",
-         x = "",
-         y = "Reads, %") +
-    theme(
-      legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-      axis.title = element_text(size = 16), 
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16))
+  {
+    cols <- c("FSM_canon_prop","ISM_canon_prop","NIC_canon_prop","NNC_canon_prop")
+    gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
+    fill_map <- setNames(rep("#CC6633", length(cols)), cols)
+    x_labels <- c("FSM","ISM","NIC","NNC")
+    gg_canon_by_category <- build_violin_plot(
+      gg_SQANTI_pivot,
+      title = "Canonical Junctions by Structural Category",
+      x_labels = x_labels,
+      fill_map = fill_map,
+      y_label = "Reads, %",
+      legend = FALSE
+    )
+  }
 
   ## Good quality features combined figure
   good_feature_cols <- c("TSSAnnotationSupport_prop")
@@ -1902,23 +1358,19 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   )
   rownames(SJ_class_table) <- NULL
 
-  # Table theme with larger font
   big_table_theme <- ttheme_default(
     core = list(fg_params = list(cex = 1.5)),
     colhead = list(fg_params = list(cex = 1.5, fontface = "bold"))
   )
 
-  # Titles with larger font and negative vjust to bring them closer to tables
   title_genes <- textGrob("Gene Classification", gp=gpar(fontface="italic", fontsize=24), vjust = -3)
   title_reads <- textGrob("Read Classification", gp=gpar(fontface="italic", fontsize=24), vjust = -7.7)
   title_sj <- textGrob("Splice Junction Classification", gp=gpar(fontface="italic", fontsize=24), vjust = -4.3)
 
-  # Table grobs with bigger font
   table_genes <- tableGrob(gene_class_table, rows = NULL, theme = big_table_theme)
   table_reads <- tableGrob(read_class_table, rows = NULL, theme = big_table_theme)
   table_sj <- tableGrob(SJ_class_table, rows = NULL, theme = big_table_theme)
   
-  # Unique counts grob, bigger font
   unique_counts_grob <- textGrob(
     sprintf("Number of Reads: %d\nUnique Genes: %d\nUnique Junction Chains: %d", total_reads_count, unique_genes, unique_junctions),
     gp=gpar(fontface="italic", fontsize=28), vjust = 0, hjust = 0.5
@@ -2183,128 +1635,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   print(gg_SQANTI_across_Genic_Intron)
   ### Coding/non-coding ###
   if (!skipORF) {
-    # Create a temporary copy of SQANTI_cell_summary for plotting coding/non-coding
-    # to avoid altering the main data table that might be saved.
-    # Here, set proportions to NA if the category count is 0 for that cell,
-    # so violin plots focus on cells with actual reads in that category.
-    plot_data_temp_coding <- SQANTI_cell_summary
-
-    prop_count_pairs_for_coding_ncoding <- list(
-      c("Coding_FSM_prop", "FSM"), c("Non_coding_FSM_prop", "FSM"),
-      c("Coding_ISM_prop", "ISM"), c("Non_coding_ISM_prop", "ISM"),
-      c("Coding_NIC_prop", "NIC"), c("Non_coding_NIC_prop", "NIC"),
-      c("Coding_NNC_prop", "NNC"), c("Non_coding_NNC_prop", "NNC"),
-      c("Coding_genic_prop", "Genic_Genomic"), c("Non_coding_genic_prop", "Genic_Genomic"),
-      c("Coding_antisense_prop", "Antisense"), c("Non_coding_antisense_prop", "Antisense"),
-      c("Coding_fusion_prop", "Fusion"), c("Non_coding_fusion_prop", "Fusion"),
-      c("Coding_intergenic_prop", "Intergenic"), c("Non_coding_intergenic_prop", "Intergenic"),
-      c("Coding_genic_intron_prop", "Genic_intron"), c("Non_coding_genic_intron_prop", "Genic_intron")
-    )
-
-    for (pair in prop_count_pairs_for_coding_ncoding) {
-      prop_col <- pair[1]
-      count_col <- pair[2]
-      if (prop_col %in% names(plot_data_temp_coding) && count_col %in% names(plot_data_temp_coding)) {
-        plot_data_temp_coding[[prop_col]] <- ifelse(plot_data_temp_coding[[count_col]] == 0, NA_real_, plot_data_temp_coding[[prop_col]])
-      }
-    }
-
-    gg_SQANTI_pivot_coding <- pivot_longer(plot_data_temp_coding, cols = c("Coding_FSM_prop",
-                                                                  "Coding_ISM_prop",
-                                                                  "Coding_NIC_prop",
-                                                                  "Coding_NNC_prop",
-                                                                  "Coding_genic_prop",
-                                                                  "Coding_antisense_prop",
-                                                                  "Coding_fusion_prop",
-                                                                  "Coding_intergenic_prop",
-                                                                  "Coding_genic_intron_prop"), 
-                                    names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-    
-    gg_SQANTI_pivot_coding$Variable <- factor(gg_SQANTI_pivot_coding$Variable, colnames(plot_data_temp_coding %>% select(Coding_FSM_prop,
-                                                                                                         Coding_ISM_prop,
-                                                                                                         Coding_NIC_prop,
-                                                                                                         Coding_NNC_prop,
-                                                                                                         Coding_genic_prop,
-                                                                                                         Coding_antisense_prop,
-                                                                                                         Coding_fusion_prop,
-                                                                                                         Coding_intergenic_prop,
-                                                                                                         Coding_genic_intron_prop)))
-    
-    gg_coding_across_category <- ggplot(gg_SQANTI_pivot_coding, aes(x = Variable, y = Value)) + # Use pivoted temp data
-      geom_violin(aes(color = Variable, 
-                      fill = Variable),
-                      alpha = 0.7, scale = "width", na.rm = TRUE) +  
-      geom_boxplot(aes(fill = Variable), color = c(rep("grey20",4),"grey90",rep("grey20",4)),
-                   width = 0.08, outlier.shape = NA, alpha = 0.6, na.rm = TRUE) +
-      stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1, na.rm = TRUE) +
-      scale_fill_manual(values = c("Coding_FSM_prop"="#6BAED6", "Coding_ISM_prop"="#FC8D59", "Coding_NIC_prop"="#78C679", "Coding_NNC_prop"="#EE6A50", 
-                                   "Coding_genic_prop"="#969696", "Coding_antisense_prop"="#66C2A4", "Coding_fusion_prop"="goldenrod1",
-                                   "Coding_intergenic_prop"="darksalmon", "Coding_genic_intron_prop"="#41B6C4")) + 
-      scale_color_manual(values = c("Coding_FSM_prop"="#6BAED6", "Coding_ISM_prop"="#FC8D59", "Coding_NIC_prop"="#78C679", "Coding_NNC_prop"="#EE6A50", 
-                                    "Coding_genic_prop"="#969696", "Coding_antisense_prop"="#66C2A4", "Coding_fusion_prop"="goldenrod1",
-                                    "Coding_intergenic_prop"="darksalmon", "Coding_genic_intron_prop"="#41B6C4")) +
-      scale_x_discrete(labels = c("FSM","ISM","NIC","NNC","Genic\nGenomic",
-                                  "Antisense","Fusion","Intergenic","Genic\nintron")) +
-      theme_classic(base_size = 14) +  
-      labs(title = "Coding Proportion of Structural Categories Distribution Across Cells",
-           x = "",
-           y = "Reads, %") +
-      theme(
-        legend.position = "none",
-        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-        axis.title = element_text(size = 16), 
-        axis.text.y = element_text(size = 14),
-        axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16) 
-      )
     print(gg_coding_across_category)
-    
-    gg_SQANTI_pivot_non_coding <- pivot_longer(plot_data_temp_coding, cols = c("Non_coding_FSM_prop",
-                                                                  "Non_coding_ISM_prop",
-                                                                  "Non_coding_NIC_prop",
-                                                                  "Non_coding_NNC_prop",
-                                                                  "Non_coding_genic_prop",
-                                                                  "Non_coding_antisense_prop",
-                                                                  "Non_coding_fusion_prop",
-                                                                  "Non_coding_intergenic_prop",
-                                                                  "Non_coding_genic_intron_prop"), 
-                                    names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-    
-    gg_SQANTI_pivot_non_coding$Variable <- factor(gg_SQANTI_pivot_non_coding$Variable, colnames(plot_data_temp_coding %>% select(Non_coding_FSM_prop,
-                                                                                                         Non_coding_ISM_prop,
-                                                                                                         Non_coding_NIC_prop,
-                                                                                                         Non_coding_NNC_prop,
-                                                                                                         Non_coding_genic_prop,
-                                                                                                         Non_coding_antisense_prop,
-                                                                                                         Non_coding_fusion_prop,
-                                                                                                         Non_coding_intergenic_prop,
-                                                                                                         Non_coding_genic_intron_prop)))
-    
-    gg_non_coding_across_category <- ggplot(gg_SQANTI_pivot_non_coding, aes(x = Variable, y = Value)) + # Use pivoted temp data
-      geom_violin(aes(color = Variable, 
-                      fill = Variable),
-                      alpha = 0.7, scale = "width", na.rm = TRUE) +  
-      geom_boxplot(aes(fill = Variable), color = "grey20",
-                   width = 0.08, outlier.shape = NA, alpha = 0.6, na.rm = TRUE) +
-      stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1, na.rm = TRUE) +
-      scale_fill_manual(values = c("Non_coding_FSM_prop"="#D2E6F2", "Non_coding_ISM_prop"="#FEDCCD", "Non_coding_NIC_prop"="#D6EDD6", "Non_coding_NNC_prop"="#F9D2CA", 
-                                   "Non_coding_genic_prop"="#DFDFDF", "Non_coding_antisense_prop"="#D1ECE3", "Non_coding_fusion_prop"="#FFECBD",
-                                   "Non_coding_intergenic_prop"="#F8DFD7", "Non_coding_genic_intron_prop"="#C6E9ED")) + 
-      scale_color_manual(values = c("Non_coding_FSM_prop"="#D2E6F2", "Non_coding_ISM_prop"="#FEDCCD", "Non_coding_NIC_prop"="#D6EDD6", "Non_coding_NNC_prop"="#F9D2CA", 
-                                    "Non_coding_genic_prop"="#DFDFDF", "Non_coding_antisense_prop"="#D1ECE3", "Non_coding_fusion_prop"="#FFECBD",
-                                    "Non_coding_intergenic_prop"="#F8DFD7", "Non_coding_genic_intron_prop"="#C6E9ED")) +
-      scale_x_discrete(labels = c("FSM","ISM","NIC","NNC","Genic\nGenomic",
-                                  "Antisense","Fusion","Intergenic","Genic\nintron")) +
-      theme_classic(base_size = 14) +  
-      labs(title = "Non-coding Proportion of Structural Categories Distribution Across Cells",
-           x = "",
-           y = "Reads, %") +
-      theme(
-        legend.position = "none",
-        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),  
-        axis.title = element_text(size = 16), 
-        axis.text.y = element_text(size = 14),
-        axis.text.x = element_text(angle = 45, hjust = 0.95, size = 16) 
-      )
     print(gg_non_coding_across_category)
   }
   ### Coverage (TSS/TTS in the future) ###
