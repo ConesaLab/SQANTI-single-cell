@@ -1,0 +1,430 @@
+body {
+  font-size: 14px;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  line-height: 1.6;
+}
+
+td {
+  font-size: 14px;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+h1 {
+  font-size: 32px;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: #2c3e50;
+  padding-top: 20px;
+  border-bottom: 3px solid #3498db;
+  padding-bottom: 10px;
+}
+
+h2 {
+  font-size: 24px;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: #2c3e50;
+  padding-top: 30px;
+  border-bottom: 2px solid #ecf0f1;
+  padding-bottom: 8px;
+}
+
+h3 {
+  font-size: 20px;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: #34495e;
+  padding-top: 20px;
+}
+
+h4 {
+  font-size: 16px;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: #7f8c8d;
+  font-style: italic;
+}
+
+/* Right-aligned dropdown toolbar used above tables */
+.dropdown-toolbar {
+  display: block;
+  text-align: right;
+  margin: 0 0 10px 0;
+}
+
+.dropdown-toolbar .btn {
+  min-width: 220px;
+  text-align: left;
+}
+
+.dropdown-menu > li > a {
+  cursor: pointer;
+}
+
+/* Constrain width of single-plot tabs in Sequencing Depth to improve readability */
+.section.level1:has(> h1:contains("Sequencing Depth")) .tab-content .tab-pane > div.html-widget {
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.title {
+  font-size: 36px;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: #e74c3c;
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+/* Table styling */
+table {
+  border-collapse: collapse;
+  margin: 20px 0;
+  font-size: 14px;
+  min-width: 300px;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+}
+
+table thead tr {
+  background-color: #3498db;
+  color: #ffffff;
+  text-align: left;
+  font-weight: bold;
+}
+
+table th,
+table td {
+  padding: 12px 15px;
+  border: 1px solid #dddddd;
+}
+
+table tbody tr {
+  border-bottom: 1px solid #dddddd;
+}
+
+table tbody tr:nth-of-type(even) {
+  background-color: #f8f9fa;
+}
+
+table tbody tr:last-of-type {
+  border-bottom: 2px solid #3498db;
+}
+
+table tbody tr:hover {
+  background-color: #e8f4f8;
+}
+
+/* Tab styling */
+.nav-tabs {
+  border-bottom: 2px solid #ecf0f1;
+  margin-bottom: 20px;
+}
+
+.nav-tabs > li > a {
+  color: #495057;
+  border: none;
+  border-radius: 8px 8px 0 0;
+  padding: 12px 20px;
+  margin-right: 5px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  font-weight: 500;
+  font-size: 14px;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  line-height: 1.4;
+}
+
+.nav-tabs > li > a:hover {
+  background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
+  color: #2c3e50;
+}
+
+.nav-tabs > li.active > a,
+.nav-tabs > li.active > a:hover,
+.nav-tabs > li.active > a:focus {
+  color: white;
+  background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+  font-weight: bold;
+  border: none;
+  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+}
+
+/* Pill styling */
+.nav-pills {
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.nav-pills > li > a {
+  color: #34495e;
+  border: 1px solid #3498db;
+  border-radius: 20px;
+  padding: 8px 16px;
+  margin-right: 5px;
+  background-color: #ffffff;
+  transition: all 0.3s ease;
+}
+
+.nav-pills > li > a:hover {
+  background-color: #3498db;
+  color: #ffffff;
+  border-color: #3498db;
+}
+
+.nav-pills > li.active > a,
+.nav-pills > li.active > a:hover,
+.nav-pills > li.active > a:focus {
+  color: #ffffff;
+  background-color: #3498db;
+  border-color: #3498db;
+}
+
+.nav-pills > li {
+  margin-left: 5px;
+}
+
+.nav-pills > li:first-child {
+  margin-left: 0;
+}
+
+/* Tab content */
+.tab-content {
+  margin-top: 20px;
+}
+
+.tab-pane {
+  display: none;
+}
+
+.tab-pane.active,
+.tab-pane.show.active {
+  display: block;
+}
+
+/* Hide toggle panes without collapsing width to preserve DT sizing */
+.hidden-pane {
+  display: none !important;
+}
+
+/* Generic wrapper to narrow wide plotly widgets (applied only where used) */
+.narrow-plot .html-widget {
+  width: 600px !important;
+  max-width: 100% !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Remove borders/shadows/backgrounds around ALL Plotly widgets */
+.html-widget,
+.js-plotly-plot,
+.plot-container,
+.svg-container {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Fix Plotly modebar background (Plotly >=5 default is semi-transparent grey) */
+.js-plotly-plot .modebar,
+.js-plotly-plot .modebar-group,
+.js-plotly-plot .modebar-btn {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Optional: neutral grey icons for readability */
+.js-plotly-plot .modebar-btn svg,
+.js-plotly-plot .modebar-btn path {
+  fill: #6c757d !important;
+  color: #6c757d !important;
+}
+
+/* Ensure Plotly x-axis tick labels match the rest of the plots' x-axis text size */
+.js-plotly-plot .xaxislayer-above text {
+  font-size: 16px !important;
+}
+
+/* Pills positioning for right alignment */
+.nav-pills {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 20px;
+}
+
+.nav-pills > li {
+  margin-left: 5px;
+}
+
+.nav-pills > li:first-child {
+  margin-left: 0;
+}
+
+/* Pills container for right-aligned pills */
+.pills-container {
+  margin-top: 20px;
+}
+
+.pills-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #ecf0f1;
+}
+
+.pills-title {
+  font-size: 18px;
+  font-weight: bold;
+  color: #2c3e50;
+  margin: 0;
+}
+
+.pills-nav {
+  flex-shrink: 0;
+}
+
+.pills-nav .nav-pills {
+  margin-bottom: 0;
+}
+
+.pills-nav .nav-pills > li > a {
+  font-size: 14px;
+  padding: 6px 12px;
+  margin-right: 3px;
+}
+
+/* Code blocks */
+pre {
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  padding: 15px;
+  font-size: 13px;
+}
+
+code {
+  background-color: #f8f9fa;
+  color: #e74c3c;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 90%;
+}
+
+/* Plot containers */
+.plot-container {
+  margin: 20px 0;
+  padding: 15px;
+  background-color: #ffffff;
+  border: 1px solid #ecf0f1;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* TOC styling */
+#TOC {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 30px;
+}
+
+#TOC ul {
+  list-style-type: none;
+  padding-left: 0;
+}
+
+#TOC > ul {
+  padding-left: 0;
+}
+
+#TOC ul ul {
+  padding-left: 20px;
+}
+
+#TOC a {
+  color: #495057;
+  text-decoration: none;
+  display: block;
+  padding: 2px 0;
+}
+
+#TOC a:hover {
+  color: #3498db;
+  text-decoration: underline;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  body { font-size: 12px; }
+  h1 { font-size: 24px; }
+  h2 { font-size: 20px; }
+  h3 { font-size: 18px; }
+  table { font-size: 12px; }
+  table th,
+  table td { padding: 8px 10px; }
+}
+
+/* Print styles */
+@media print {
+  body { font-size: 12px; line-height: 1.4; }
+  h1, h2, h3, h4 { page-break-after: avoid; }
+  table { page-break-inside: avoid; }
+  .nav-tabs { display: none; }
+}
+
+/* Custom colors for consistency with SQANTI theme */
+.sqanti-primary { color: #3498db; }
+.sqanti-secondary { color: #e74c3c; }
+.sqanti-success { color: #27ae60; }
+.sqanti-warning { color: #f39c12; }
+
+/* Alert boxes */
+.alert {
+  padding: 15px;
+  margin-bottom: 20px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.alert-info {
+  color: #31708f;
+  background-color: #d9edf7;
+  border-color: #bce8f1;
+}
+
+.alert-warning {
+  color: #8a6d3b;
+  background-color: #fcf8e3;
+  border-color: #faebcc;
+}
+
+.alert-success {
+  color: #3c763d;
+  background-color: #dff0d8;
+  border-color: #d6e9c6;
+}
+
+.alert-danger {
+  color: #a94442;
+  background-color: #f2dede;
+  border-color: #ebccd1;
+}
+
+/* Reduce extra space before tabsets created by R Markdown {.tabset} sections */
+.section.tabset > h2 {
+  /* Tighten heading that precedes tabs */
+  padding-top: 8px;
+  padding-bottom: 0;
+  margin-top: 0;
+  margin-bottom: 6px;
+  border-bottom: none;
+}
+
+.section.tabset > .nav-tabs {
+  /* Minimize gap between heading and tabs */
+  margin-top: 0;
+}

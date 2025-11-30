@@ -1,0 +1,1644 @@
+---
+title: "SQANTI-single cell `r if (exists('mode') && mode == 'isoforms') 'isoforms' else 'reads'` report"
+date: "`r paste0('Date: ', format(Sys.time(), '%d %B %Y'))`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+    number_sections: false
+    css: style.css
+    theme:
+      version: 3
+      bootswatch: flatly
+    highlight: tango
+    code_folding: hide
+    self_contained: true
+---
+
+<!--
+SQANTI-single cell reads report structure:
+  1. Summary Tables
+  2. Basic Cell Information
+  3. Gene Distribution by Read Count Bins
+  4. Length Distribution
+  5. Reference Coverage Across Categories
+  6. Structural Categories
+  7. Splice Junction Characterization
+  8. Quality Control Features (Bad and Good)
+-->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache = FALSE, warning = FALSE, message = FALSE, results = "asis")
+
+# Helper function to check if data exists
+has_data <- function(df) {
+  if (!is.null(df) && length(df) > 0 && is.data.frame(df) && nrow(df) > 0) {
+    return(TRUE)
+  } else {
+    return(FALSE)
+  }
+}
+
+# Helper: render a mixed list of plotly widgets and static images in a simple responsive grid
+render_mixed_grid <- function(plots, title = NULL, ncols = 2) {
+  if (!is.null(title)) cat("<h3>", title, "</h3>\n", sep = "")
+  cat('<div style="display:flex;flex-wrap:wrap;gap:16px;">')
+  basis <- sprintf("%.2f%%", 100 / ncols - 2)
+  for (p in plots) {
+    cat('<div style="flex:1 1 ', basis, ';min-width:320px;">', sep = "")
+    print(p)
+    cat("</div>")
+  }
+  cat("</div>\n")
+}
+
+# Load required libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(forcats)
+library(plotly)
+library(DT)
+library(knitr)
+library(grid)
+library(gridExtra)
+library(grDevices)
+
+# Helper: render ggplot or plotly consistently in HTML with optional sizing
+render_ggplotly <- function(p, target_width = NULL, target_height = NULL) {
+  # If it's already a plotly object, just apply layout sizing and return
+  if (inherits(p, "plotly")) {
+    if (!is.null(target_width) || !is.null(target_height)) {
+      p <- layout(p, width = target_width, height = target_height)
+    }
+    return(p)
+  }
+  # If it's a ggplot object, convert via ggplotly
+  if (inherits(p, "gg") || inherits(p, "ggplot")) {
+    return(plotly::ggplotly(p, width = target_width, height = target_height))
+  }
+  # Fallback placeholder to avoid knitting errors
+  plotly::plot_ly() %>% layout(title = list(text = "Plot unavailable"))
+}
+
+# Reusable table renderer: interactive, sortable, and consistent alignment
+render_sqanti_table <- function(df, digits = 3, page_len = 10) {
+  stopifnot(is.data.frame(df))
+  num_cols <- which(sapply(df, is.numeric))
+  non_num_cols <- setdiff(seq_along(df), num_cols)
+  numeric_targets <- as.integer(num_cols - 1)
+  dt <- DT::datatable(
+    df,
+    rownames = FALSE,
+    options = list(
+      ordering = TRUE,
+      pageLength = page_len,
+      paging = FALSE,
+      autoWidth = TRUE,
+      lengthChange = FALSE,
+      searching = FALSE,
+      info = FALSE,
+      dom = "t", # table only
+      columnDefs = list(
+        list(className = "dt-left", targets = as.integer(non_num_cols - 1)),
+        list(className = "dt-right", targets = numeric_targets),
+        list(
+          targets = numeric_targets,
+          render = DT::JS(
+            "function(data, type, row, meta) {",
+            "  if (type !== 'display') { return data; }",
+            "  if (data === null || data === '' ) { return data; }",
+            "  var n = parseFloat(data);",
+            "  if (isNaN(n)) { return data; }",
+            "  var s = (Math.round(n * 1000) / 1000).toFixed(3).replace(/\\.?0+$/, '');",
+            "  return s;",
+            "}"
+          )
+        )
+      )
+    ),
+    class = "stripe hover row-border"
+  )
+  dt
+}
+```
+
+# Bulk Summary
+
+```{r bulk-summary-text}
+if (exists("Classification") && has_data(Classification)) {
+  # Calculate bulk-level stats
+  total_reads_count <- sum(Classification$count)
+  unique_genes <- length(unique(Classification$associated_gene))
+  unique_junctions <- length(unique(Classification$jxn_string))
+
+  cat(paste0("**Number of ", entity_label_plural, ":** "), format(total_reads_count, big.mark = ","), "\n\n")
+  cat("**Unique Genes:** ", format(unique_genes, big.mark = ","), "\n\n")
+  if (mode != "isoforms") {
+    cat("**Unique Junction Chains:** ", format(unique_junctions, big.mark = ","), "\n\n")
+  }
+}
+```
+
+## {.tabset .tabset-fade}
+
+### Gene Classification
+
+```{r bulk-gene-classification}
+if (exists("Classification") && has_data(Classification)) {
+  # Gene Classification table
+  unique_genes <- length(unique(Classification$associated_gene))
+  annotated_genes <- length(unique(Classification$associated_gene[!grepl("^novel", Classification$associated_gene)]))
+  novel_genes <- length(unique(Classification$associated_gene[grepl("^novel", Classification$associated_gene)]))
+
+  gene_class_table <- data.frame(
+    Category = c("Annotated Genes", "Novel Genes"),
+    Count = c(annotated_genes, novel_genes),
+    Percentage = c(
+      round(100 * annotated_genes / unique_genes, 1),
+      round(100 * novel_genes / unique_genes, 1)
+    )
+  )
+
+  rownames(gene_class_table) <- NULL
+  render_sqanti_table(gene_class_table, digits = 2, page_len = 10)
+}
+```
+
+### `r paste(entity_label, "Classification")`
+
+```{r bulk-read-classification}
+if (exists("Classification") && has_data(Classification)) {
+  # Read Classification table (counts per structural category)
+  read_cat_levels <- c(
+    "full-splice_match", "incomplete-splice_match", "novel_in_catalog", "novel_not_in_catalog",
+    "genic", "antisense", "fusion", "intergenic", "genic_intron"
+  )
+  read_cat_names <- c(
+    "FSM", "ISM", "NIC", "NNC",
+    "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron"
+  )
+
+  read_class_table <- Classification %>%
+    group_by(structural_category) %>%
+    summarise(Count = sum(count)) %>%
+    right_join(data.frame(structural_category = read_cat_levels), by = "structural_category") %>%
+    mutate(Count = replace_na(Count, 0))
+
+  # Reorder
+  read_class_table <- read_class_table[match(read_cat_levels, read_class_table$structural_category), ]
+  colnames(read_class_table) <- c("Category", "Count")
+  read_class_table$Category <- read_cat_names
+  read_class_table$Percentage <- round(100 * read_class_table$Count / sum(read_class_table$Count), 1)
+
+  # Remove categories with 0 counts
+  read_class_table <- read_class_table[read_class_table$Count > 0, ]
+
+  rownames(read_class_table) <- NULL
+  render_sqanti_table(read_class_table, digits = 2, page_len = 10)
+}
+```
+
+### Splice Junction Classification
+
+```{r bulk-splice-junction-classification}
+if (exists("Junctions") && has_data(Junctions)) {
+  # Splice Junction Classification table
+  Junctions$junction_type <- paste(Junctions$junction_category, Junctions$canonical, sep = "_")
+
+  sj_types <- c("known_canonical", "known_non_canonical", "novel_canonical", "novel_non_canonical")
+  sj_counts <- sapply(sj_types, function(type) sum(Junctions$count[Junctions$junction_type == type], na.rm = TRUE))
+
+  total_junctions <- sum(sj_counts, na.rm = TRUE)
+  sj_perc <- if (total_junctions > 0) {
+    round(100 * sj_counts / total_junctions, 2)
+  } else {
+    rep(0, length(sj_counts))
+  }
+
+  SJ_class_table <- data.frame(
+    Category = c("Known canonical", "Known Non-canonical", "Novel canonical", "Novel Non-canonical"),
+    Count = sj_counts,
+    Percentage = sj_perc
+  )
+
+  # Remove row names and clean up
+  rownames(SJ_class_table) <- NULL
+  render_sqanti_table(SJ_class_table, digits = 2, page_len = 10)
+}
+```
+
+# Per-Cell Summary
+
+```{r cells-summary-text}
+if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
+  # Number of cells
+  num_cells <- nrow(SQANTI_cell_summary)
+  cat("**Unique Cell Barcodes:** ", format(num_cells, big.mark = ","), "\n\n")
+}
+```
+
+## {.tabset .tabset-fade}
+
+### Basic Features
+
+```{r cells-basic-features}
+if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
+  # 1. Unique Genes and Unique Junction Chains summary table
+  unique_genes_stats <- c(
+    Mean = mean(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
+    Median = median(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
+    Min = min(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
+    Max = max(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
+    SD = sd(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE)
+  )
+  unique_junctions_stats <- c(
+    Mean = mean(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
+    Median = median(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
+    Min = min(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
+    Max = max(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
+    SD = sd(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE)
+  )
+  reads_stats <- c(
+    Mean = mean(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
+    Median = median(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
+    Min = min(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
+    Max = max(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
+    SD = sd(SQANTI_cell_summary[[count_col]], na.rm = TRUE)
+  )
+  umis_stats <- c(
+    Mean = mean(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
+    Median = median(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
+    Min = min(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
+    Max = max(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
+    SD = sd(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE)
+  )
+  summary_table1 <- data.frame(
+    Feature = c(entity_label_plural, "UMIs", "Unique Genes", "Unique Junction Chains"),
+    Mean = c(reads_stats["Mean"], umis_stats["Mean"], unique_genes_stats["Mean"], unique_junctions_stats["Mean"]),
+    Median = c(reads_stats["Median"], umis_stats["Median"], unique_genes_stats["Median"], unique_junctions_stats["Median"]),
+    Min = c(reads_stats["Min"], umis_stats["Min"], unique_genes_stats["Min"], unique_junctions_stats["Min"]),
+    Max = c(reads_stats["Max"], umis_stats["Max"], unique_genes_stats["Max"], unique_junctions_stats["Max"]),
+    SD = c(reads_stats["SD"], umis_stats["SD"], unique_genes_stats["SD"], unique_junctions_stats["SD"])
+  )
+
+  if (mode == "isoforms") {
+    summary_table1 <- summary_table1[!summary_table1$Feature %in% c("UMIs", "Unique Junction Chains"), ]
+  }
+
+  summary_table1[, 2:6] <- round(summary_table1[, 2:6], 3)
+
+  rownames(summary_table1) <- NULL
+  render_sqanti_table(summary_table1, digits = 3, page_len = 10)
+}
+```
+
+### Gene Classification
+
+```{r cells-gene-classification}
+if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
+  # 2. Gene Classification summary table (across all cells)
+  gene_class_stats <- data.frame(
+    Category = c("Annotated Genes", "Novel Genes"),
+    Mean = c(mean(SQANTI_cell_summary$Annotated_genes, na.rm = TRUE), mean(SQANTI_cell_summary$Novel_genes, na.rm = TRUE)),
+    Median = c(median(SQANTI_cell_summary$Annotated_genes, na.rm = TRUE), median(SQANTI_cell_summary$Novel_genes, na.rm = TRUE)),
+    Min = c(min(SQANTI_cell_summary$Annotated_genes, na.rm = TRUE), min(SQANTI_cell_summary$Novel_genes, na.rm = TRUE)),
+    Max = c(max(SQANTI_cell_summary$Annotated_genes, na.rm = TRUE), max(SQANTI_cell_summary$Novel_genes, na.rm = TRUE)),
+    SD = c(sd(SQANTI_cell_summary$Annotated_genes, na.rm = TRUE), sd(SQANTI_cell_summary$Novel_genes, na.rm = TRUE))
+  )
+  gene_class_stats[, 2:6] <- round(gene_class_stats[, 2:6], 3)
+
+  rownames(gene_class_stats) <- NULL
+  render_sqanti_table(gene_class_stats, digits = 3, page_len = 10)
+}
+```
+
+### Splice Junction Classification
+
+```{=html}
+<div id="sj-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">Counts</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#sj-counts">Counts</a></li>
+      <li><a href="#" data-target="#sj-perc">Percentages</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="sj-counts" class="toggle-pane" style="display:block;">
+
+```{r cells-splice-junction-counts}
+if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
+  Junctions$junction_type <- paste(Junctions$junction_category, Junctions$canonical, sep = "_")
+  junction_counts_per_cell <- Junctions %>%
+    filter(CB != "unassigned") %>%
+    group_by(CB) %>%
+    summarise(
+      Known_canonical = sum(count[junction_type == "known_canonical"], na.rm = TRUE),
+      Known_Non_canonical = sum(count[junction_type == "known_non_canonical"], na.rm = TRUE),
+      Novel_canonical = sum(count[junction_type == "novel_canonical"], na.rm = TRUE),
+      Novel_Non_canonical = sum(count[junction_type == "novel_non_canonical"], na.rm = TRUE),
+      .groups = "drop"
+    )
+  sj_count_stats <- junction_counts_per_cell %>%
+    select(-CB) %>%
+    summarise(
+      across(
+        everything(),
+        list(
+          Mean = ~ mean(.x, na.rm = TRUE),
+          Median = ~ median(.x, na.rm = TRUE),
+          Min = ~ min(.x, na.rm = TRUE),
+          Max = ~ max(.x, na.rm = TRUE),
+          SD = ~ sd(.x, na.rm = TRUE)
+        )
+      )
+    )
+  sj_count_stats_df <- sj_count_stats %>%
+    pivot_longer(
+      cols = everything(),
+      names_to = c("Category", ".value"),
+      names_pattern = "(.+)_(Mean|Median|Min|Max|SD)$"
+    ) %>%
+    mutate(Category = gsub("_", " ", Category))
+  if (ncol(sj_count_stats_df) >= 6) {
+    sj_count_stats_df[, 2:6] <- round(sj_count_stats_df[, 2:6], 3)
+  } else {
+    numeric_cols <- sapply(sj_count_stats_df[, -1], is.numeric)
+    sj_count_stats_df[, -1][numeric_cols] <- round(sj_count_stats_df[, -1][numeric_cols], 3)
+  }
+  rownames(sj_count_stats_df) <- NULL
+  render_sqanti_table(sj_count_stats_df, digits = 3, page_len = 10)
+}
+```
+
+</div>
+
+<div id="sj-perc" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r cells-splice-junction-percentages}
+if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
+  Junctions$junction_type <- paste(Junctions$junction_category, Junctions$canonical, sep = "_")
+  junction_proportions_per_cell <- Junctions %>%
+    filter(CB != "unassigned") %>%
+    group_by(CB) %>%
+    summarise(
+      total = sum(count),
+      Known_canonical = sum(count[junction_type == "known_canonical"], na.rm = TRUE) / total * 100,
+      Known_Non_canonical = sum(count[junction_type == "known_non_canonical"], na.rm = TRUE) / total * 100,
+      Novel_canonical = sum(count[junction_type == "novel_canonical"], na.rm = TRUE) / total * 100,
+      Novel_Non_canonical = sum(count[junction_type == "novel_non_canonical"], na.rm = TRUE) / total * 100,
+      .groups = "drop"
+    )
+  sj_prop_stats <- junction_proportions_per_cell %>%
+    select(-CB, -total) %>%
+    summarise(
+      across(
+        everything(),
+        list(
+          Mean = ~ mean(.x, na.rm = TRUE),
+          Median = ~ median(.x, na.rm = TRUE),
+          Min = ~ min(.x, na.rm = TRUE),
+          Max = ~ max(.x, na.rm = TRUE),
+          SD = ~ sd(.x, na.rm = TRUE)
+        )
+      )
+    )
+  sj_prop_stats_df <- sj_prop_stats %>%
+    pivot_longer(
+      cols = everything(),
+      names_to = c("Category", ".value"),
+      names_pattern = "(.+)_(Mean|Median|Min|Max|SD)$"
+    ) %>%
+    mutate(Category = gsub("_", " ", Category))
+  if (ncol(sj_prop_stats_df) >= 6) {
+    sj_prop_stats_df[, 2:6] <- round(sj_prop_stats_df[, 2:6], 3)
+  } else {
+    numeric_cols <- sapply(sj_prop_stats_df[, -1], is.numeric)
+    sj_prop_stats_df[, -1][numeric_cols] <- round(sj_prop_stats_df[, -1][numeric_cols], 3)
+  }
+  rownames(sj_prop_stats_df) <- NULL
+  render_sqanti_table(sj_prop_stats_df, digits = 3, page_len = 10)
+}
+```
+
+</div>
+
+### `r paste(entity_label, "Classification")`
+
+```{=html}
+<div id="rcsc-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">Counts</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#rcsc-counts">Counts</a></li>
+      <li><a href="#" data-target="#rcsc-perc">Percentages</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="rcsc-counts" class="toggle-pane" style="display:block;">
+
+```{r cells-read-counts}
+if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
+  struct_cat_cols <- c(
+    "FSM", "ISM", "NIC", "NNC", "Genic_Genomic", "Antisense", "Fusion", "Intergenic", "Genic_intron"
+  )
+  struct_cat_names <- c(
+    "FSM", "ISM", "NIC", "NNC", "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron"
+  )
+  count_stats <- sapply(struct_cat_cols, function(col) {
+    vals <- SQANTI_cell_summary[[col]]
+    c(
+      Mean = mean(vals, na.rm = TRUE),
+      Median = median(vals, na.rm = TRUE),
+      Min = min(vals, na.rm = TRUE),
+      Max = max(vals, na.rm = TRUE),
+      SD = sd(vals, na.rm = TRUE)
+    )
+  })
+  count_stats_df <- data.frame(
+    Category = struct_cat_names,
+    t(count_stats)
+  )
+  colnames(count_stats_df)[2:6] <- c("Mean", "Median", "Min", "Max", "SD")
+  count_stats_df[, 2:6] <- round(count_stats_df[, 2:6], 3)
+  rownames(count_stats_df) <- NULL
+  render_sqanti_table(count_stats_df, digits = 3, page_len = 10)
+}
+```
+
+</div>
+
+<div id="rcsc-perc" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r cells-read-percentages}
+if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
+  struct_cat_cols <- c(
+    "FSM", "ISM", "NIC", "NNC", "Genic_Genomic", "Antisense", "Fusion", "Intergenic", "Genic_intron"
+  )
+  struct_cat_names <- c(
+    "FSM", "ISM", "NIC", "NNC", "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron"
+  )
+  prop_cat_cols <- paste0(struct_cat_cols, "_prop")
+  prop_stats <- sapply(prop_cat_cols, function(col) {
+    vals <- SQANTI_cell_summary[[col]]
+    c(
+      Mean = mean(vals, na.rm = TRUE),
+      Median = median(vals, na.rm = TRUE),
+      Min = min(vals, na.rm = TRUE),
+      Max = max(vals, na.rm = TRUE),
+      SD = sd(vals, na.rm = TRUE)
+    )
+  })
+  prop_stats_df <- data.frame(
+    Category = struct_cat_names,
+    t(prop_stats)
+  )
+  colnames(prop_stats_df)[2:6] <- c("Mean", "Median", "Min", "Max", "SD")
+  prop_stats_df[, 2:6] <- round(prop_stats_df[, 2:6], 3)
+  rownames(prop_stats_df) <- NULL
+  render_sqanti_table(prop_stats_df, digits = 3, page_len = 10)
+}
+```
+
+</div>
+
+```{=html}
+<script>
+(function(){
+  function setupDropdown(groupId){
+    var container=document.getElementById(groupId);
+    if(!container) return;
+    var labelSpan=container.querySelector(".dropdown-toggle .label");
+    var links=container.querySelectorAll(".dropdown-menu a");
+    var panesContainer = container.parentElement;
+    while (panesContainer && !panesContainer.querySelector('.toggle-pane')) {
+      panesContainer = panesContainer.parentElement;
+    }
+    if (!panesContainer) panesContainer = container.closest('section, div.section') || document;
+
+    Array.prototype.forEach.call(links,function(link){
+      link.addEventListener("click",function(e){
+        e.preventDefault();
+        var target = panesContainer.querySelector(this.getAttribute("data-target"));
+        if (!target) return;
+        Array.prototype.forEach.call(panesContainer.querySelectorAll(".toggle-pane"), function(el){
+          el.classList.add("hidden-pane");
+          el.style.display = "none";
+        });
+        target.classList.remove("hidden-pane");
+        target.style.display = "block";
+        if(labelSpan) labelSpan.textContent=this.textContent.trim();
+        setTimeout(function(){
+          if (window.jQuery && jQuery.fn.dataTable) {
+            jQuery(target).find('table.dataTable').each(function(){
+              if (jQuery.fn.dataTable.isDataTable(this)) {
+                jQuery(this).DataTable().columns.adjust().draw(false);
+              }
+            });
+          }
+          window.dispatchEvent(new Event('resize'));
+        }, 0);
+      });
+    });
+  }
+  document.addEventListener("DOMContentLoaded",function(){
+    setupDropdown("sj-dropdown");
+    setupDropdown("rcsc-dropdown");
+    setupDropdown("genesacross-dropdown");
+    setupDropdown("readspergene-dropdown");
+    setupDropdown("ujcspergene-dropdown");
+    setupDropdown("bulk-length-dropdown");
+    setupDropdown("multiexon-length-dropdown");
+    setupDropdown("monoexon-length-dropdown");
+    // New dropdowns for unified SJ characterization section
+    setupDropdown("sjchar-dist-dropdown");
+    setupDropdown("sjchar-rts-dropdown");
+    // New section dropdowns
+    setupDropdown("readdist-dropdown");
+    setupDropdown("exoncounts-dropdown");
+    // Quality sections dropdowns
+    setupDropdown("badq-across-dropdown");
+    setupDropdown("goodq-across-dropdown");
+    setupDropdown("coding-dropdown");
+  });
+})();
+</script>
+```
+
+# Per-cell Library Size {.tabset .tabset-fade}
+
+## Number of `r entity_label_plural` Across Cells
+
+```{=html}
+<div class="narrow-plot">
+```
+
+```{r depth-reads, fig.height=6, fig.width=10}
+if (exists("gg_reads_in_cells")) {
+  render_ggplotly(gg_reads_in_cells, target_width = 400, target_height = 600)
+}
+```
+
+```{=html}
+</div>
+```
+
+```{r depth-umis-header, results='asis'}
+if (mode != "isoforms") {
+  cat("## Number of UMIs Across Cells\n")
+}
+```
+
+
+
+```{r depth-umis-check, include=FALSE}
+show_umis <- (mode != "isoforms" && exists("gg_umis_in_cells"))
+```
+
+```{r depth-umis-div-start, results='asis'}
+if (show_umis) cat('<div class="narrow-plot">\n')
+```
+
+```{r depth-umis, fig.height=6, fig.width=10, eval=show_umis}
+render_ggplotly(gg_umis_in_cells, target_width = 400, target_height = 600)
+```
+
+```{r depth-umis-div-end, results='asis'}
+if (show_umis) cat("</div>\n")
+```
+
+```{r depth-ujcs-header, results='asis'}
+if (mode != "isoforms") {
+  cat("## Number of Unique Junction Chains Across Cells\n")
+}
+```
+
+```{r depth-ujcs-check, include=FALSE}
+show_ujcs <- (mode != "isoforms" && exists("gg_JCs_in_cell"))
+```
+
+```{r depth-ujcs-div-start, results='asis'}
+if (show_ujcs) cat('<div class="narrow-plot">\n')
+```
+
+```{r depth-ujcs, fig.height=6, fig.width=10, eval=show_ujcs}
+render_ggplotly(gg_JCs_in_cell, target_width = 400, target_height = 600)
+```
+
+```{r depth-ujcs-div-end, results='asis'}
+if (show_ujcs) cat("</div>\n")
+```
+
+# Gene Characterization {.tabset .tabset-fade}
+
+## Genes Across Cells
+
+```{=html}
+<div id="genesacross-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label"># Genes</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#genesacross-genes"># Genes</a></li>
+      <li><a href="#" data-target="#genesacross-knownnovel"># Known/Novel Genes</a></li>
+      <li><a href="#" data-target="#genesacross-percent">% Known/Novel Genes</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="genesacross-genes" class="toggle-pane" style="display:block;">
+
+```{r genesacross-genes, fig.height=6, fig.width=10}
+if (exists("gg_genes_in_cells")) {
+  render_ggplotly(gg_genes_in_cells, target_width = 400, target_height = 600)
+}
+```
+
+</div>
+
+<div id="genesacross-knownnovel" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r genesacross-knownnovel, fig.height=6, fig.width=10}
+if (exists("gg_annotation_of_genes_in_cell")) {
+  render_ggplotly(gg_annotation_of_genes_in_cell)
+}
+```
+
+</div>
+
+<div id="genesacross-percent" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r genesacross-percent, fig.height=6, fig.width=10}
+if (exists("gg_annotation_of_genes_percent_in_cell")) {
+  render_ggplotly(gg_annotation_of_genes_percent_in_cell)
+}
+```
+
+</div>
+
+## `r paste(entity_label_plural, "per Gene")`
+
+```{=html}
+<div id="readspergene-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">% Reads from Known/Novel Genes</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#readspergene-perc-reads-annot">% `r entity_label_plural` from Known/Novel Genes</a></li>
+      <li><a href="#" data-target="#readspergene-bins-all">% Genes by `r entity_label` Count Bins</a></li>
+      <li><a href="#" data-target="#readspergene-bins-annot">% Known/Novel Genes by `r entity_label` Count Bins</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="readspergene-perc-reads-annot" class="toggle-pane" style="display:block;">
+
+```{r readspergene-perc-reads-annot, fig.height=6, fig.width=12}
+if (exists("gg_annotation_of_reads_in_cell")) {
+  render_ggplotly(gg_annotation_of_reads_in_cell)
+}
+```
+
+</div>
+
+<div id="readspergene-bins-all" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r readspergene-bins-all, fig.height=6, fig.width=12}
+if (exists("gg_read_bins_all")) {
+  render_ggplotly(gg_read_bins_all)
+}
+```
+
+</div>
+
+<div id="readspergene-bins-annot" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r readspergene-bins-annot, fig.height=6, fig.width=12}
+if (exists("gg_read_bins")) {
+  render_ggplotly(gg_read_bins)
+}
+```
+
+</div>
+
+```{r ujcspergene-header, results='asis'}
+if (mode != "isoforms") {
+  cat("## UJCs per Gene\n")
+}
+```
+ 
+ ```{r ujcspergene-check, include=FALSE}
+show_ujcs_gene <- (mode != "isoforms")
+ ```
+ 
+ ```{=html}
+ <div id="ujcspergene-dropdown" class="dropdown-toolbar" style="`r if(!show_ujcs_gene) 'display:none;'`">
+   <div class="btn-group">
+     <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+       <span class="label">% Genes by UJC Count Bins</span> <span class="caret"></span>
+     </button>
+     <ul class="dropdown-menu dropdown-menu-right" role="menu">
+       <li><a href="#" data-target="#ujcspergene-bins-all">% Genes by UJC Count Bins</a></li>
+       <li><a href="#" data-target="#ujcspergene-bins-annot">% Known/Novel Genes by UJC Count Bins</a></li>
+     </ul>
+   </div>
+ </div>
+ 
+ <div id="ujcspergene-bins-all" class="toggle-pane" style="display:block; `r if(!show_ujcs_gene) 'display:none;'`">
+ ```
+ 
+ ```{r ujcspergene-bins-all, fig.height=6, fig.width=12, eval=show_ujcs_gene}
+if (exists("gg_ujc_bins_all")) {
+  render_ggplotly(gg_ujc_bins_all)
+}
+ ```
+ 
+ ```{=html}
+ </div>
+ <div id="ujcspergene-bins-annot" class="toggle-pane hidden-pane" style="display:block; `r if(!show_ujcs_gene) 'display:none;'`">
+ ```
+ 
+ ```{r ujcspergene-bins-annot, fig.height=6, fig.width=12, eval=show_ujcs_gene}
+if (exists("gg_ujc_bins")) {
+  render_ggplotly(gg_ujc_bins)
+}
+ ```
+ 
+ ```{=html}
+ </div>
+ ```
+
+## Mitochondrial genes
+
+```{=html}
+<div class="narrow-plot">
+```
+
+```{r genechar-mt, fig.height=6, fig.width=10}
+if (exists("gg_MT_perc")) {
+  render_ggplotly(gg_MT_perc, target_width = 400, target_height = 600)
+}
+```
+
+```{=html}
+</div>
+```
+
+# `r paste(entity_label, "Length Characterization")` {.tabset .tabset-fade}
+
+## Bulk Length Distribution
+
+```{=html}
+<div id="bulk-length-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">All `r entity_label_plural`</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#bulk-length-all">All `r entity_label_plural`</a></li>
+      <li><a href="#" data-target="#bulk-length-category">By Structural Category</a></li>
+      <li><a href="#" data-target="#bulk-length-exon">By Exon Type</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="bulk-length-all" class="toggle-pane" style="display:block;">
+
+```{r bulk-length-all-plot, fig.height=6, fig.width=10}
+if (exists("gg_bulk_all_reads")) {
+  render_ggplotly(gg_bulk_all_reads)
+}
+```
+
+</div>
+
+<div id="bulk-length-category" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r bulk-length-category-plot, fig.height=6, fig.width=12}
+if (exists("gg_bulk_length_by_category")) {
+  render_ggplotly(gg_bulk_length_by_category)
+}
+```
+
+</div>
+
+<div id="bulk-length-exon" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r bulk-length-exon-plot, fig.height=6, fig.width=10}
+if (exists("gg_bulk_length_by_exon_type")) {
+  render_ggplotly(gg_bulk_length_by_exon_type)
+}
+```
+
+</div>
+
+## Cell-level Multi-exonic Length Distribution
+
+```{=html}
+<div id="multiexon-length-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">All `r entity_label_plural`</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#multiexon-length-all">All `r entity_label_plural`</a></li>
+      <li><a href="#" data-target="#multiexon-length-fsm">FSM</a></li>
+      <li><a href="#" data-target="#multiexon-length-ism">ISM</a></li>
+      <li><a href="#" data-target="#multiexon-length-nic">NIC</a></li>
+      <li><a href="#" data-target="#multiexon-length-nnc">NNC</a></li>
+      <li><a href="#" data-target="#multiexon-length-genic">Genic Genomic</a></li>
+      <li><a href="#" data-target="#multiexon-length-antisense">Antisense</a></li>
+      <li><a href="#" data-target="#multiexon-length-fusion">Fusion</a></li>
+      <li><a href="#" data-target="#multiexon-length-intergenic">Intergenic</a></li>
+      <li><a href="#" data-target="#multiexon-length-genicintron">Genic Intron</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="multiexon-length-all" class="toggle-pane" style="display:block;">
+
+```{r multiexon-length-all-plot, fig.height=6, fig.width=10}
+if (exists("gg_read_distr")) {
+  render_ggplotly(gg_read_distr)
+}
+```
+
+</div>
+
+<div id="multiexon-length-fsm" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r multiexon-length-fsm-plot, fig.height=6, fig.width=10}
+if (exists("gg_FSM_read_distr")) {
+  render_ggplotly(gg_FSM_read_distr)
+}
+```
+
+</div>
+
+<div id="multiexon-length-ism" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r multiexon-length-ism-plot, fig.height=6, fig.width=10}
+if (exists("gg_ISM_read_distr")) {
+  render_ggplotly(gg_ISM_read_distr)
+}
+```
+
+</div>
+
+<div id="multiexon-length-nic" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r multiexon-length-nic-plot, fig.height=6, fig.width=10}
+if (exists("gg_NIC_read_distr")) {
+  render_ggplotly(gg_NIC_read_distr)
+}
+```
+
+</div>
+
+<div id="multiexon-length-nnc" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r multiexon-length-nnc-plot, fig.height=6, fig.width=10}
+if (exists("gg_NNC_read_distr")) {
+  render_ggplotly(gg_NNC_read_distr)
+}
+```
+
+</div>
+
+<div id="multiexon-length-genic" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r multiexon-length-genic-plot, fig.height=6, fig.width=10}
+if (exists("gg_genic_read_distr")) {
+  render_ggplotly(gg_genic_read_distr)
+}
+```
+
+</div>
+
+<div id="multiexon-length-antisense" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r multiexon-length-antisense-plot, fig.height=6, fig.width=10}
+if (exists("gg_antisense_read_distr")) {
+  render_ggplotly(gg_antisense_read_distr)
+}
+```
+
+</div>
+
+<div id="multiexon-length-fusion" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r multiexon-length-fusion-plot, fig.height=6, fig.width=10}
+if (exists("gg_fusion_read_distr")) {
+  render_ggplotly(gg_fusion_read_distr)
+}
+```
+
+</div>
+
+<div id="multiexon-length-intergenic" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r multiexon-length-intergenic-plot, fig.height=6, fig.width=10}
+if (exists("gg_intergenic_read_distr")) {
+  render_ggplotly(gg_intergenic_read_distr)
+}
+```
+
+</div>
+
+<div id="multiexon-length-genicintron" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r multiexon-length-genicintron-plot, fig.height=6, fig.width=10}
+if (exists("gg_genic_intron_read_distr")) {
+  render_ggplotly(gg_genic_intron_read_distr)
+}
+```
+
+</div>
+
+## Cell-level Mono-exonic Length Distribution
+
+```{=html}
+<div id="monoexon-length-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">All `r entity_label_plural`</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#monoexon-length-all">All `r entity_label_plural`</a></li>
+      <li><a href="#" data-target="#monoexon-length-fsm">FSM</a></li>
+      <li><a href="#" data-target="#monoexon-length-ism">ISM</a></li>
+      <li><a href="#" data-target="#monoexon-length-nic">NIC</a></li>
+      <li><a href="#" data-target="#monoexon-length-genic">Genic Genomic</a></li>
+      <li><a href="#" data-target="#monoexon-length-antisense">Antisense</a></li>
+      <li><a href="#" data-target="#monoexon-length-intergenic">Intergenic</a></li>
+      <li><a href="#" data-target="#monoexon-length-genicintron">Genic Intron</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="monoexon-length-all" class="toggle-pane" style="display:block;">
+
+```{r monoexon-length-all-plot, fig.height=6, fig.width=10}
+if (exists("gg_read_distr_mono")) {
+  render_ggplotly(gg_read_distr_mono)
+}
+```
+
+</div>
+
+<div id="monoexon-length-fsm" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r monoexon-length-fsm-plot, fig.height=6, fig.width=10}
+if (exists("gg_FSM_mono_read_distr")) {
+  render_ggplotly(gg_FSM_mono_read_distr)
+}
+```
+
+</div>
+
+<div id="monoexon-length-ism" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r monoexon-length-ism-plot, fig.height=6, fig.width=10}
+if (exists("gg_ISM_mono_read_distr")) {
+  render_ggplotly(gg_ISM_mono_read_distr)
+}
+```
+
+</div>
+
+<div id="monoexon-length-nic" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r monoexon-length-nic-plot, fig.height=6, fig.width=10}
+if (exists("gg_NIC_mono_read_distr")) {
+  render_ggplotly(gg_NIC_mono_read_distr)
+}
+```
+
+</div>
+
+<div id="monoexon-length-genic" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r monoexon-length-genic-plot, fig.height=6, fig.width=10}
+if (exists("gg_genic_mono_read_distr")) {
+  render_ggplotly(gg_genic_mono_read_distr)
+}
+```
+
+</div>
+
+<div id="monoexon-length-antisense" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r monoexon-length-antisense-plot, fig.height=6, fig.width=10}
+if (exists("gg_antisense_mono_read_distr")) {
+  render_ggplotly(gg_antisense_mono_read_distr)
+}
+```
+
+</div>
+
+<div id="monoexon-length-intergenic" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r monoexon-length-intergenic-plot, fig.height=6, fig.width=10}
+if (exists("gg_intergenic_mono_read_distr")) {
+  render_ggplotly(gg_intergenic_mono_read_distr)
+}
+```
+
+</div>
+
+<div id="monoexon-length-genicintron" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r monoexon-length-genicintron-plot, fig.height=6, fig.width=10}
+if (exists("gg_genic_intron_mono_read_distr")) {
+  render_ggplotly(gg_genic_intron_mono_read_distr)
+}
+```
+
+</div>
+
+## Reference Transcript Coverage
+
+```{r ref-transcript-coverage, fig.height=6, fig.width=12}
+if (exists("gg_ref_coverage_across_category")) {
+  render_ggplotly(gg_ref_coverage_across_category)
+}
+```
+
+# `r paste(entity_label, "Structural Characterization")` {.tabset .tabset-fade}
+
+## Distribution by Structural Categories
+
+```{=html}
+<div id="readdist-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">Across Structural Categories</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#rd-across-cat">Across Structural Categories</a></li>
+      <li><a href="#" data-target="#rd-across-mono">Across Structural Categories Mono-Exons</a></li>
+      <li class="divider"></li>
+      <li><a href="#" data-target="#rd-fsm">Across FSM</a></li>
+      <li><a href="#" data-target="#rd-ism">Across ISM</a></li>
+      <li><a href="#" data-target="#rd-nic">Across NIC</a></li>
+      <li><a href="#" data-target="#rd-nnc">Across NNC</a></li>
+      <li><a href="#" data-target="#rd-genic">Across Genic Genomic</a></li>
+      <li><a href="#" data-target="#rd-antisense">Across Antisense</a></li>
+      <li><a href="#" data-target="#rd-fusion">Across Fusion</a></li>
+      <li><a href="#" data-target="#rd-intergenic">Across Intergenic</a></li>
+      <li><a href="#" data-target="#rd-genic-intron">Across Genic Intron</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="rd-across-cat" class="toggle-pane" style="display:block;">
+
+```{r rd-across-cat, fig.height=6, fig.width=12}
+if (exists("gg_SQANTI_across_category")) {
+  render_ggplotly(gg_SQANTI_across_category)
+}
+```
+
+</div>
+
+<div id="rd-across-mono" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r rd-across-mono, fig.height=6, fig.width=12}
+if (exists("gg_exon_mono_by_category")) {
+  render_ggplotly(gg_exon_mono_by_category)
+}
+```
+
+</div>
+
+<div id="rd-fsm" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r rd-fsm, fig.height=6, fig.width=12}
+if (exists("gg_SQANTI_across_FSM")) {
+  render_ggplotly(gg_SQANTI_across_FSM)
+}
+```
+
+</div>
+
+<div id="rd-ism" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r rd-ism, fig.height=6, fig.width=12}
+if (exists("gg_SQANTI_across_ISM")) {
+  render_ggplotly(gg_SQANTI_across_ISM)
+}
+```
+
+</div>
+
+<div id="rd-nic" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r rd-nic, fig.height=6, fig.width=12}
+if (exists("gg_SQANTI_across_NIC")) {
+  render_ggplotly(gg_SQANTI_across_NIC)
+}
+```
+
+</div>
+
+<div id="rd-nnc" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r rd-nnc, fig.height=6, fig.width=12}
+if (exists("gg_SQANTI_across_NNC")) {
+  render_ggplotly(gg_SQANTI_across_NNC)
+}
+```
+
+</div>
+
+<div id="rd-genic" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r rd-genic, fig.height=6, fig.width=12}
+if (exists("gg_SQANTI_across_Genic")) {
+  render_ggplotly(gg_SQANTI_across_Genic)
+}
+```
+
+</div>
+
+<div id="rd-antisense" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r rd-antisense, fig.height=6, fig.width=12}
+if (exists("gg_SQANTI_across_Antisense")) {
+  render_ggplotly(gg_SQANTI_across_Antisense)
+}
+```
+
+</div>
+
+<div id="rd-fusion" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r rd-fusion, fig.height=6, fig.width=12}
+if (exists("gg_SQANTI_across_Fusion")) {
+  render_ggplotly(gg_SQANTI_across_Fusion)
+}
+```
+
+</div>
+
+<div id="rd-intergenic" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r rd-intergenic, fig.height=6, fig.width=12}
+if (exists("gg_SQANTI_across_Intergenic")) {
+  render_ggplotly(gg_SQANTI_across_Intergenic)
+}
+```
+
+</div>
+
+<div id="rd-genic-intron" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r rd-genic-intron, fig.height=6, fig.width=12}
+if (exists("gg_SQANTI_across_Genic_Intron")) {
+  render_ggplotly(gg_SQANTI_across_Genic_Intron)
+}
+```
+
+</div>
+
+## Exon Counts
+
+```{=html}
+<div id="exoncounts-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">Across Structural Categories</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#exoncounts-across">Across Structural Categories</a></li>
+      <li class="divider"></li>
+      <li><a href="#" data-target="#exonprofile-FSM">FSM Profile</a></li>
+      <li><a href="#" data-target="#exonprofile-ISM">ISM Profile</a></li>
+      <li><a href="#" data-target="#exonprofile-NIC">NIC Profile</a></li>
+      <li><a href="#" data-target="#exonprofile-NNC">NNC Profile</a></li>
+      <li><a href="#" data-target="#exonprofile-Genic-Genomic">Genic Genomic Profile</a></li>
+      <li><a href="#" data-target="#exonprofile-Antisense">Antisense Profile</a></li>
+      <li><a href="#" data-target="#exonprofile-Fusion">Fusion Profile</a></li>
+      <li><a href="#" data-target="#exonprofile-Intergenic">Intergenic Profile</a></li>
+      <li><a href="#" data-target="#exonprofile-Genic-Intron">Genic Intron Profile</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="exoncounts-across" class="toggle-pane" style="display:block;">
+
+```{r exoncounts-across, fig.height=6, fig.width=12}
+if (exists("gg_exon_mean_by_category")) {
+  render_ggplotly(gg_exon_mean_by_category)
+}
+```
+
+</div>
+
+<div id="exonprofile-FSM" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r exoncounts-fsm-prof, fig.height=6, fig.width=12}
+if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["FSM"]])) {
+  render_ggplotly(gg_exon_profile_by_category[["FSM"]])
+}
+```
+
+</div>
+
+<div id="exonprofile-ISM" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r exoncounts-ism-prof, fig.height=6, fig.width=12}
+if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["ISM"]])) {
+  render_ggplotly(gg_exon_profile_by_category[["ISM"]])
+}
+```
+
+</div>
+
+<div id="exonprofile-NIC" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r exoncounts-nic-prof, fig.height=6, fig.width=12}
+if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["NIC"]])) {
+  render_ggplotly(gg_exon_profile_by_category[["NIC"]])
+}
+```
+
+</div>
+
+<div id="exonprofile-NNC" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r exoncounts-nnc-prof, fig.height=6, fig.width=12}
+if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["NNC"]])) {
+  render_ggplotly(gg_exon_profile_by_category[["NNC"]])
+}
+```
+
+</div>
+
+<div id="exonprofile-Genic-Genomic" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r exoncounts-genic-genomic-prof, fig.height=6, fig.width=12}
+if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["Genic Genomic"]])) {
+  render_ggplotly(gg_exon_profile_by_category[["Genic Genomic"]])
+}
+```
+
+</div>
+
+<div id="exonprofile-Antisense" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r exoncounts-antisense-prof, fig.height=6, fig.width=12}
+if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["Antisense"]])) {
+  render_ggplotly(gg_exon_profile_by_category[["Antisense"]])
+}
+```
+
+</div>
+
+<div id="exonprofile-Fusion" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r exoncounts-fusion-prof, fig.height=6, fig.width=12}
+if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["Fusion"]])) {
+  render_ggplotly(gg_exon_profile_by_category[["Fusion"]])
+}
+```
+
+</div>
+
+<div id="exonprofile-Intergenic" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r exoncounts-intergenic-prof, fig.height=6, fig.width=12}
+if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["Intergenic"]])) {
+  render_ggplotly(gg_exon_profile_by_category[["Intergenic"]])
+}
+```
+
+</div>
+
+<div id="exonprofile-Genic-Intron" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r exoncounts-genic-intron-prof, fig.height=6, fig.width=12}
+if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["Genic Intron"]])) {
+  render_ggplotly(gg_exon_profile_by_category[["Genic Intron"]])
+}
+```
+
+</div>
+
+## Coding Prediction {`r if(mode != "isoforms" || !exists("gg_coding_by_category")) "style='display:none;'"`}
+
+```{r coding-check, include=FALSE}
+show_coding <- (mode == "isoforms" && exists("gg_coding_by_category"))
+```
+
+```{=html}
+<div id="coding-dropdown" class="dropdown-toolbar" style="`r if(!show_coding) 'display:none;'`">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">Coding</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#coding-coding">Coding</a></li>
+      <li><a href="#" data-target="#coding-noncoding">Non-Coding</a></li>
+    </ul>
+  </div>
+</div>
+
+<div id="coding-coding" class="toggle-pane" style="display:block; `r if(!show_coding) 'display:none;'`">
+```
+
+```{r coding-coding, fig.height=6, fig.width=12, eval=show_coding}
+if (exists("gg_coding_by_category")) {
+  render_ggplotly(gg_coding_by_category)
+}
+```
+
+```{=html}
+</div>
+
+<div id="coding-noncoding" class="toggle-pane hidden-pane" style="display:block; `r if(!show_coding) 'display:none;'`">
+```
+
+```{r coding-noncoding, fig.height=6, fig.width=12, eval=show_coding}
+if (exists("gg_noncoding_by_category")) {
+  render_ggplotly(gg_noncoding_by_category)
+}
+```
+
+```{=html}
+</div>
+```
+
+# Splice Junction Characterization {.tabset .tabset-fade}
+
+## Distribution
+
+```{=html}
+<div id="sjchar-dist-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">Splice Junction Classification</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#sj-dist-class">Splice Junction Classification</a></li>
+      <li><a href="#" data-target="#sj-dist-bycat">Splice Junction Classification by Structural Category</a></li>
+      <li><a href="#" data-target="#sj-dist-readscanon">`r entity_label_plural` All Canonical</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="sj-dist-class" class="toggle-pane" style="display:block;">
+
+```{r sj-dist-class, fig.height=6, fig.width=12}
+if (exists("gg_known_novel_canon")) {
+  render_ggplotly(gg_known_novel_canon)
+}
+```
+
+</div>
+
+<div id="sj-dist-bycat" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r sj-type-by-category, fig.height=16, fig.width=12}
+if (exists("gg_sj_type_by_category_stack")) {
+  labs <- c("FSM", "ISM", "NIC", "NNC", "Genic<br>Genomic", "Antisense", "Fusion", "Intergenic", "Genic<br>Intron")
+  gg_sj_type_by_category_stack <- gg_sj_type_by_category_stack %>%
+    layout(
+      xaxis = list(
+        title = "",
+        tickmode = "array",
+        tickvals = 1:9,
+        ticktext = labs,
+        showticklabels = TRUE,
+        tickangle = 0,
+        ticks = "outside",
+        ticklen = 8,
+        ticklabelposition = "outside",
+        automargin = TRUE
+      ),
+      margin = list(b = 135)
+    )
+  render_ggplotly(gg_sj_type_by_category_stack)
+}
+```
+
+</div>
+
+<div id="sj-dist-readscanon" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r sj-dist-readscanon, fig.height=6, fig.width=12}
+if (exists("gg_allcanon_by_category")) {
+  render_ggplotly(gg_allcanon_by_category)
+}
+```
+
+</div>
+
+## RT-switching
+
+```{=html}
+<div id="sjchar-rts-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">RT-Switching All Junctions</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#sj-rts-all">RT-Switching All Junctions</a></li>
+      <li><a href="#" data-target="#sj-rts-uniq">RT-Switching Unique Junctions</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="sj-rts-all" class="toggle-pane" style="display:block;">
+
+```{r sj-rts-all, fig.height=6, fig.width=12}
+if (exists("gg_rts_all_by_sjtype")) {
+  render_ggplotly(gg_rts_all_by_sjtype)
+}
+```
+
+</div>
+
+<div id="sj-rts-uniq" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r sj-rts-uniq, fig.height=6, fig.width=12}
+if (exists("gg_rts_unique_by_sjtype")) {
+  render_ggplotly(gg_rts_unique_by_sjtype)
+}
+```
+
+</div>
+
+# Features of Bad Quality {.tabset .tabset-fade}
+
+## All `r entity_label_plural`
+
+```{r badq-allreads, fig.height=6, fig.width=12}
+if (exists("gg_bad_feature")) {
+  render_ggplotly(gg_bad_feature)
+}
+```
+
+## Across Structural Categories
+
+```{=html}
+<div id="badq-across-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">Intra-Priming</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#badfeatures-intrapriming">% Intra-priming</a></li>
+      <li><a href="#" data-target="#badfeatures-rts">% RT-Switching</a></li>
+      <li><a href="#" data-target="#badfeatures-noncanon">% Non-Canonical</a></li>
+      <li><a href="#" data-target="#badfeatures-nmd">% Predicted NMD</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="badfeatures-intrapriming" class="toggle-pane" style="display:block;">
+
+```{r badfeatures-intrapriming, fig.height=6, fig.width=12}
+if (exists("gg_intrapriming_by_category")) {
+  render_ggplotly(gg_intrapriming_by_category)
+}
+```
+
+</div>
+
+<div id="badfeatures-rts" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r badfeatures-rts, fig.height=6, fig.width=12}
+if (exists("gg_RTS_by_category")) {
+  render_ggplotly(gg_RTS_by_category)
+}
+```
+
+</div>
+
+<div id="badfeatures-noncanon" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r badfeatures-noncanon, fig.height=6, fig.width=12}
+if (exists("gg_noncanon_by_category")) {
+  render_ggplotly(gg_noncanon_by_category)
+}
+```
+
+</div>
+
+<div id="badfeatures-nmd" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r badfeatures-nmd, fig.height=6, fig.width=12}
+if (exists("gg_nmd_by_category")) {
+  render_ggplotly(gg_nmd_by_category)
+}
+```
+
+</div>
+
+# Features of Good Quality {.tabset .tabset-fade}
+
+## All `r entity_label_plural`
+
+```{r goodq-allreads, fig.height=6, fig.width=12}
+if (exists("gg_good_feature")) {
+  render_ggplotly(gg_good_feature)
+}
+```
+
+## Across Structural Categories
+
+```{=html}
+<div id="goodq-across-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">TSS Annotation Support</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#goodq-tss">TSS Annotation Support</a></li>
+      <li><a href="#" data-target="#goodq-cage">CAGE Peak Support</a></li>
+      <li><a href="#" data-target="#goodq-polya">PolyA Support</a></li>
+      <li><a href="#" data-target="#goodq-canon">Canonical Junctions</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="goodq-tss" class="toggle-pane" style="display:block;">
+
+```{r goodq-tss, fig.height=6, fig.width=12}
+if (exists("gg_tss_annotation_support")) {
+  render_ggplotly(gg_tss_annotation_support)
+}
+```
+
+</div>
+
+<div id="goodq-cage" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r goodq-cage, fig.height=6, fig.width=12}
+if (exists("CAGE_peak") && CAGE_peak && exists("gg_cage_peak_support")) {
+  render_ggplotly(gg_cage_peak_support)
+}
+```
+
+</div>
+
+<div id="goodq-polya" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r goodq-polya, fig.height=6, fig.width=12}
+if (exists("polyA_motif_list") && polyA_motif_list && exists("gg_polyA_motif_support")) {
+  render_ggplotly(gg_polyA_motif_support)
+}
+```
+
+```{r hide-tabs-js, results='asis'}
+if (mode == "isoforms") {
+  cat("
+<script>
+$(document).ready(function() {
+  // Hide tabs for UMIs and UJCs in Per-cell Library Size section
+  $('a[href=\"#number-of-umis-across-cells\"]').parent().hide();
+  $('a[href=\"#number-of-unique-junction-chains-across-cells\"]').parent().hide();
+
+  // Hide UJCs per Gene tab in Gene Characterization section
+  $('a[href=\"#ujcs-per-gene\"]').parent().hide();
+});
+</script>
+")
+}
+```
+
+</div>
+
+<div id="goodq-canon" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r goodq-canon, fig.height=6, fig.width=12}
+if (exists("gg_canon_by_category")) {
+  render_ggplotly(gg_canon_by_category)
+}
+```
+
+</div>

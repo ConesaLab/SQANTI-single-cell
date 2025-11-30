@@ -44,7 +44,6 @@ def run_sqanti3_qc(args, df):
 
         flag_args = [
             ('force_id_ignore', '--force_id_ignore'),
-            ('skipORF', '--skipORF'),
             ('genename', '--genename'),
             ('saturation', '--saturation'),
             ('isoAnnotLite', '--isoAnnotLite'),
@@ -53,6 +52,14 @@ def run_sqanti3_qc(args, df):
         for arg, flag in flag_args:
             if getattr(args, arg):
                 cmd_parts.append(flag)
+
+        # Handle skipORF logic:
+        # If mode is 'reads', ALWAYS skip ORF (force it).
+        # If mode is 'isoforms', use the user's --skipORF flag (if provided).
+        if args.mode == 'reads':
+            cmd_parts.append('--skipORF')
+        elif getattr(args, 'skipORF', False):
+            cmd_parts.append('--skipORF')
 
         optional_files = [
             ("CAGE_peak", "--CAGE_peak"),

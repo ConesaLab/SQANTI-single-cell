@@ -1,0 +1,386 @@
+---
+title: "SQANTI-single cell multi-sample `r if (exists('mode') && mode == 'isoforms') 'isoforms' else 'reads'` report"
+date: "`r paste0('Date: ', format(Sys.time(), '%d %B %Y'))`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 4
+    number_sections: false
+    css: style-multisample.css
+    theme:
+      version: 3
+      bootswatch: flatly
+    highlight: tango
+    self_contained: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(plotly)
+library(dplyr)
+library(htmltools)
+
+prepare_plot <- function(p, width = 1000, height = 600, responsive = FALSE,
+                         title_pad = NULL, margin = NULL) {
+  if (is.null(p) || !inherits(p, "htmlwidget")) {
+    return(p)
+  }
+
+  `%||%` <- function(a, b) if (is.null(a)) b else a
+
+  standard_margin <- list(t = 80, b = 120, l = 100, r = 80)
+  legend_defaults <- list(
+    orientation = "h",
+    x = 0.5,
+    xanchor = "center",
+    y = -0.25,
+    yanchor = "top",
+    bgcolor = "rgba(0,0,0,0)",
+    bordercolor = "rgba(0,0,0,0)"
+  )
+  title_pad_defaults <- list(l = 0, r = 0, t = 12, b = 12)
+  axis_tickfont_defaults <- list(size = 14)
+  axis_title_defaults <- list(standoff = 12)
+  axis_title_font_defaults <- list(size = 16)
+
+  final_margin <- standard_margin
+  if (!is.null(margin)) {
+    final_margin <- utils::modifyList(final_margin, margin)
+  }
+  p <- plotly::layout(p, width = width, height = height)
+  p$x$layout$margin <- final_margin
+
+  title_entry <- p$x$layout$title %||% list()
+  title_entry$pad <- utils::modifyList(title_pad_defaults, title_entry$pad %||% list())
+  if (!is.null(title_pad)) {
+    title_entry$pad <- utils::modifyList(title_entry$pad, title_pad)
+  }
+  p$x$layout$title <- title_entry
+
+  existing_legend <- p$x$layout$legend %||% list()
+  legend_entry <- utils::modifyList(existing_legend, legend_defaults)
+  if (is.null(existing_legend$title) || is.null(existing_legend$title$text)) {
+    legend_entry$title <- utils::modifyList(legend_entry$title %||% list(), list(text = ""))
+  }
+  legend_entry$font <- utils::modifyList(legend_entry$font %||% list(), list(size = 14))
+  p$x$layout$legend <- legend_entry
+
+  axis_names <- names(p$x$layout)
+  axis_names <- axis_names[grepl("^[xy]axis(\\d+)?$", axis_names)]
+  for (axis_name in axis_names) {
+    axis_entry <- p$x$layout[[axis_name]] %||% list()
+    axis_entry$automargin <- TRUE
+    axis_entry$tickfont <- utils::modifyList(axis_entry$tickfont %||% list(), axis_tickfont_defaults)
+    axis_entry$title <- utils::modifyList(axis_entry$title %||% list(), axis_title_defaults)
+    axis_entry$title$font <- utils::modifyList(axis_entry$title$font %||% list(), axis_title_font_defaults)
+    p$x$layout[[axis_name]] <- axis_entry
+  }
+
+  plotly::config(p, displaylogo = FALSE, responsive = responsive)
+}
+```
+
+
+# Samples Per-Cell Summary
+
+```{r summary-table}
+if (exists("multi_summary_tbl_html", envir = .GlobalEnv)) {
+  summary_tbl <- get("multi_summary_tbl_html", envir = .GlobalEnv)
+  knitr::kable(summary_tbl, format = "html", escape = FALSE, align = "c")
+} else {
+  cat("No Samples Per-Cell Summary table available.")
+}
+```
+
+# Samples `r entity_label_plural` Distributions per Structural Category {.tabset .tabset-fade}
+
+## Samples Comparison
+
+```{r structural-per-category, results='asis'}
+if (exists("multi_structural_category_violin_plots_html", envir = .GlobalEnv)) {
+  plot_list <- get("multi_structural_category_violin_plots_html", envir = .GlobalEnv)
+} else if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
+  plot_list <- lapply(
+    get("multi_structural_category_violin_plots", envir = .GlobalEnv),
+    function(p) plotly::ggplotly(p, tooltip = c("x", "y"))
+  )
+} else {
+  plot_list <- NULL
+}
+if (!is.null(plot_list) && length(plot_list) > 0) {
+  category_order <- c("FSM", "ISM", "NIC", "NNC", "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic intron")
+  matched <- match(category_order, names(plot_list))
+  plot_list <- plot_list[na.omit(matched)]
+  labels <- names(plot_list)
+  plot_list <- lapply(
+    plot_list,
+    function(p) prepare_plot(p, title_pad = list(b = 28), margin = list(t = 92))
+  )
+  make_id <- function(prefix, label) paste0(prefix, "-", gsub("[^a-z0-9]+", "-", tolower(label)))
+  ids <- vapply(labels, function(lbl) make_id("structural", lbl), character(1))
+  menu_items <- lapply(seq_along(labels), function(i) {
+    htmltools::tags$li(
+      htmltools::tags$a(
+        href = "#",
+        `data-target` = paste0("#", ids[i]),
+        htmltools::htmlEscape(labels[i])
+      )
+    )
+  })
+  dropdown <- htmltools::tags$div(
+    id = "structural-dropdown",
+    class = "dropdown-toolbar",
+    htmltools::tags$div(
+      class = "btn-group",
+      htmltools::tags$button(
+        type = "button",
+        class = "btn btn-default dropdown-toggle",
+        `data-toggle` = "dropdown",
+        htmltools::tags$span(class = "label", htmltools::htmlEscape(labels[1])),
+        htmltools::tags$span(class = "caret")
+      ),
+      do.call(
+        htmltools::tags$ul,
+        c(list(class = "dropdown-menu dropdown-menu-right", role = "menu"), menu_items)
+      )
+    )
+  )
+  pane_tags <- lapply(seq_along(labels), function(i) {
+    pane_class <- if (i == 1) "toggle-pane" else "toggle-pane hidden-pane"
+    htmltools::tags$div(
+      id = ids[i],
+      class = pane_class,
+      plot_list[[i]]
+    )
+  })
+  ui_children <- c(list(dropdown), pane_tags)
+  container <- do.call(
+    htmltools::tagAppendChildren,
+    c(
+      list(htmltools::tags$div(class = "plot-block-with-dropdown plot-block-with-dropdown--structural")),
+      list(dropdown),
+      pane_tags
+    )
+  )
+  container
+} else {
+  cat("No per-category structural plots available.")
+}
+```
+
+```{=html}
+<div class="section-spacer-xl"></div>
+```
+
+# PCA Analysis {.tabset .tabset-fade}
+
+## PCA Plot
+
+<div id="pca-scores" class="pca-pane">
+
+```{r pca-scores}
+if (exists("multi_pca_scores_plot_html", envir = .GlobalEnv)) {
+  prepare_plot(
+    get("multi_pca_scores_plot_html", envir = .GlobalEnv),
+    width = 800, height = 660,
+    margin = list(t = 100),
+    title_pad = list(b = 16)
+  )
+} else if (exists("multi_pca_scores_plot", envir = .GlobalEnv)) {
+  plt <- get("multi_pca_scores_plot", envir = .GlobalEnv)
+  prepare_plot(
+    plotly::ggplotly(plt, tooltip = c("x", "y", "colour", "label")),
+    width = 800, height = 660,
+    margin = list(t = 100),
+    title_pad = list(b = 16)
+  )
+} else {
+  cat("PCA score plot is not available.")
+}
+```
+
+</div>
+
+## Scree Plot
+
+<div id="pca-scree" class="pca-pane">
+
+```{r pca-scree}
+if (exists("multi_pca_scree_plot_html", envir = .GlobalEnv)) {
+  prepare_plot(
+    get("multi_pca_scree_plot_html", envir = .GlobalEnv),
+    margin = list(t = 100),
+    title_pad = list(b = 6)
+  )
+} else if (exists("multi_pca_scree_plot", envir = .GlobalEnv)) {
+  plt <- get("multi_pca_scree_plot", envir = .GlobalEnv)
+  prepare_plot(
+    plotly::ggplotly(plt, tooltip = c("x", "y")),
+    margin = list(t = 100),
+    title_pad = list(b = 6)
+  )
+} else {
+  cat("PCA scree plot is not available.")
+}
+```
+
+</div>
+
+## Top 10 loadings by component
+
+<div id="pca-loadings" class="pca-pane">
+
+```{r pca-loadings, results='asis'}
+combined_plot <- NULL
+if (exists("multi_pca_top_loadings_combined_html", envir = .GlobalEnv)) {
+  combined_plot <- prepare_plot(
+    get("multi_pca_top_loadings_combined_html", envir = .GlobalEnv),
+    width = 1100, height = 680,
+    margin = list(t = 88),
+    title_pad = list(b = 12)
+  )
+}
+if (is.null(combined_plot) && exists("multi_pca_top_loadings_plots_html", envir = .GlobalEnv)) {
+  combined_plot <- prepare_plot(
+    subplot(
+      get("multi_pca_top_loadings_plots_html", envir = .GlobalEnv),
+      nrows = 1
+    ),
+    width = 1100, height = 680,
+    margin = list(t = 88),
+    title_pad = list(b = 12)
+  )
+}
+if (exists("multi_pca_loading_distribution_plots_html", envir = .GlobalEnv)) {
+  feature_plots <- get("multi_pca_loading_distribution_plots_html", envir = .GlobalEnv)
+} else if (exists("multi_pca_loading_distribution_plots", envir = .GlobalEnv)) {
+  feature_plots <- lapply(
+    get("multi_pca_loading_distribution_plots", envir = .GlobalEnv),
+    function(p) plotly::ggplotly(p, tooltip = c("x", "y"))
+  )
+} else {
+  feature_plots <- list()
+}
+if (length(feature_plots) > 0) {
+  feature_plots <- feature_plots[!duplicated(names(feature_plots))]
+  feature_plots <- lapply(
+    feature_plots,
+    function(p) prepare_plot(p, height = 820)
+  )
+}
+panes <- list()
+if (!is.null(combined_plot)) {
+  panes[["PC1 & PC2 loadings"]] <- combined_plot
+}
+if (length(feature_plots) > 0) {
+  feature_labels <- names(feature_plots)
+  names(feature_plots) <- feature_labels
+  panes <- c(panes, feature_plots)
+}
+if (length(panes) > 0) {
+  names(panes)[names(panes) == "PC1 & PC2 loadings"] <- "PC1 and PC2 loadings"
+  make_id <- function(prefix, label) paste0(prefix, gsub("[^a-z0-9]+", "-", tolower(label)))
+  labels <- names(panes)
+  ids <- vapply(labels, function(lbl) make_id("pca-loadings", lbl), character(1))
+  menu_items <- lapply(seq_along(labels), function(i) {
+    htmltools::tags$li(
+      htmltools::tags$a(
+        href = "#",
+        `data-target` = paste0("#", ids[i]),
+        htmltools::htmlEscape(labels[i])
+      )
+    )
+  })
+  dropdown <- htmltools::tags$div(
+    id = "pca-loadings-dropdown",
+    class = "dropdown-toolbar",
+    htmltools::tags$div(
+      class = "btn-group",
+      htmltools::tags$button(
+        type = "button",
+        class = "btn btn-default dropdown-toggle",
+        `data-toggle` = "dropdown",
+        htmltools::tags$span(class = "label", htmltools::htmlEscape(labels[1])),
+        htmltools::tags$span(class = "caret")
+      ),
+      do.call(
+        htmltools::tags$ul,
+        c(list(class = "dropdown-menu dropdown-menu-right", role = "menu"), menu_items)
+      )
+    )
+  )
+  pane_tags <- lapply(seq_along(labels), function(i) {
+    pane_class <- if (i == 1) "toggle-pane" else "toggle-pane hidden-pane"
+    htmltools::tags$div(
+      id = ids[i],
+      class = pane_class,
+      panes[[i]]
+    )
+  })
+  ui_children <- c(list(dropdown), pane_tags)
+  container <- do.call(
+    htmltools::tagAppendChildren,
+    c(
+      list(htmltools::tags$div(class = "plot-block-with-dropdown")),
+      list(dropdown),
+      pane_tags
+    )
+  )
+  container
+} else {
+  cat("Top loading barplots are not available.")
+}
+```
+
+</div>
+
+```{r pca-feature-dists, include=FALSE}
+NULL
+```
+
+```{=html}
+<script>
+(function(){
+  function setupDropdown(groupId){
+    var container = document.getElementById(groupId);
+    if(!container) return;
+    var labelSpan = container.querySelector(".dropdown-toggle .label");
+    var links = container.querySelectorAll(".dropdown-menu a");
+    var panesContainer = container.parentElement;
+    while (panesContainer && !panesContainer.querySelector(".toggle-pane")) {
+      panesContainer = panesContainer.parentElement;
+    }
+    if (!panesContainer) panesContainer = container.closest("section, div.section") || document;
+    Array.prototype.forEach.call(links, function(link){
+      link.addEventListener("click", function(e){
+        e.preventDefault();
+        var target = panesContainer.querySelector(this.getAttribute("data-target"));
+        if (!target) return;
+        Array.prototype.forEach.call(panesContainer.querySelectorAll(".toggle-pane"), function(el){
+          el.classList.add("hidden-pane");
+          el.style.display = "none";
+        });
+        target.classList.remove("hidden-pane");
+        target.style.display = "block";
+        if (labelSpan) labelSpan.textContent = this.textContent.trim();
+        setTimeout(function(){
+          if (window.Plotly && window.Plotly.Plots && typeof window.Plotly.Plots.resize === "function") {
+            Array.prototype.forEach.call(target.querySelectorAll(".js-plotly-plot"), function(plotEl){
+              window.Plotly.Plots.resize(plotEl);
+            });
+          }
+        }, 100);
+      });
+    });
+  }
+  document.addEventListener("DOMContentLoaded", function(){
+    document.querySelectorAll(".toggle-pane").forEach(function(pane){
+      pane.style.display = pane.classList.contains("hidden-pane") ? "none" : "block";
+    });
+    setupDropdown("structural-dropdown");
+    setupDropdown("pca-loadings-dropdown");
+  });
+})();
+</script>
+```

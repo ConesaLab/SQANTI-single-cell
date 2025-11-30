@@ -79,6 +79,7 @@ def annotate_with_ujc_hash(args, df):
 
         final_df = pd.merge(original_class_df, new_cols_df, on='isoform', how='left')
         final_df.to_csv(f"{outputPathPrefix}_classification_tmp.txt", index=False, sep='\t')
+        os.rename(f"{outputPathPrefix}_classification_tmp.txt", classfile)
 
         print(f"**** UJCs successfully calculated and added to {file_acc} classification", file=sys.stdout)
 
@@ -87,21 +88,133 @@ def annotate_with_ujc_hash(args, df):
 
 def annotate_with_cell_metadata(args, df):
     """
-    Extract isoform, UMI, and cell barcode information from BAM file or a
-    cell association file and add them to classification.
+    Extract isoform, UMI, and cell barcode information from BAM file,
+    cell association file, or abundance folder, and add them to classification.
     """
+    def _parse_abundance_folder(folder_path):
+        cell_dict = {} # isoform -> { "CB": "bc1,bc2", "FL": "cnt1,cnt2" }
+        
+        matrix_file = os.path.join(folder_path, "matrix.mtx")
+        features_file = os.path.join(folder_path, "features.tsv")
+        barcodes_file = os.path.join(folder_path, "barcodes.tsv")
+        
+        if not all(os.path.exists(f) for f in [matrix_file, features_file, barcodes_file]):
+             print(f"[ERROR] Abundance folder {folder_path} missing required files (matrix.mtx, features.tsv, barcodes.tsv).", file=sys.stderr)
+             return cell_dict
+
+        # Load features (1-based index)
+        features = []
+        try:
+            with open(features_file, 'r') as f:
+                for line in f:
+                    parts = line.strip().split('\t')
+                    if parts:
+                        features.append(parts[0]) # Isoform ID is 1st col
+        except Exception as e:
+             print(f"[ERROR] Failed to read features.tsv: {e}", file=sys.stderr)
+             return cell_dict
+
+        # Load barcodes (1-based index)
+        barcodes = []
+        try:
+            with open(barcodes_file, 'r') as f:
+                for line in f:
+                    barcodes.append(line.strip())
+        except Exception as e:
+             print(f"[ERROR] Failed to read barcodes.tsv: {e}", file=sys.stderr)
+             return cell_dict
+
+        # Parse Matrix
+        try:
+            with open(matrix_file, 'r') as f:
+                header_passed = False
+                for line in f:
+                    if line.startswith('%'):
+                        continue
+                    if not header_passed:
+                        # Dimensions line: rows cols entries
+                        header_passed = True
+                        continue
+                    
+                    parts = line.strip().split()
+                    if len(parts) >= 3:
+                        row_idx = int(parts[0]) - 1 # 0-based
+                        col_idx = int(parts[1]) - 1 # 0-based
+                        count = parts[2] # Keep as string
+                        
+                        if row_idx < len(features) and col_idx < len(barcodes):
+                            isoform = features[row_idx]
+                            barcode = barcodes[col_idx]
+                            
+                            if isoform not in cell_dict:
+                                cell_dict[isoform] = {"CB": [], "FL": []}
+                            
+                            cell_dict[isoform]["CB"].append(barcode)
+                            cell_dict[isoform]["FL"].append(count)
+                            
+        except Exception as e:
+             print(f"[ERROR] Failed to read matrix.mtx: {e}", file=sys.stderr)
+             return cell_dict
+
+        # Join lists
+        for iso in cell_dict:
+            cell_dict[iso]["CB"] = ",".join(cell_dict[iso]["CB"])
+            cell_dict[iso]["FL"] = ",".join(cell_dict[iso]["FL"])
+            
+        return cell_dict
+
     def _parse_isoform_tsv_for_cell_association(tsv_file):
         cell_dict = {}
         try:
+            # First try reading with header
             df_assoc = pd.read_csv(tsv_file, sep='\t', dtype=str, comment='#')
-            required = ['pbid', 'cell_barcodes']
-            if not all(col in df_assoc.columns for col in required):
-                print(f"[ERROR] {tsv_file} missing required columns: 'pbid' and 'cell_barcodes'.",
-                      file=sys.stderr)
-                return cell_dict
+            
+            # Identify ID column
+            id_col = None
+            possible_id_cols = ['pbid', 'isoform_id', 'isoform', 'id']
+            for col in df_assoc.columns:
+                if col.lower() in possible_id_cols:
+                    id_col = col
+                    break
+            
+            # Identify Barcode column
+            cb_col = None
+            possible_cb_cols = ['cell_barcodes', 'cbs', 'cb']
+            for col in df_assoc.columns:
+                if col.lower() in possible_cb_cols:
+                    cb_col = col
+                    break
+            
+            # Fallback to indices if columns not found by name
+            if id_col is None or cb_col is None:
+                # Re-read without header to check if it's a headerless 2-col file
+                # Or just assume the dataframe we have is using first row as header incorrectly
+                # But safer to check dimensions or just use iloc if we assume 1st and 2nd cols
+                
+                # If we couldn't find headers, let's try to assume it might be headerless
+                # or the headers are just weird. 
+                # Strategy: Check if we have at least 2 columns.
+                if df_assoc.shape[1] >= 2:
+                    # If we suspect headerless, the first row we read might be data.
+                    # But pandas read_csv defaults to header=0. 
+                    # Let's re-read with header=None to be safe if we failed to find headers
+                    df_assoc = pd.read_csv(tsv_file, sep='\t', header=None, dtype=str, comment='#')
+                    id_col = 0
+                    cb_col = 1
+                else:
+                     print(f"[ERROR] {tsv_file} has fewer than 2 columns and no recognized headers.", file=sys.stderr)
+                     return cell_dict
+
+            # Iterate and populate
+            # If we re-read with header=None, columns are integers 0, 1
+            # If we used original df, columns are strings
+            
             for _, row in df_assoc.iterrows():
-                pbid, cbs = row['pbid'], row['cell_barcodes']
-                cell_dict[pbid] = {"CB": cbs}
+                pbid = row[id_col]
+                cbs = row[cb_col]
+                if pd.notna(pbid) and pd.notna(cbs):
+                    cell_dict[pbid] = {"CB": cbs}
+                    
         except Exception as e:
             print(f"[ERROR] Failed to parse {tsv_file}: {e}", file=sys.stderr)
         return cell_dict
@@ -149,33 +262,44 @@ def annotate_with_cell_metadata(args, df):
         file_acc = row['file_acc']
         sampleID = row['sampleID']
         outputPathPrefix = os.path.join(args.out_dir, file_acc, sampleID)
-        assoc_path = row.get('cell_association_file')
+        
+        # Get paths (renamed cell_association)
+        assoc_path = row.get('cell_association')
+        abundance_path = row.get('abundance')
 
         cell_data = {}
-        if pd.notna(assoc_path) and assoc_path:
-            print(f"INFO: Using cell association file: {assoc_path}",
-                  file=sys.stdout)
-            if args.mode == "isoforms":
-                    cell_data = _parse_isoform_tsv_for_cell_association(assoc_path)
-            elif args.mode == "reads":
+        
+        if args.mode == "isoforms":
+            # Priority: Abundance > Cell Association (or use abundance if present)
+            if pd.notna(abundance_path) and abundance_path:
+                print(f"INFO: Using abundance folder: {abundance_path}", file=sys.stdout)
+                cell_data = _parse_abundance_folder(abundance_path)
+            elif pd.notna(assoc_path) and assoc_path:
+                print(f"INFO: Using cell association file: {assoc_path}", file=sys.stdout)
+                cell_data = _parse_isoform_tsv_for_cell_association(assoc_path)
+                
+        elif args.mode == "reads":
+            if pd.notna(assoc_path) and assoc_path:
+                print(f"INFO: Using cell association file: {assoc_path}", file=sys.stdout)
                 if assoc_path.endswith(".bam"):
                     cell_data = _parse_bam_for_cell_association(assoc_path)
                 else:
                     cell_data = _parse_tsv_for_cell_association(assoc_path)
 
-        tmp_class = f"{outputPathPrefix}_classification_tmp.txt"
-        final_class = f"{outputPathPrefix}_classification.txt"
+        # Determine classification file path
+        if 'classification_file' in row and pd.notna(row['classification_file']) and row['classification_file'] != '':
+            class_file = row['classification_file']
+        else:
+            class_file = f"{outputPathPrefix}_classification.txt"
 
         if not cell_data:
             print(f"[INFO] No cell data for {file_acc}. Skipping.",
                   file=sys.stdout)
-            if os.path.exists(tmp_class):
-                os.rename(tmp_class, final_class)
             continue
 
-        if os.path.isfile(tmp_class):
+        if os.path.isfile(class_file):
             try:
-                class_df = pd.read_csv(tmp_class, sep='\t',
+                class_df = pd.read_csv(class_file, sep='\t',
                                        low_memory=False, dtype=str)
 
                 if args.mode == "reads":
@@ -193,24 +317,32 @@ def annotate_with_cell_metadata(args, df):
                             if primary in cell_data:
                                 class_df.at[i, 'UMI'] = cell_data[primary].get('UMI')
                                 class_df.at[i, 'CB'] = cell_data[primary].get('CB')
+                                
                 elif args.mode == "isoforms":
                     class_df['CB'] = class_df['isoform'].map(
                         lambda x: cell_data.get(x, {}).get("CB")
+                    )
+                    # Add FL column if available (from abundance)
+                    class_df['FL'] = class_df['isoform'].map(
+                        lambda x: cell_data.get(x, {}).get("FL")
                     )
 
                 for col in class_df.select_dtypes(include=['bool']).columns:
                     class_df[col] = class_df[col].map({True: 'TRUE', False: 'FALSE'})
 
                 class_df = class_df.fillna('NA')
-                class_df.to_csv(final_class, index=False, sep="\t")
+                class_df.to_csv(class_file, index=False, sep="\t")
             except Exception as e:
                 print(f"[ERROR] Could not merge cell data: {e}",
                       file=sys.stderr)
         else:
-            print(f"[INFO] Classification file for {file_acc} not found.",
+            print(f"[INFO] Classification file for {file_acc} not found at {class_file}.",
                   file=sys.stdout)
 
-        junctions_path = f"{outputPathPrefix}_junctions.txt"
+        if 'junction_file' in row and pd.notna(row['junction_file']) and row['junction_file'] != '':
+            junctions_path = row['junction_file']
+        else:
+            junctions_path = f"{outputPathPrefix}_junctions.txt"
         if os.path.isfile(junctions_path):
             try:
                 junc_df = pd.read_csv(junctions_path, sep='\t', dtype=str)
@@ -232,7 +364,6 @@ def annotate_with_cell_metadata(args, df):
                   file=sys.stdout)
 
         print(f"**** Cell data added to {file_acc}", file=sys.stdout)
-        if os.path.exists(tmp_class):
-            os.remove(tmp_class)
+
 
 

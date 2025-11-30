@@ -54,6 +54,8 @@ def build_parser(version_str: str = '0.2.1'):
                      help='Directory or FOFN of short-read BAM files.')
     apc.add_argument('--novel_gene_prefix',
                      help='Prefix for novel gene IDs.')
+    apc.add_argument('--ref_cov_min_pct', type=float, default=45.0,
+                     help='Minimum %% of reference transcript length a read must cover to count towards coverage plots (default: 45.0).')
 
     apa = ap.add_argument_group("SQANTI3 aligner and mapping options")
     apa.add_argument('--aligner_choice', default='minimap2',

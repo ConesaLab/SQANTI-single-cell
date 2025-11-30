@@ -28,11 +28,14 @@ def fill_design_table(args):
         axis=1
     )
 
-    if 'cell_association_file' not in df.columns:
-        df['cell_association_file'] = ''
+    if 'cell_association' not in df.columns:
+        df['cell_association'] = ''
+    if 'abundance' not in df.columns:
+        df['abundance'] = ''
 
     for index, row in df.iterrows():
-        if pd.isna(row['cell_association_file']) or not row['cell_association_file']:
+        # Handle cell_association
+        if pd.isna(row['cell_association']) or not row['cell_association']:
             file_acc = row['file_acc']
             bam_pattern = os.path.join(args.input_dir, f"{file_acc}*.bam")
             bam_files = glob.glob(bam_pattern)
@@ -41,10 +44,23 @@ def fill_design_table(args):
             )
 
             if bam_files:
-                df.at[index, 'cell_association_file'] = os.path.abspath(bam_files[0])
+                df.at[index, 'cell_association'] = os.path.abspath(bam_files[0])
             elif os.path.isfile(assoc_file_path):
-                df.at[index, 'cell_association_file'] = os.path.abspath(
-                    assoc_file_path
+                df.at[index, 'cell_association'] = os.path.abspath(assoc_file_path)
+        
+        # Validation based on mode
+        has_assoc = pd.notna(df.at[index, 'cell_association']) and df.at[index, 'cell_association']
+        has_abundance = pd.notna(df.at[index, 'abundance']) and df.at[index, 'abundance']
+
+        if args.mode == 'reads':
+            if not has_assoc:
+                raise ValueError(
+                    f"ERROR: 'cell_association' is required for sample {row['sampleID']} in 'reads' mode."
+                )
+        elif args.mode == 'isoforms':
+            if not has_assoc and not has_abundance:
+                raise ValueError(
+                    f"ERROR: Either 'cell_association' or 'abundance' is required for sample {row['sampleID']} in 'isoforms' mode."
                 )
 
     # Write the DataFrame back to the CSV file

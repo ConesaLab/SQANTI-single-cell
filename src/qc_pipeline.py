@@ -21,7 +21,7 @@ def main():
 
     run_sqanti3_qc(args, df)
 
-    if not args.SKIPHASH:
+    if not args.SKIPHASH and args.mode != 'isoforms':
         annotate_with_ujc_hash(args, df)
 
     annotate_with_cell_metadata(args, df)
