@@ -114,9 +114,9 @@ def test_fill_design_table(mock_isfile, mock_glob, mock_args, tmpdir):
     df = fill_design_table(mock_args)
 
     assert isinstance(df, pd.DataFrame)
-    assert 'cell_association_file' in df.columns
-    assert df['cell_association_file'][0] == os.path.abspath(bam_file_path)
-    assert df['cell_association_file'][1] == os.path.abspath(assoc_file_path)
+    assert 'cell_association' in df.columns
+    assert df['cell_association'][0] == os.path.abspath(bam_file_path)
+    assert df['cell_association'][1] == os.path.abspath(assoc_file_path)
 
 
 def test_fill_design_table_preserve_existing(mock_args, tmpdir):
@@ -124,14 +124,14 @@ def test_fill_design_table_preserve_existing(mock_args, tmpdir):
     # Prepare a design with pre-filled association path
     predefined = os.path.join(mock_args.input_dir, "pre_filled.tsv")
     design_content = (
-        "sampleID,file_acc,cell_association_file\n"
+        "sampleID,file_acc,cell_association\n"
         f"sample1,file1,{predefined}\n"
     )
     with open(mock_args.inDESIGN, 'w') as f:
         f.write(design_content)
 
     df = fill_design_table(mock_args)
-    assert df.loc[0, 'cell_association_file'] == predefined
+    assert df.loc[0, 'cell_association'] == predefined
 
 
 @patch('sqanti3_qc_runner.run_command')
@@ -265,7 +265,7 @@ def test_add_cell_data_reads_mode_bam(
     bam_path = os.path.join(mock_args.input_dir, "file1.bam")
     design_df = pd.DataFrame({
         "sampleID": ["sample1"], "file_acc": ["file1"],
-        "cell_association_file": [bam_path]
+        "cell_association": [bam_path]
     })
 
     # Mocks for file system and pysam
@@ -323,7 +323,7 @@ def test_add_cell_data_isoform_mode_tsv(
     assoc_path = os.path.join(mock_args.input_dir, "file1_assoc.tsv")
     design_df = pd.DataFrame({
         "sampleID": ["sample1"], "file_acc": ["file1"],
-        "cell_association_file": [assoc_path]
+        "cell_association": [assoc_path]
     })
 
     # Mocks for file system and dataframes
@@ -419,7 +419,7 @@ def test_pipeline_main_smoke(
             self.write_per_cell_outputs = write_per_cell_outputs
             self.log_level = 'INFO'
     # Write a minimal design
-    tmpdir.join('design.csv').write('sampleID,file_acc\ns1,f1\n')
+    tmpdir.join('design.csv').write('sampleID,file_acc,cell_association\ns1,f1,assoc.txt\n')
 
     class DummyParser:
         def parse_args(self_inner):
@@ -586,7 +586,7 @@ def test_add_cell_data_missing_tags(
     bam_path = os.path.join(mock_args.input_dir, "file1.bam")
     design_df = pd.DataFrame({
         "sampleID": ["sample1"], "file_acc": ["file1"],
-        "cell_association_file": [bam_path]
+        "cell_association": [bam_path]
     })
 
     mock_isfile.return_value = True
@@ -610,7 +610,7 @@ def test_annotate_with_cell_metadata_missing_columns(
     assoc_path = os.path.join(mock_args.input_dir, "file1_assoc.tsv")
     design_df = pd.DataFrame({
         "sampleID": ["sample1"], "file_acc": ["file1"],
-        "cell_association_file": [assoc_path]
+        "cell_association": [assoc_path]
     })
 
     metadata_content = "id\tumi\niso1\tumi1"  # No cell_barcode column
