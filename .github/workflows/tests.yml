@@ -17,6 +17,14 @@ jobs:
       - name: Clone external repo
         run: git clone https://github.com/ConesaLab/SQANTI3.git SQANTI3
 
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+
       - name: Set up Conda
         uses: mamba-org/setup-micromamba@v2
         with:
