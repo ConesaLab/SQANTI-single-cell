@@ -20,7 +20,7 @@ jobs:
       - name: Set up Conda
         uses: mamba-org/setup-micromamba@v2
         with:
-          environment-file: SQANTI3/SQANTI3.conda_env.yml
+          environment-file: tests/environment.yml
           environment-name: SQANTI3.env
           cache-environment: true
 
