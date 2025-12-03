@@ -18,7 +18,7 @@ jobs:
         run: git clone https://github.com/ConesaLab/SQANTI3.git SQANTI3
 
       - name: Set up Conda
-        uses: mamba-org/setup-micromamba@v1
+        uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: SQANTI3/SQANTI3.conda_env.yml
           environment-name: SQANTI3.env
