@@ -117,6 +117,24 @@ def build_parser(version_str: str = '0.2.1'):
     apm.add_argument('--gff3',
                      help='Precomputed tappAS GFF3 for functional transfer.')
 
+    apcl = ap.add_argument_group("SQANTI-sc clustering and UMAP options")
+    apcl.add_argument('--run_clustering', action='store_true', default=False,
+                      help='Run cell clustering and UMAP analysis.')
+    apcl.add_argument('--normalization', choices=['log1p', 'sqrt', 'pearson'], default='log1p',
+                      help='Normalization method. Default: log1p.')
+    apcl.add_argument('--n_neighbors', type=int, default=15,
+                      help='Number of neighbors for UMAP. Default: 15.')
+    apcl.add_argument('--n_pc', type=int, default=30,
+                      help='Number of principal components. Default: 30.')
+    apcl.add_argument('--resolution', type=float, default=0.5,
+                      help='Resolution for Leiden clustering. Default: 0.5.')
+    apcl.add_argument('--n_top_genes', type=int, default=2000,
+                      help='Number of highly variable genes. Default: 2000.')
+    apcl.add_argument('--clustering_method', choices=['leiden', 'louvain', 'kmeans'], default='leiden',
+                      help='Clustering method. Default: leiden.')
+    apcl.add_argument('--n_clusters', type=int, default=10,
+                      help='Number of clusters for K-means. Default: 10.')
+
     return ap
 
 

@@ -418,6 +418,7 @@ def test_pipeline_main_smoke(
             self.SKIPHASH = True
             self.write_per_cell_outputs = write_per_cell_outputs
             self.log_level = 'INFO'
+            self.run_clustering = False
     # Write a minimal design
     tmpdir.join('design.csv').write('sampleID,file_acc,cell_association\ns1,f1,assoc.txt\n')
 

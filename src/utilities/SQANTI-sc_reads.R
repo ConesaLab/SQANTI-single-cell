@@ -125,6 +125,35 @@ if (mode == "isoforms") {
 # Generate output file names with full paths
 cell_summary_output <- file.path(paste0(outputPathPrefix, "_SQANTI_cell_summary"))
 report_output <- file.path(paste0(outputPathPrefix, "_SQANTI_sc_report_", mode))
+clustering_output <- file.path(dirname(outputPathPrefix), "clustering", "umap_results.csv")
+
+# Check for clustering results
+gg_umap <- NULL
+if (file.exists(clustering_output)) {
+  print(paste("Found clustering results at:", clustering_output))
+  tryCatch(
+    {
+      umap_df <- read.csv(clustering_output)
+      umap_df$Cluster <- as.factor(umap_df$Cluster)
+
+      gg_umap <- ggplot(umap_df, aes(x = UMAP_1, y = UMAP_2, color = Cluster)) +
+        geom_point(alpha = 0.6, size = 0.5) +
+        theme_classic() +
+        labs(title = "UMAP Projection", x = "UMAP 1", y = "UMAP 2") +
+        theme(
+          plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+          legend.title = element_text(face = "bold"),
+          legend.position = "right"
+        ) +
+        guides(color = guide_legend(override.aes = list(size = 3, alpha = 1)))
+    },
+    error = function(e) {
+      print(paste("Error reading clustering results:", e$message))
+    }
+  )
+} else {
+  print("No clustering results found.")
+}
 
 
 generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Junctions, report_output, generate_pdf = TRUE) {
@@ -3528,6 +3557,12 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     if (CAGE_peak) render_pdf_plot("gg_cage_peak_support")
     if (polyA_motif_list) render_pdf_plot("gg_polyA_motif_support")
     render_pdf_plot("gg_canon_by_category")
+
+    # Clustering Analysis
+    if (exists("gg_umap") && !is.null(gg_umap)) {
+      section_page("Clustering analysis")
+      print(gg_umap)
+    }
 
     dev.off()
   }

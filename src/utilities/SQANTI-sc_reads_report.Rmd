@@ -798,6 +798,8 @@ if (exists("gg_MT_perc")) {
 </div>
 ```
 
+
+
 # `r paste(entity_label, "Length Characterization")` {.tabset .tabset-fade}
 
 ## Bulk Length Distribution
@@ -1642,3 +1644,36 @@ if (exists("gg_canon_by_category")) {
 ```
 
 </div>
+
+`r if(knitr::is_latex_output()) "\\newpage"`
+
+# Clustering analysis
+
+```{r clustering-umap-check, include=FALSE}
+show_umap <- exists("gg_umap") && !is.null(gg_umap)
+```
+
+```{r clustering-umap-div-start, results='asis'}
+if (show_umap) cat('<div class="narrow-plot">\n')
+```
+
+```{r clustering-umap, fig.height=6, fig.width=8, eval=show_umap}
+if (knitr::is_html_output()) {
+  # Add margin to avoid title overlap with mode bar in HTML
+  render_ggplotly(gg_umap, target_width = 600, target_height = 500) %>%
+    layout(margin = list(t = 100))
+} else {
+  # For PDF, render the ggplot object directly
+  print(gg_umap)
+}
+```
+
+```{r clustering-umap-div-end, results='asis'}
+if (show_umap) cat("</div>\n")
+```
+
+```{r clustering-umap-missing, results='asis'}
+if (!show_umap) {
+  cat("Clustering and UMAP analysis was not run or results are missing.\n")
+}
+```

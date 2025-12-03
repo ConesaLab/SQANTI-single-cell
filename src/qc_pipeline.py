@@ -8,6 +8,7 @@ from classification_enrichment import annotate_with_ujc_hash, annotate_with_cell
 from cell_metrics import calculate_metrics_per_cell
 from qc_outputs import write_gene_counts_by_cell, write_ujc_counts_by_cell, write_cv_by_cell
 from qc_reports import generate_report, generate_multisample_report
+from sc_clustering import run_clustering_analysis
 
 def main():
     ap = build_parser(version_str='0.2.1')
@@ -34,6 +35,10 @@ def main():
         write_cv_by_cell(args, df)
     else:
         print("[INFO] Skipping per-cell outputs (enable with --write_per_cell_outputs).", file=sys.stdout)
+
+    if args.run_clustering:
+        for _, row in df.iterrows():
+            run_clustering_analysis(args, row)
 
     generate_report(args, df)
 
