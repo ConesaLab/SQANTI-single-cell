@@ -694,18 +694,22 @@ if (exists("gg_annotation_of_genes_percent_in_cell")) {
 <div id="readspergene-dropdown" class="dropdown-toolbar">
   <div class="btn-group">
     <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-      <span class="label">% Reads from Known/Novel Genes</span> <span class="caret"></span>
+      <span class="label">
+        `r if(mode == "reads") paste("% Annotated Genes by", entity_label, "Count Bins") else paste("%", entity_label_plural, "from Known/Novel Genes")`
+      </span> <span class="caret"></span>
     </button>
     <ul class="dropdown-menu dropdown-menu-right" role="menu">
-      <li><a href="#" data-target="#readspergene-perc-reads-annot">% `r entity_label_plural` from Known/Novel Genes</a></li>
-      <li><a href="#" data-target="#readspergene-bins-all">% Genes by `r entity_label` Count Bins</a></li>
-      <li><a href="#" data-target="#readspergene-bins-annot">% Known/Novel Genes by `r entity_label` Count Bins</a></li>
+      `r if(mode == "isoforms") paste0('<li><a href="#" data-target="#readspergene-perc-reads-annot">% ', entity_label_plural, ' from Known/Novel Genes</a></li>')`
+      <li><a href="#" data-target="#readspergene-bins-all">
+        `r if(mode == "reads") paste("% Annotated Genes by", entity_label, "Count Bins") else paste("% Genes by", entity_label, "Count Bins")`
+      </a></li>
+      `r if(mode == "isoforms") paste0('<li><a href="#" data-target="#readspergene-bins-annot">% Known/Novel Genes by ', entity_label, ' Count Bins</a></li>')`
     </ul>
   </div>
 </div>
 ```
 
-<div id="readspergene-perc-reads-annot" class="toggle-pane" style="display:block;">
+<div id="readspergene-perc-reads-annot" class="toggle-pane `r if(mode == 'reads') 'hidden-pane'`" style="display:`r if(mode == 'reads') 'none' else 'block'`">
 
 ```{r readspergene-perc-reads-annot, fig.height=6, fig.width=12}
 if (exists("gg_annotation_of_reads_in_cell")) {
@@ -715,7 +719,7 @@ if (exists("gg_annotation_of_reads_in_cell")) {
 
 </div>
 
-<div id="readspergene-bins-all" class="toggle-pane hidden-pane" style="display:block;">
+<div id="readspergene-bins-all" class="toggle-pane `r if(mode == 'isoforms') 'hidden-pane'`" style="display:`r if(mode == 'isoforms') 'none' else 'block'`">
 
 ```{r readspergene-bins-all, fig.height=6, fig.width=12}
 if (exists("gg_read_bins_all")) {
@@ -749,11 +753,15 @@ show_ujcs_gene <- (mode != "isoforms")
  <div id="ujcspergene-dropdown" class="dropdown-toolbar" style="`r if(!show_ujcs_gene) 'display:none;'`">
    <div class="btn-group">
      <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-       <span class="label">% Genes by UJC Count Bins</span> <span class="caret"></span>
+       <span class="label">
+         `r if(mode == "reads") "% Annotated Genes by UJC Count Bins" else "% Genes by UJC Count Bins"`
+       </span> <span class="caret"></span>
      </button>
      <ul class="dropdown-menu dropdown-menu-right" role="menu">
-       <li><a href="#" data-target="#ujcspergene-bins-all">% Genes by UJC Count Bins</a></li>
-       <li><a href="#" data-target="#ujcspergene-bins-annot">% Known/Novel Genes by UJC Count Bins</a></li>
+       <li><a href="#" data-target="#ujcspergene-bins-all">
+         `r if(mode == "reads") "% Annotated Genes by UJC Count Bins" else "% Genes by UJC Count Bins"`
+       </a></li>
+       `r if(mode != "reads") '<li><a href="#" data-target="#ujcspergene-bins-annot">% Known/Novel Genes by UJC Count Bins</a></li>'`
      </ul>
    </div>
  </div>

@@ -1515,31 +1515,50 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   read_bins_data$bin <- factor(read_bins_data$bin, levels = gene_bin_levels)
   read_bins_data$gene_type <- factor(read_bins_data$gene_type, levels = c("Annotated", "Novel"))
 
-  gg_read_bins <<- build_grouped_violin_plot(
-    df = read_bins_data %>% transmute(bin = as.character(bin), group = as.character(gene_type), value = percentage),
-    bin_levels = gene_bin_levels,
-    group_levels = c("Annotated", "Novel"),
-    title = paste("Distribution of Known/Novel Genes by", entity_label, "Count Bins Across Cells"),
-    fill_map = c("Annotated" = "#e37744", "Novel" = "#78C679"),
-    legend_labels = c("Annotated" = "Annotated", "Novel" = "Novel"),
-    y_label = "Genes, %",
-    ylim = c(0, 100),
-    violin_alpha = 0.5,
-    box_alpha = 0.3,
-    box_width = 0.05,
-    x_tickangle = 45,
-    violin_width = 0.28,
-    dodge_width = 1.0
-  )
+  if (mode == "isoforms") {
+    gg_read_bins <<- build_grouped_violin_plot(
+      df = read_bins_data %>% transmute(bin = as.character(bin), group = as.character(gene_type), value = percentage),
+      bin_levels = gene_bin_levels,
+      group_levels = c("Annotated", "Novel"),
+      title = paste("Distribution of Known/Novel Genes by", entity_label, "Count Bins Across Cells"),
+      fill_map = c("Annotated" = "#e37744", "Novel" = "#78C679"),
+      legend_labels = c("Annotated" = "Annotated", "Novel" = "Novel"),
+      y_label = "Genes, %",
+      ylim = c(0, 100),
+      violin_alpha = 0.5,
+      box_alpha = 0.3,
+      box_width = 0.05,
+      x_tickangle = 45,
+      violin_width = 0.28,
+      dodge_width = 1.0
+    )
+  }
 
   # Combined (all genes together): one violin per bin
-  read_bins_all <- genes_by_cb %>%
-    group_by(CB, bin) %>%
-    summarise(num_genes = n(), .groups = "drop") %>%
-    group_by(CB) %>%
-    mutate(percentage = 100 * num_genes / sum(num_genes)) %>%
-    ungroup() %>%
-    tidyr::complete(CB, bin = gene_bin_levels, fill = list(num_genes = 0, percentage = 0))
+  if (mode == "reads") {
+    # Filter for Annotated genes only
+    read_bins_all <- genes_by_cb %>%
+      filter(gene_type == "Annotated") %>%
+      group_by(CB, bin) %>%
+      summarise(num_genes = n(), .groups = "drop") %>%
+      group_by(CB) %>%
+      mutate(percentage = 100 * num_genes / sum(num_genes)) %>%
+      ungroup() %>%
+      tidyr::complete(CB, bin = gene_bin_levels, fill = list(num_genes = 0, percentage = 0))
+    
+    plot_title_all <- paste("Distribution of Annotated Genes by", entity_label, "Count Bins Across Cells")
+  } else {
+    # All genes (Annotated + Novel)
+    read_bins_all <- genes_by_cb %>%
+      group_by(CB, bin) %>%
+      summarise(num_genes = n(), .groups = "drop") %>%
+      group_by(CB) %>%
+      mutate(percentage = 100 * num_genes / sum(num_genes)) %>%
+      ungroup() %>%
+      tidyr::complete(CB, bin = gene_bin_levels, fill = list(num_genes = 0, percentage = 0))
+      
+    plot_title_all <- paste("Distribution of Genes by", entity_label, "Count Bins Across Cells")
+  }
 
   read_bins_all$bin <- factor(read_bins_all$bin, levels = gene_bin_levels)
 
@@ -1551,7 +1570,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     fill_map <- setNames(rep("#CC6633", length(gene_bin_levels)), gene_bin_levels)
     gg_read_bins_all <<- build_violin_plot(
       df_long,
-      title = paste("Distribution of Genes by", entity_label, "Count Bins Across Cells"),
+      title = plot_title_all,
       x_labels = as.character(gene_bin_levels),
       fill_map = fill_map,
       y_label = "Genes, %",
@@ -1592,6 +1611,17 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       mutate(bin = vapply(ujc_per_gene, ujc_bin_label, character(1))) %>%
       filter(!is.na(bin))
 
+    # For reads mode, filter for Annotated genes only
+    if (mode == "reads") {
+      ujc_by_cb <- ujc_by_cb %>%
+        mutate(gene_type = ifelse(grepl("^novel", associated_gene), "Novel", "Annotated")) %>%
+        filter(gene_type == "Annotated")
+        
+      plot_title_ujc_all <- "Distribution of Annotated Genes by UJC Count Bins Across Cells"
+    } else {
+      plot_title_ujc_all <- "Distribution of Genes by UJC Count Bins Across Cells"
+    }
+
     ujc_bins_all <- ujc_by_cb %>%
       group_by(CB, bin) %>%
       summarise(num_genes = n(), .groups = "drop") %>%
@@ -1611,7 +1641,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     fill_map <- setNames(rep("#CC6633", length(ujc_bin_levels)), ujc_bin_levels)
     gg_ujc_bins_all <<- build_violin_plot(
       df_long,
-      title = "Distribution of Genes by UJC Count Bins Across Cells",
+      title = plot_title_ujc_all,
       x_labels = as.character(ujc_bin_levels),
       fill_map = fill_map,
       y_label = "Genes, %",
@@ -1649,22 +1679,26 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     ujc_bins_data$bin <- factor(ujc_bins_data$bin, levels = c("1", "2-3", "4-5", ">=6"))
     ujc_bins_data$gene_type <- factor(ujc_bins_data$gene_type, levels = c("Annotated", "Novel"))
 
-    gg_ujc_bins <<- build_grouped_violin_plot(
-      df = ujc_bins_data %>% transmute(bin = as.character(bin), group = as.character(gene_type), value = percentage),
-      bin_levels = ujc_bin_levels,
-      group_levels = c("Annotated", "Novel"),
-      title = "Distribution of Known/Novel Genes by UJC Count Bins Across Cells",
-      fill_map = c("Annotated" = "#e37744", "Novel" = "#78C679"),
-      legend_labels = c("Annotated" = "Annotated", "Novel" = "Novel"),
-      y_label = "Genes, %",
-      ylim = c(0, 100),
-      violin_alpha = 0.5,
-      box_alpha = 0.3,
-      box_width = 0.05,
-      x_tickangle = 45,
-      violin_width = 0.28,
-      dodge_width = 1.0
-    )
+    # Only generate split plot if NOT in reads mode (though this block is inside if(mode != "isoforms"), so effectively only for other modes if any)
+    # But per user request, we remove it for reads mode.
+    if (mode != "reads") {
+      gg_ujc_bins <<- build_grouped_violin_plot(
+        df = ujc_bins_data %>% transmute(bin = as.character(bin), group = as.character(gene_type), value = percentage),
+        bin_levels = ujc_bin_levels,
+        group_levels = c("Annotated", "Novel"),
+        title = "Distribution of Known/Novel Genes by UJC Count Bins Across Cells",
+        fill_map = c("Annotated" = "#e37744", "Novel" = "#78C679"),
+        legend_labels = c("Annotated" = "Annotated", "Novel" = "Novel"),
+        y_label = "Genes, %",
+        ylim = c(0, 100),
+        violin_alpha = 0.5,
+        box_alpha = 0.3,
+        box_width = 0.05,
+        x_tickangle = 45,
+        violin_width = 0.28,
+        dodge_width = 1.0
+      )
+    }
   }
 
   # Mitochondrial percentage in cell
