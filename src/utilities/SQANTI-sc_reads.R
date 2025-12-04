@@ -2024,22 +2024,22 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       x_labels = cat_labels_pretty,
       y_label = paste(entity_label_plural, ", %", sep = ""),
       fill_map = coding_fill_map,
-      plot_args = list(override_outline_vars = c("genic_coding_prop", "genic_intron_coding_prop"), violin_outline_fill = TRUE)
+      plot_args = list(override_outline_vars = c("genic_coding_prop"), violin_outline_fill = TRUE)
     ))
 
 
 
-    # Define colors for non-coding (lighter versions)
+    # Define colors for non-coding (same as coding but will use alpha)
     noncoding_fill_map <- c(
-      "FSM_non_coding_prop" = "#D2E6F2",
-      "ISM_non_coding_prop" = "#FEDCCD",
-      "NIC_non_coding_prop" = "#D6EDD6",
-      "NNC_non_coding_prop" = "#F9D2CA",
-      "genic_non_coding_prop" = "#DFDFDF",
-      "antisense_non_coding_prop" = "#D1ECE3",
-      "fusion_non_coding_prop" = "#FFECBD",
-      "intergenic_non_coding_prop" = "#F8DFD7",
-      "genic_intron_non_coding_prop" = "#C6E9ED"
+      "FSM_non_coding_prop" = "#6BAED6",
+      "ISM_non_coding_prop" = "#FC8D59",
+      "NIC_non_coding_prop" = "#78C679",
+      "NNC_non_coding_prop" = "#EE6A50",
+      "genic_non_coding_prop" = "#969696",
+      "antisense_non_coding_prop" = "#66C2A4",
+      "fusion_non_coding_prop" = "goldenrod1",
+      "intergenic_non_coding_prop" = "darksalmon",
+      "genic_intron_non_coding_prop" = "#41B6C4"
     )
 
     pivot_violin(SQANTI_cell_summary, list(
@@ -2049,7 +2049,13 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       x_labels = cat_labels_pretty,
       y_label = paste(entity_label_plural, ", %", sep = ""),
       fill_map = noncoding_fill_map,
-      plot_args = list(override_outline_vars = c("genic_intron_non_coding_prop"), violin_outline_fill = TRUE)
+
+      plot_args = list(
+        override_outline_vars = c(),
+        violin_outline_fill = TRUE,
+        violin_alpha = 0.4,
+        box_alpha = 0.1
+      )
     ))
   } # End of if (!skipORF)
 
@@ -2351,7 +2357,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       box_width = 0.05,
       x_tickangle = 45,
       violin_outline_fill = TRUE,
-      box_outline_default = "grey20"
+      box_outline_default = "grey20",
+      override_outline_vars = c("Genic")
     )
 
     # 2) Percent mono-exonic reads per cell and category
@@ -2380,7 +2387,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       box_width = 0.05,
       x_tickangle = 45,
       violin_outline_fill = TRUE,
-      box_outline_default = "grey20"
+      box_outline_default = "grey20",
+      override_outline_vars = c("Genic")
     )
 
     # 3) Exon count bins per structural category across cells (HTML)
@@ -2876,86 +2884,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     non_coding_cols <- grep("_non_coding_prop$", colnames(SQANTI_cell_summary), value = TRUE)
     coding_cols <- setdiff(all_coding_like, non_coding_cols)
 
-    if (length(coding_cols) > 0) {
-      # Coding
-      df_coding <- SQANTI_cell_summary %>%
-        select(CB, all_of(coding_cols)) %>%
-        pivot_longer(cols = all_of(coding_cols), names_to = "Variable", values_to = "Value") %>%
-        mutate(
-          Variable = gsub("_coding_prop$", "", Variable)
-        )
 
-      # Helper to map tag to pretty label
-      tag_to_pretty <- function(tag) {
-        case_map <- c(
-          "FSM" = "FSM", "ISM" = "ISM", "NIC" = "NIC", "NNC" = "NNC",
-          "genic" = "Genic Genomic", "antisense" = "Antisense", "fusion" = "Fusion",
-          "intergenic" = "Intergenic", "genic_intron" = "Genic Intron"
-        )
-        if (tag %in% names(case_map)) {
-          return(case_map[[tag]])
-        }
-        return(tag)
-      }
-
-      df_coding$PrettyVar <- sapply(df_coding$Variable, tag_to_pretty)
-
-      # Filter to only known categories
-      known_vars <- c("FSM", "ISM", "NIC", "NNC", "genic", "antisense", "fusion", "intergenic", "genic_intron")
-      df_coding <- df_coding %>% filter(Variable %in% known_vars)
-
-      # Set factor levels
-      pretty_levels <- c("FSM", "ISM", "NIC", "NNC", "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron")
-      df_coding$PrettyVar <- factor(df_coding$PrettyVar, levels = pretty_levels)
-
-      # Create plot
-      gg_coding_by_category <<- build_violin_plot(
-        df_long = data.frame(Variable = df_coding$PrettyVar, Value = df_coding$Value),
-        title = paste("Coding", entity_label_plural, "Distribution by Structural Category Across Cells"),
-        x_labels = levels(df_coding$PrettyVar),
-        fill_map = cat_fill_map,
-        y_label = paste(entity_label_plural, ", %", sep = ""),
-        legend = FALSE,
-        override_outline_vars = c("Genic Genomic"),
-        violin_alpha = 0.7,
-        box_alpha = 0.3,
-        box_width = 0.05,
-        x_tickangle = 45,
-        violin_outline_fill = TRUE,
-        box_outline_default = "grey20",
-        ylim = c(0, 100)
-      )
-
-      # Non-Coding
-      # non_coding_cols already defined above
-      df_noncoding <- SQANTI_cell_summary %>%
-        select(CB, all_of(non_coding_cols)) %>%
-        pivot_longer(cols = all_of(non_coding_cols), names_to = "Variable", values_to = "Value") %>%
-        mutate(
-          Variable = gsub("_non_coding_prop$", "", Variable)
-        )
-
-      df_noncoding$PrettyVar <- sapply(df_noncoding$Variable, tag_to_pretty)
-      df_noncoding <- df_noncoding %>% filter(Variable %in% known_vars)
-      df_noncoding$PrettyVar <- factor(df_noncoding$PrettyVar, levels = pretty_levels)
-
-      gg_noncoding_by_category <<- build_violin_plot(
-        df_long = data.frame(Variable = df_noncoding$PrettyVar, Value = df_noncoding$Value),
-        title = paste("Non-Coding", entity_label_plural, "Distribution by Structural Category Across Cells"),
-        x_labels = levels(df_noncoding$PrettyVar),
-        fill_map = cat_fill_map,
-        y_label = paste(entity_label_plural, ", %", sep = ""),
-        legend = FALSE,
-        override_outline_vars = c("Genic Genomic"),
-        violin_alpha = 0.7,
-        box_alpha = 0.3,
-        box_width = 0.05,
-        x_tickangle = 45,
-        violin_outline_fill = TRUE,
-        box_outline_default = "grey20",
-        ylim = c(0, 100)
-      )
-    }
 
     # NMD
     if ("NMD_prop_in_cell" %in% colnames(SQANTI_cell_summary)) {
@@ -3432,8 +3361,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     }
 
     # Coding and Non-Coding Distributions
-    if (exists("gg_coding_by_category")) render_pdf_plot("gg_coding_by_category")
-    if (exists("gg_noncoding_by_category")) render_pdf_plot("gg_noncoding_by_category")
+    if (!skipORF) {
+      if (exists("gg_coding_across_category")) render_pdf_plot("gg_coding_across_category")
+      if (exists("gg_non_coding_across_category")) render_pdf_plot("gg_non_coding_across_category")
+    }
 
     # Splice Junction Characterization section
     # Compute per-structural-category SJ distributions for PDF pages

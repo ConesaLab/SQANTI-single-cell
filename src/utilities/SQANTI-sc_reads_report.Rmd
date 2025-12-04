@@ -699,7 +699,7 @@ if (exists("gg_annotation_of_genes_percent_in_cell")) {
       </span> <span class="caret"></span>
     </button>
     <ul class="dropdown-menu dropdown-menu-right" role="menu">
-      `r if(mode == "isoforms") paste0('<li><a href="#" data-target="#readspergene-perc-reads-annot">% ', entity_label_plural, ' from Known/Novel Genes</a></li>')`
+      <li><a href="#" data-target="#readspergene-perc-reads-annot">% `r entity_label_plural` from Known/Novel Genes</a></li>
       <li><a href="#" data-target="#readspergene-bins-all">
         `r if(mode == "reads") paste("% Annotated Genes by", entity_label, "Count Bins") else paste("% Genes by", entity_label, "Count Bins")`
       </a></li>
@@ -709,7 +709,7 @@ if (exists("gg_annotation_of_genes_percent_in_cell")) {
 </div>
 ```
 
-<div id="readspergene-perc-reads-annot" class="toggle-pane `r if(mode == 'reads') 'hidden-pane'`" style="display:`r if(mode == 'reads') 'none' else 'block'`">
+<div id="readspergene-perc-reads-annot" class="toggle-pane" style="display:block;">
 
 ```{r readspergene-perc-reads-annot, fig.height=6, fig.width=12}
 if (exists("gg_annotation_of_reads_in_cell")) {
@@ -1354,10 +1354,14 @@ if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_categor
 
 </div>
 
-## Coding Prediction {`r if(mode != "isoforms" || !exists("gg_coding_by_category")) "style='display:none;'"`}
+```{r coding-header, results='asis', echo=FALSE}
+if (exists("mode") && mode == "isoforms" && exists("gg_coding_across_category")) {
+  cat("## Coding Prediction\n")
+}
+```
 
 ```{r coding-check, include=FALSE}
-show_coding <- (mode == "isoforms" && exists("gg_coding_by_category"))
+show_coding <- (mode == "isoforms" && exists("gg_coding_across_category"))
 ```
 
 ```{=html}
@@ -1377,8 +1381,8 @@ show_coding <- (mode == "isoforms" && exists("gg_coding_by_category"))
 ```
 
 ```{r coding-coding, fig.height=6, fig.width=12, eval=show_coding}
-if (exists("gg_coding_by_category")) {
-  render_ggplotly(gg_coding_by_category)
+if (exists("gg_coding_across_category")) {
+  render_ggplotly(gg_coding_across_category)
 }
 ```
 
@@ -1389,8 +1393,8 @@ if (exists("gg_coding_by_category")) {
 ```
 
 ```{r coding-noncoding, fig.height=6, fig.width=12, eval=show_coding}
-if (exists("gg_noncoding_by_category")) {
-  render_ggplotly(gg_noncoding_by_category)
+if (exists("gg_non_coding_across_category")) {
+  render_ggplotly(gg_non_coding_across_category)
 }
 ```
 
@@ -1639,6 +1643,21 @@ $(document).ready(function() {
 </script>
 ")
 }
+
+if (mode == "reads") {
+  cat("
+<script>
+$(document).ready(function() {
+  // Hide Coding Prediction tab in Read Structural Characterization section
+  // Use a more robust selector that finds the tab link by text content
+  // Use a broad selector to find any tab link containing the text
+  $(\"a\").filter(function() {
+    return $(this).text().trim() === \"Coding Prediction\";
+  }).parent().hide();
+});
+</script>
+")
+}
 ```
 
 </div>
@@ -1655,10 +1674,14 @@ if (exists("gg_canon_by_category")) {
 
 `r if(knitr::is_latex_output()) "\\newpage"`
 
-# Clustering analysis
+```{r clustering-header, results='asis'}
+if (mode != "reads") {
+  cat("# Clustering analysis\n")
+}
+```
 
 ```{r clustering-umap-check, include=FALSE}
-show_umap <- exists("gg_umap") && !is.null(gg_umap)
+show_umap <- (mode != "reads" && exists("gg_umap") && !is.null(gg_umap))
 ```
 
 ```{r clustering-umap-div-start, results='asis'}
