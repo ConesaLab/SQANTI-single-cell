@@ -141,7 +141,10 @@ if (file.exists(clustering_output)) {
         theme_classic() +
         labs(title = "UMAP Projection", x = "UMAP 1", y = "UMAP 2") +
         theme(
-          plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+          plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+          axis.title = element_text(size = 16),
+          axis.text.x = element_text(size = 14),
+          axis.text.y = element_text(size = 14),
           legend.title = element_text(face = "bold"),
           legend.position = "right"
         ) +
@@ -157,6 +160,87 @@ if (file.exists(clustering_output)) {
 
 
 generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Junctions, report_output, generate_pdf = TRUE) {
+
+  # Helper function to mix colors
+  mix_color <- function(col, target, amount) {
+    c_rgb <- col2rgb(col)
+    t_rgb <- col2rgb(target)
+    mix <- c_rgb * (1 - amount) + t_rgb * amount
+    rgb(mix[1], mix[2], mix[3], maxColorValue = 255)
+  }
+
+  # Generate UMAP plots by structural category if UMAP exists and mode is isoforms
+  if (mode == "isoforms" && exists("gg_umap") && !is.null(gg_umap)) {
+    tryCatch({
+      umap_data <- gg_umap$data
+      
+      # Merge with SQANTI_cell_summary
+      # umap_data has 'Barcode', SQANTI_cell_summary has 'CB'
+      merged_umap <- merge(umap_data, SQANTI_cell_summary, by.x = "Barcode", by.y = "CB")
+      
+      if (nrow(merged_umap) > 0) {
+        gg_umap_by_category <<- list()
+        
+        # Define categories and their colors
+        cat_colors <- c(
+          "FSM_prop" = "#6BAED6", 
+          "ISM_prop" = "#FC8D59", 
+          "NIC_prop" = "#78C679", 
+          "NNC_prop" = "#EE6A50",
+          "Genic_Genomic_prop" = "#969696", 
+          "Antisense_prop" = "#66C2A4", 
+          "Fusion_prop" = "goldenrod1",
+          "Intergenic_prop" = "darksalmon", 
+          "Genic_intron_prop" = "#41B6C4"
+        )
+        
+        cat_labels <- c(
+          "FSM_prop" = "FSM", 
+          "ISM_prop" = "ISM", 
+          "NIC_prop" = "NIC", 
+          "NNC_prop" = "NNC",
+          "Genic_Genomic_prop" = "Genic Genomic", 
+          "Antisense_prop" = "Antisense", 
+          "Fusion_prop" = "Fusion",
+          "Intergenic_prop" = "Intergenic", 
+          "Genic_intron_prop" = "Genic Intron"
+        )
+        
+        for (cat_col in names(cat_colors)) {
+          if (cat_col %in% colnames(merged_umap)) {
+            cat_color <- cat_colors[[cat_col]]
+            cat_label <- cat_labels[[cat_col]]
+            
+            # Calculate gradient end colors
+            # High percentages: darker hue of the category color (not pure black)
+            dark_color <- mix_color(cat_color, "black", 0.6)
+            # Low percentages: whiter hue but not pure white
+            light_color <- mix_color(cat_color, "white", 0.8)
+
+            p <- ggplot(merged_umap, aes(x = UMAP_1, y = UMAP_2, color = .data[[cat_col]])) +
+              geom_point(alpha = 0.6, size = 0.5) +
+              theme_classic() +
+              labs(title = paste("UMAP - %", cat_label), x = "UMAP 1", y = "UMAP 2", color = "Transcripts, %") +
+              theme(
+                plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+                axis.title = element_text(size = 16),
+                axis.text.x = element_text(size = 14),
+                axis.text.y = element_text(size = 14),
+                legend.title = element_text(face = "bold"),
+                legend.position = "right",
+                legend.key.height = unit(3, "cm") # Make legend bar taller
+              ) +
+              scale_color_gradientn(colors = c(light_color, cat_color, dark_color)) # Custom gradient
+            
+            gg_umap_by_category[[cat_label]] <<- p
+          }
+        }
+      }
+    }, error = function(e) {
+      print(paste("Error generating UMAP by category plots:", e$message))
+    })
+  }
+
   # Helper: convert any R color (hex or named) to an rgba() string with alpha without affecting line color
   to_rgba <- function(col, alpha = 1.0) {
     rgb <- grDevices::col2rgb(col)
@@ -3527,6 +3611,13 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     if (exists("gg_umap") && !is.null(gg_umap)) {
       section_page("Clustering analysis")
       print(gg_umap)
+      
+      # Print UMAP by structural category if available (one per page)
+      if (exists("gg_umap_by_category") && !is.null(gg_umap_by_category)) {
+        for (cat_label in names(gg_umap_by_category)) {
+          print(gg_umap_by_category[[cat_label]])
+        }
+      }
     }
 
     dev.off()
