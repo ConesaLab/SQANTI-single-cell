@@ -5,9 +5,14 @@ import sys
 utilitiesPath = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "./utilities")
 )
-sqantiqcPath = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "../SQANTI3")
-)
+
+# Check for SQANTI3_DIR environment variable first
+if "SQANTI3_DIR" in os.environ:
+    sqantiqcPath = os.path.abspath(os.environ["SQANTI3_DIR"])
+else:
+    sqantiqcPath = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../SQANTI3")
+    )
 
 # Ensure SQANTI3 python sources are importable
 if sqantiqcPath not in sys.path:
