@@ -30,7 +30,8 @@ def run_sqanti3_qc(args, df):
             "-o", sampleID,
             "-s", args.sites,
             "--ratio_TSS_metric", args.ratio_TSS_metric,
-            "--report", "skip"
+            "--report", "skip",
+            "--force_id_ignore"
         ]
 
         if getattr(args, 'novel_gene_prefix', None):
@@ -43,9 +44,7 @@ def run_sqanti3_qc(args, df):
             cmd_parts.extend(["-x", args.gmap_index])
 
         flag_args = [
-            ('force_id_ignore', '--force_id_ignore'),
             ('genename', '--genename'),
-            ('saturation', '--saturation'),
             ('isoAnnotLite', '--isoAnnotLite'),
             ('isoform_hits', '--isoform_hits')
         ]
@@ -69,7 +68,6 @@ def run_sqanti3_qc(args, df):
             ("orf_input", "--orf_input"),
             ("expression", "--expression"),
             ("coverage", "--coverage"),
-            ("fl_count", "--fl_count"),
             ("gff3", "--gff3"),
             ("short_reads", "--short_reads"),
             ("SR_bam", "--SR_bam"),
