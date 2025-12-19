@@ -163,11 +163,15 @@ if (exists("Classification") && has_data(Classification)) {
   # Calculate bulk-level stats
   total_reads_count <- sum(Classification$count)
   unique_genes <- length(unique(Classification$associated_gene))
-  unique_junctions <- length(unique(Classification$jxn_string))
+  if ("jxn_string" %in% colnames(Classification)) {
+    unique_junctions <- length(unique(Classification$jxn_string))
+  } else {
+    unique_junctions <- NULL
+  }
 
   cat(paste0("**Number of ", entity_label_plural, ":** "), format(total_reads_count, big.mark = ","), "\n\n")
   cat("**Unique Genes:** ", format(unique_genes, big.mark = ","), "\n\n")
-  if (mode != "isoforms") {
+  if (mode != "isoforms" && exists("unique_junctions") && !is.null(unique_junctions)) {
     cat("**Unique Junction Chains:** ", format(unique_junctions, big.mark = ","), "\n\n")
   }
 }
@@ -315,8 +319,10 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
     SD = c(reads_stats["SD"], umis_stats["SD"], unique_genes_stats["SD"], unique_junctions_stats["SD"])
   )
 
-  if (mode == "isoforms") {
+  if (mode == "isoforms" || !("Unique Junction Chains" %in% summary_table1$Feature) || all(is.na(SQANTI_cell_summary$UJCs_in_cell))) {
     summary_table1 <- summary_table1[!summary_table1$Feature %in% c("UMIs", "Unique Junction Chains"), ]
+  } else if (all(SQANTI_cell_summary$UJCs_in_cell == 0, na.rm = TRUE)) {
+     summary_table1 <- summary_table1[!summary_table1$Feature == "Unique Junction Chains", ]
   }
 
   summary_table1[, 2:6] <- round(summary_table1[, 2:6], 3)
@@ -650,7 +656,7 @@ if (show_umis) cat("</div>\n")
 ```
 
 ```{r depth-ujcs-header, results='asis'}
-if (mode != "isoforms") {
+if (mode != "isoforms" && exists("gg_JCs_in_cell")) {
   cat("## Number of Unique Junction Chains Across Cells\n")
 }
 ```
@@ -664,7 +670,7 @@ if (show_ujcs) cat('<div class="narrow-plot">\n')
 ```
 
 ```{r depth-ujcs, fig.height=6, fig.width=10, eval=show_ujcs}
-render_ggplotly(gg_JCs_in_cell, target_width = 400, target_height = 600)
+render_ggplotly(gg_JCs_in_cell, target_width = 600, target_height = 600)
 ```
 
 ```{r depth-ujcs-div-end, results='asis'}
@@ -727,7 +733,7 @@ if (exists("gg_annotation_of_genes_percent_in_cell")) {
   <div class="btn-group">
     <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
       <span class="label">
-        `r if(mode == "reads") paste("% Annotated Genes by", entity_label, "Count Bins") else paste("%", entity_label_plural, "from Known/Novel Genes")`
+        `r paste0("% ", entity_label_plural, " from Known/Novel Genes")`
       </span> <span class="caret"></span>
     </button>
     <ul class="dropdown-menu dropdown-menu-right" role="menu">
@@ -751,7 +757,7 @@ if (exists("gg_annotation_of_reads_in_cell")) {
 
 </div>
 
-<div id="readspergene-bins-all" class="toggle-pane `r if(mode == 'isoforms') 'hidden-pane'`" style="display:`r if(mode == 'isoforms') 'none' else 'block'`">
+<div id="readspergene-bins-all" class="toggle-pane hidden-pane" style="display:block;">
 
 ```{r readspergene-bins-all, fig.height=6, fig.width=12}
 if (exists("gg_read_bins_all")) {
@@ -772,17 +778,17 @@ if (exists("gg_read_bins")) {
 </div>
 
 ```{r ujcspergene-header, results='asis'}
-if (mode != "isoforms") {
+if (mode != "isoforms" && exists("gg_ujc_bins_all")) {
   cat("## UJCs per Gene\n")
 }
 ```
  
  ```{r ujcspergene-check, include=FALSE}
-show_ujcs_gene <- (mode != "isoforms")
+show_ujcs_gene <- (mode != "isoforms" && exists("gg_ujc_bins_all"))
  ```
  
  ```{=html}
- <div id="ujcspergene-dropdown" class="dropdown-toolbar" style="`r if(!show_ujcs_gene) 'display:none;'`">
+ <div id="ujcspergene-dropdown" class="dropdown-toolbar" style="`r if(!show_ujcs_gene || mode == 'reads') 'display:none;'`">
    <div class="btn-group">
      <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
        <span class="label">
@@ -1716,7 +1722,12 @@ if (mode != "reads") {
 show_umap <- (mode != "reads" && exists("gg_umap") && !is.null(gg_umap))
 ```
 
-## Clusters {`r if(!show_umap) "style='display:none;'"`}
+```{r clustering-clusters-header, results='asis'}
+if (mode != "reads") {
+  style_str <- if(!show_umap) "style='display:none;'" else ""
+  cat(paste0("## Clusters {", style_str, "}\n"))
+}
+```
 
 ```{r clustering-umap-div-start, results='asis'}
 if (show_umap) cat('<div class="narrow-plot">\n')
@@ -1737,7 +1748,12 @@ if (knitr::is_html_output()) {
 if (show_umap) cat('</div>\n')
 ```
 
-## Structural Categories {`r if(!show_umap || !exists("gg_umap_by_category")) "style='display:none;'"`}
+```{r clustering-cat-header, results='asis'}
+if (mode != "reads") {
+  style_str <- if(!show_umap || !exists("gg_umap_by_category")) "style='display:none;'" else ""
+  cat(paste0("## Structural Categories {", style_str, "}\n"))
+}
+```
 
 ```{r clustering-cat-check, include=FALSE}
 show_umap_cat <- (show_umap && exists("gg_umap_by_category"))
@@ -1885,7 +1901,7 @@ if (show_umap_cat) cat('</div>\n')
 ```
 
 ```{r clustering-umap-missing, results='asis'}
-if (!show_umap) {
+if (mode != "reads" && !show_umap) {
   cat("Clustering and UMAP analysis was not run or results are missing.\n")
 }
 ```

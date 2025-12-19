@@ -129,7 +129,7 @@ clustering_output <- file.path(dirname(outputPathPrefix), "clustering", "umap_re
 
 # Check for clustering results
 gg_umap <- NULL
-if (file.exists(clustering_output)) {
+if (mode == "isoforms" && file.exists(clustering_output)) {
   print(paste("Found clustering results at:", clustering_output))
   tryCatch(
     {
@@ -154,7 +154,7 @@ if (file.exists(clustering_output)) {
       print(paste("Error reading clustering results:", e$message))
     }
   )
-} else {
+} else if (mode == "isoforms") {
   print("No clustering results found.")
 }
 
@@ -1434,7 +1434,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   single_violin(SQANTI_cell_summary, cfg_genes)
 
   # 4. Number of Unique Junction Chains Across Cells
-  if (mode != "isoforms") {
+  if (mode != "isoforms" && "UJCs_in_cell" %in% names(SQANTI_cell_summary) && !all(is.na(SQANTI_cell_summary$UJCs_in_cell)) && max(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE) > 0) {
     cfg_ujcs <- list(
       column = "UJCs_in_cell",
       name = "gg_JCs_in_cell",
@@ -1688,56 +1688,63 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     }
     ujc_bin_levels <- c("1", "2-3", "4-5", ">=6")
 
-    ujc_by_cb <- Classification_file %>%
-      filter(!is.na(CB), CB != "unassigned", !is.na(associated_gene), exons > 1) %>%
-      group_by(CB, associated_gene) %>%
-      summarise(ujc_per_gene = dplyr::n_distinct(jxn_string), .groups = "drop") %>%
-      mutate(bin = vapply(ujc_per_gene, ujc_bin_label, character(1))) %>%
-      filter(!is.na(bin))
-
-    # For reads mode, filter for Annotated genes only
-    if (mode == "reads") {
-      ujc_by_cb <- ujc_by_cb %>%
-        mutate(gene_type = ifelse(grepl("^novel", associated_gene), "Novel", "Annotated")) %>%
-        filter(gene_type == "Annotated")
-        
-      plot_title_ujc_all <- "Distribution of Annotated Genes by UJC Count Bins Across Cells"
+    # Check if jxn_string exists (it won't if --skip_hash was used)
+    if ("jxn_string" %in% colnames(Classification_file)) {
+      ujc_by_cb <- Classification_file %>%
+        filter(!is.na(CB), CB != "unassigned", !is.na(associated_gene), exons > 1) %>%
+        group_by(CB, associated_gene) %>%
+        summarise(ujc_per_gene = dplyr::n_distinct(jxn_string), .groups = "drop") %>%
+        mutate(bin = vapply(ujc_per_gene, ujc_bin_label, character(1))) %>%
+        filter(!is.na(bin))
     } else {
-      plot_title_ujc_all <- "Distribution of Genes by UJC Count Bins Across Cells"
+      ujc_by_cb <- data.frame()
     }
 
-    ujc_bins_all <- ujc_by_cb %>%
-      group_by(CB, bin) %>%
-      summarise(num_genes = n(), .groups = "drop") %>%
-      group_by(CB) %>%
-      mutate(percentage = 100 * num_genes / sum(num_genes)) %>%
-      ungroup() %>%
-      tidyr::complete(CB, bin = ujc_bin_levels, fill = list(num_genes = 0, percentage = 0))
+    if (nrow(ujc_by_cb) > 0) {
+      # For reads mode, filter for Annotated genes only
+      if (mode == "reads") {
+        ujc_by_cb <- ujc_by_cb %>%
+          mutate(gene_type = ifelse(grepl("^novel", associated_gene), "Novel", "Annotated")) %>%
+          filter(gene_type == "Annotated")
+          
+        plot_title_ujc_all <- "Distribution of Annotated Genes by UJC Count Bins Across Cells"
+      } else {
+        plot_title_ujc_all <- "Distribution of Genes by UJC Count Bins Across Cells"
+      }
 
-    ujc_bins_all$bin <- factor(ujc_bins_all$bin, levels = ujc_bin_levels)
+      ujc_bins_all <- ujc_by_cb %>%
+        group_by(CB, bin) %>%
+        summarise(num_genes = n(), .groups = "drop") %>%
+        group_by(CB) %>%
+        mutate(percentage = 100 * num_genes / sum(num_genes)) %>%
+        ungroup() %>%
+        tidyr::complete(CB, bin = ujc_bin_levels, fill = list(num_genes = 0, percentage = 0))
 
-    {
-      df_long <- data.frame(
-        Variable = factor(ujc_bins_all$bin, levels = ujc_bin_levels),
-        Value = ujc_bins_all$percentage
+      ujc_bins_all$bin <- factor(ujc_bins_all$bin, levels = ujc_bin_levels)
+
+      {
+        df_long <- data.frame(
+          Variable = factor(ujc_bins_all$bin, levels = ujc_bin_levels),
+          Value = ujc_bins_all$percentage
+        )
+      }
+      fill_map <- setNames(rep("#CC6633", length(ujc_bin_levels)), ujc_bin_levels)
+      gg_ujc_bins_all <<- build_violin_plot(
+        df_long,
+        title = plot_title_ujc_all,
+        x_labels = as.character(ujc_bin_levels),
+        fill_map = fill_map,
+        y_label = "Genes, %",
+        legend = FALSE,
+        ylim = c(0, 100),
+        violin_alpha = 0.5,
+        box_alpha = 0.3,
+        box_width = 0.05,
+        x_tickangle = 45,
+        box_outline_default = "black",
+        violin_outline_fill = FALSE
       )
     }
-    fill_map <- setNames(rep("#CC6633", length(ujc_bin_levels)), ujc_bin_levels)
-    gg_ujc_bins_all <<- build_violin_plot(
-      df_long,
-      title = plot_title_ujc_all,
-      x_labels = as.character(ujc_bin_levels),
-      fill_map = fill_map,
-      y_label = "Genes, %",
-      legend = FALSE,
-      ylim = c(0, 100),
-      violin_alpha = 0.5,
-      box_alpha = 0.3,
-      box_width = 0.05,
-      x_tickangle = 45,
-      box_outline_default = "black",
-      violin_outline_fill = FALSE
-    )
 
     # Create UJC bins data
     ujc_bins_data <- data.frame(
@@ -3129,15 +3136,15 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     table_reads <- tableGrob(read_class_table, rows = NULL, theme = big_table_theme)
     table_sj <- tableGrob(SJ_class_table, rows = NULL, theme = big_table_theme)
 
-    unique_counts_text <- if (mode == "isoforms") {
-      sprintf(
-        "Number of %s: %d\nUnique Genes: %d",
-        entity_label_plural, total_reads_count, unique_genes
-      )
-    } else {
-      sprintf(
+    if (unique_junctions > 0) {
+      unique_counts_text <- sprintf(
         "Number of %s: %d\nUnique Genes: %d\nUnique Junction Chains: %d",
         entity_label_plural, total_reads_count, unique_genes, unique_junctions
+      )
+    } else {
+      unique_counts_text <- sprintf(
+        "Number of %s: %d\nUnique Genes: %d",
+        entity_label_plural, total_reads_count, unique_genes
       )
     }
     unique_counts_grob <- textGrob(
@@ -3221,7 +3228,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       SD = c(reads_stats["SD"], umis_stats["SD"], unique_genes_stats["SD"], unique_junctions_stats["SD"])
     )
     # If isoforms mode, drop Unique Junction Chains from summary table
-    if (mode == "isoforms") {
+    if (mode == "isoforms" || !("UJCs_in_cell" %in% names(SQANTI_cell_summary)) || all(is.na(SQANTI_cell_summary$UJCs_in_cell)) || max(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE) == 0) {
       summary_table1 <- summary_table1[!(summary_table1$Feature %in% c("Unique Junction Chains", "UMIs in cell")), , drop = FALSE]
     }
     summary_table1[, 2:6] <- round(summary_table1[, 2:6], 3)
@@ -3382,7 +3389,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     section_page("Per-cell Library Size")
     render_pdf_plot_centered("gg_reads_in_cells", width_frac = 0.5)
     render_pdf_plot_centered("gg_umis_in_cells", width_frac = 0.5)
-    render_pdf_plot_centered("gg_JCs_in_cell", width_frac = 0.5)
+    if (exists("gg_JCs_in_cell")) render_pdf_plot_centered("gg_JCs_in_cell", width_frac = 0.5)
 
     # Gene Characterization section
     section_page("Gene Characterization")
@@ -3395,7 +3402,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     render_pdf_plot("gg_read_bins_all")
     render_pdf_plot("gg_read_bins")
     # UJCs per Gene
-    if (mode != "isoforms") {
+    if (mode != "isoforms" && exists("gg_ujc_bins_all")) {
       render_pdf_plot("gg_ujc_bins_all")
       render_pdf_plot("gg_ujc_bins")
     }
