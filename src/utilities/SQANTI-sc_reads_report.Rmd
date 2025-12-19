@@ -126,14 +126,14 @@ render_sqanti_table <- function(df, digits = 3, page_len = 10) {
 # Fix Plotly UMAP style to match PDF
 fix_umap_plotly <- function(p) {
   p_build <- plotly_build(p)
-  
+
   # Adjust all traces that have a colorbar
   for (i in seq_along(p_build$x$data)) {
     if (!is.null(p_build$x$data[[i]]$marker$colorbar)) {
       # Use update list to ensure we don't break structure
       p_build$x$data[[i]]$marker$colorbar$len <- 0.8
       p_build$x$data[[i]]$marker$colorbar$thickness <- 30
-      
+
       # Ensure title is treated correctly. Colorbar title is usually a string or a list.
       # If it is a string, we might need to make it a list to set side, or use a different approach.
       # However, let's try setting it safely.
@@ -146,12 +146,13 @@ fix_umap_plotly <- function(p) {
       }
     }
   }
-  
+
   # Enforce axis font sizes using layout function which is safer
-  p_build <- layout(p_build, 
-                    xaxis = list(tickfont = list(size = 14)), 
-                    yaxis = list(tickfont = list(size = 14)))
-  
+  p_build <- layout(p_build,
+    xaxis = list(tickfont = list(size = 14)),
+    yaxis = list(tickfont = list(size = 14))
+  )
+
   return(p_build)
 }
 ```
@@ -322,7 +323,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
   if (mode == "isoforms" || !("Unique Junction Chains" %in% summary_table1$Feature) || all(is.na(SQANTI_cell_summary$UJCs_in_cell))) {
     summary_table1 <- summary_table1[!summary_table1$Feature %in% c("UMIs", "Unique Junction Chains"), ]
   } else if (all(SQANTI_cell_summary$UJCs_in_cell == 0, na.rm = TRUE)) {
-     summary_table1 <- summary_table1[!summary_table1$Feature == "Unique Junction Chains", ]
+    summary_table1 <- summary_table1[!summary_table1$Feature == "Unique Junction Chains", ]
   }
 
   summary_table1[, 2:6] <- round(summary_table1[, 2:6], 3)
@@ -670,7 +671,7 @@ if (show_ujcs) cat('<div class="narrow-plot">\n')
 ```
 
 ```{r depth-ujcs, fig.height=6, fig.width=10, eval=show_ujcs}
-render_ggplotly(gg_JCs_in_cell, target_width = 600, target_height = 600)
+render_ggplotly(gg_JCs_in_cell, target_width = 400, target_height = 600) %>% layout(margin = list(t = 140))
 ```
 
 ```{r depth-ujcs-div-end, results='asis'}
@@ -776,6 +777,18 @@ if (exists("gg_read_bins")) {
 ```
 
 </div>
+
+```{r iso-per-gene-header, results='asis'}
+if (mode == "isoforms" && exists("gg_isoform_bins")) {
+  cat("## Isoforms per Gene\n")
+}
+```
+
+```{r iso-per-gene-plot, fig.height=6, fig.width=12}
+if (mode == "isoforms" && exists("gg_isoform_bins")) {
+  render_ggplotly(gg_isoform_bins)
+}
+```
 
 ```{r ujcspergene-header, results='asis'}
 if (mode != "isoforms" && exists("gg_ujc_bins_all")) {
@@ -1724,7 +1737,7 @@ show_umap <- (mode != "reads" && exists("gg_umap") && !is.null(gg_umap))
 
 ```{r clustering-clusters-header, results='asis'}
 if (mode != "reads") {
-  style_str <- if(!show_umap) "style='display:none;'" else ""
+  style_str <- if (!show_umap) "style='display:none;'" else ""
   cat(paste0("## Clusters {", style_str, "}\n"))
 }
 ```
@@ -1745,12 +1758,12 @@ if (knitr::is_html_output()) {
 ```
 
 ```{r clustering-umap-div-end, results='asis'}
-if (show_umap) cat('</div>\n')
+if (show_umap) cat("</div>\n")
 ```
 
 ```{r clustering-cat-header, results='asis'}
 if (mode != "reads") {
-  style_str <- if(!show_umap || !exists("gg_umap_by_category")) "style='display:none;'" else ""
+  style_str <- if (!show_umap || !exists("gg_umap_by_category")) "style='display:none;'" else ""
   cat(paste0("## Structural Categories {", style_str, "}\n"))
 }
 ```
@@ -1809,7 +1822,7 @@ if (show_umap_cat) cat('<div class="narrow-plot">\n')
 <div id="umap-cat-FSM" class="toggle-pane" style="display:block;">
 ```{r umap-cat-FSM, fig.height=6, fig.width=8, eval=show_umap_cat}
 if (show_umap_cat && !is.null(gg_umap_by_category[["FSM"]])) {
-  render_ggplotly(gg_umap_by_category[["FSM"]], target_width = 800, target_height = 700) %>% 
+  render_ggplotly(gg_umap_by_category[["FSM"]], target_width = 800, target_height = 700) %>%
     layout(margin = list(t = 100)) %>%
     fix_umap_plotly()
 }
@@ -1819,7 +1832,7 @@ if (show_umap_cat && !is.null(gg_umap_by_category[["FSM"]])) {
 <div id="umap-cat-ISM" class="toggle-pane hidden-pane" style="display:block;">
 ```{r umap-cat-ISM, fig.height=6, fig.width=8, eval=show_umap_cat}
 if (show_umap_cat && !is.null(gg_umap_by_category[["ISM"]])) {
-  render_ggplotly(gg_umap_by_category[["ISM"]], target_width = 800, target_height = 700) %>% 
+  render_ggplotly(gg_umap_by_category[["ISM"]], target_width = 800, target_height = 700) %>%
     layout(margin = list(t = 100)) %>%
     fix_umap_plotly()
 }
@@ -1829,7 +1842,7 @@ if (show_umap_cat && !is.null(gg_umap_by_category[["ISM"]])) {
 <div id="umap-cat-NIC" class="toggle-pane hidden-pane" style="display:block;">
 ```{r umap-cat-NIC, fig.height=6, fig.width=8, eval=show_umap_cat}
 if (show_umap_cat && !is.null(gg_umap_by_category[["NIC"]])) {
-  render_ggplotly(gg_umap_by_category[["NIC"]], target_width = 800, target_height = 700) %>% 
+  render_ggplotly(gg_umap_by_category[["NIC"]], target_width = 800, target_height = 700) %>%
     layout(margin = list(t = 100)) %>%
     fix_umap_plotly()
 }
@@ -1839,7 +1852,7 @@ if (show_umap_cat && !is.null(gg_umap_by_category[["NIC"]])) {
 <div id="umap-cat-NNC" class="toggle-pane hidden-pane" style="display:block;">
 ```{r umap-cat-NNC, fig.height=6, fig.width=8, eval=show_umap_cat}
 if (show_umap_cat && !is.null(gg_umap_by_category[["NNC"]])) {
-  render_ggplotly(gg_umap_by_category[["NNC"]], target_width = 800, target_height = 700) %>% 
+  render_ggplotly(gg_umap_by_category[["NNC"]], target_width = 800, target_height = 700) %>%
     layout(margin = list(t = 100)) %>%
     fix_umap_plotly()
 }
@@ -1849,7 +1862,7 @@ if (show_umap_cat && !is.null(gg_umap_by_category[["NNC"]])) {
 <div id="umap-cat-GenicGenomic" class="toggle-pane hidden-pane" style="display:block;">
 ```{r umap-cat-GenicGenomic, fig.height=6, fig.width=8, eval=show_umap_cat}
 if (show_umap_cat && !is.null(gg_umap_by_category[["Genic Genomic"]])) {
-  render_ggplotly(gg_umap_by_category[["Genic Genomic"]], target_width = 800, target_height = 700) %>% 
+  render_ggplotly(gg_umap_by_category[["Genic Genomic"]], target_width = 800, target_height = 700) %>%
     layout(margin = list(t = 100)) %>%
     fix_umap_plotly()
 }
@@ -1859,7 +1872,7 @@ if (show_umap_cat && !is.null(gg_umap_by_category[["Genic Genomic"]])) {
 <div id="umap-cat-Antisense" class="toggle-pane hidden-pane" style="display:block;">
 ```{r umap-cat-Antisense, fig.height=6, fig.width=8, eval=show_umap_cat}
 if (show_umap_cat && !is.null(gg_umap_by_category[["Antisense"]])) {
-  render_ggplotly(gg_umap_by_category[["Antisense"]], target_width = 800, target_height = 700) %>% 
+  render_ggplotly(gg_umap_by_category[["Antisense"]], target_width = 800, target_height = 700) %>%
     layout(margin = list(t = 100)) %>%
     fix_umap_plotly()
 }
@@ -1869,7 +1882,7 @@ if (show_umap_cat && !is.null(gg_umap_by_category[["Antisense"]])) {
 <div id="umap-cat-Fusion" class="toggle-pane hidden-pane" style="display:block;">
 ```{r umap-cat-Fusion, fig.height=6, fig.width=8, eval=show_umap_cat}
 if (show_umap_cat && !is.null(gg_umap_by_category[["Fusion"]])) {
-  render_ggplotly(gg_umap_by_category[["Fusion"]], target_width = 800, target_height = 700) %>% 
+  render_ggplotly(gg_umap_by_category[["Fusion"]], target_width = 800, target_height = 700) %>%
     layout(margin = list(t = 100)) %>%
     fix_umap_plotly()
 }
@@ -1879,7 +1892,7 @@ if (show_umap_cat && !is.null(gg_umap_by_category[["Fusion"]])) {
 <div id="umap-cat-Intergenic" class="toggle-pane hidden-pane" style="display:block;">
 ```{r umap-cat-Intergenic, fig.height=6, fig.width=8, eval=show_umap_cat}
 if (show_umap_cat && !is.null(gg_umap_by_category[["Intergenic"]])) {
-  render_ggplotly(gg_umap_by_category[["Intergenic"]], target_width = 800, target_height = 700) %>% 
+  render_ggplotly(gg_umap_by_category[["Intergenic"]], target_width = 800, target_height = 700) %>%
     layout(margin = list(t = 100)) %>%
     fix_umap_plotly()
 }
@@ -1889,7 +1902,7 @@ if (show_umap_cat && !is.null(gg_umap_by_category[["Intergenic"]])) {
 <div id="umap-cat-GenicIntron" class="toggle-pane hidden-pane" style="display:block;">
 ```{r umap-cat-GenicIntron, fig.height=6, fig.width=8, eval=show_umap_cat}
 if (show_umap_cat && !is.null(gg_umap_by_category[["Genic Intron"]])) {
-  render_ggplotly(gg_umap_by_category[["Genic Intron"]], target_width = 800, target_height = 700) %>% 
+  render_ggplotly(gg_umap_by_category[["Genic Intron"]], target_width = 800, target_height = 700) %>%
     layout(margin = list(t = 100)) %>%
     fix_umap_plotly()
 }
@@ -1897,7 +1910,7 @@ if (show_umap_cat && !is.null(gg_umap_by_category[["Genic Intron"]])) {
 </div>
 
 ```{r umap-cat-plots-end, results='asis', echo=FALSE}
-if (show_umap_cat) cat('</div>\n')
+if (show_umap_cat) cat("</div>\n")
 ```
 
 ```{r clustering-umap-missing, results='asis'}

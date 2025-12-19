@@ -160,7 +160,6 @@ if (mode == "isoforms" && file.exists(clustering_output)) {
 
 
 generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Junctions, report_output, generate_pdf = TRUE) {
-
   # Helper function to mix colors
   mix_color <- function(col, target, amount) {
     c_rgb <- col2rgb(col)
@@ -171,74 +170,77 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
   # Generate UMAP plots by structural category if UMAP exists and mode is isoforms
   if (mode == "isoforms" && exists("gg_umap") && !is.null(gg_umap)) {
-    tryCatch({
-      umap_data <- gg_umap$data
-      
-      # Merge with SQANTI_cell_summary
-      # umap_data has 'Barcode', SQANTI_cell_summary has 'CB'
-      merged_umap <- merge(umap_data, SQANTI_cell_summary, by.x = "Barcode", by.y = "CB")
-      
-      if (nrow(merged_umap) > 0) {
-        gg_umap_by_category <<- list()
-        
-        # Define categories and their colors
-        cat_colors <- c(
-          "FSM_prop" = "#6BAED6", 
-          "ISM_prop" = "#FC8D59", 
-          "NIC_prop" = "#78C679", 
-          "NNC_prop" = "#EE6A50",
-          "Genic_Genomic_prop" = "#969696", 
-          "Antisense_prop" = "#66C2A4", 
-          "Fusion_prop" = "goldenrod1",
-          "Intergenic_prop" = "darksalmon", 
-          "Genic_intron_prop" = "#41B6C4"
-        )
-        
-        cat_labels <- c(
-          "FSM_prop" = "FSM", 
-          "ISM_prop" = "ISM", 
-          "NIC_prop" = "NIC", 
-          "NNC_prop" = "NNC",
-          "Genic_Genomic_prop" = "Genic Genomic", 
-          "Antisense_prop" = "Antisense", 
-          "Fusion_prop" = "Fusion",
-          "Intergenic_prop" = "Intergenic", 
-          "Genic_intron_prop" = "Genic Intron"
-        )
-        
-        for (cat_col in names(cat_colors)) {
-          if (cat_col %in% colnames(merged_umap)) {
-            cat_color <- cat_colors[[cat_col]]
-            cat_label <- cat_labels[[cat_col]]
-            
-            # Calculate gradient end colors
-            # High percentages: darker hue of the category color (not pure black)
-            dark_color <- mix_color(cat_color, "black", 0.6)
-            # Low percentages: whiter hue but not pure white
-            light_color <- mix_color(cat_color, "white", 0.8)
+    tryCatch(
+      {
+        umap_data <- gg_umap$data
 
-            p <- ggplot(merged_umap, aes(x = UMAP_1, y = UMAP_2, color = .data[[cat_col]])) +
-              geom_point(alpha = 0.6, size = 0.5) +
-              theme_classic() +
-              labs(title = paste("UMAP - %", cat_label), x = "UMAP 1", y = "UMAP 2", color = "Transcripts, %") +
-              theme(
-                plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-                axis.title = element_text(size = 16),
-                axis.text.x = element_text(size = 14),
-                axis.text.y = element_text(size = 14),
-                legend.title = element_text(face = "bold"),
-                legend.position = "right",
-                legend.key.height = unit(3, "cm") # Make legend bar taller
-              ) +
-              scale_color_gradientn(colors = c(light_color, cat_color, dark_color)) # Custom gradient
-            
-            gg_umap_by_category[[cat_label]] <<- p
+        # Merge with SQANTI_cell_summary
+        # umap_data has 'Barcode', SQANTI_cell_summary has 'CB'
+        merged_umap <- merge(umap_data, SQANTI_cell_summary, by.x = "Barcode", by.y = "CB")
+
+        if (nrow(merged_umap) > 0) {
+          gg_umap_by_category <<- list()
+
+          # Define categories and their colors
+          cat_colors <- c(
+            "FSM_prop" = "#6BAED6",
+            "ISM_prop" = "#FC8D59",
+            "NIC_prop" = "#78C679",
+            "NNC_prop" = "#EE6A50",
+            "Genic_Genomic_prop" = "#969696",
+            "Antisense_prop" = "#66C2A4",
+            "Fusion_prop" = "goldenrod1",
+            "Intergenic_prop" = "darksalmon",
+            "Genic_intron_prop" = "#41B6C4"
+          )
+
+          cat_labels <- c(
+            "FSM_prop" = "FSM",
+            "ISM_prop" = "ISM",
+            "NIC_prop" = "NIC",
+            "NNC_prop" = "NNC",
+            "Genic_Genomic_prop" = "Genic Genomic",
+            "Antisense_prop" = "Antisense",
+            "Fusion_prop" = "Fusion",
+            "Intergenic_prop" = "Intergenic",
+            "Genic_intron_prop" = "Genic Intron"
+          )
+
+          for (cat_col in names(cat_colors)) {
+            if (cat_col %in% colnames(merged_umap)) {
+              cat_color <- cat_colors[[cat_col]]
+              cat_label <- cat_labels[[cat_col]]
+
+              # Calculate gradient end colors
+              # High percentages: darker hue of the category color (not pure black)
+              dark_color <- mix_color(cat_color, "black", 0.6)
+              # Low percentages: whiter hue but not pure white
+              light_color <- mix_color(cat_color, "white", 0.8)
+
+              p <- ggplot(merged_umap, aes(x = UMAP_1, y = UMAP_2, color = .data[[cat_col]])) +
+                geom_point(alpha = 0.6, size = 0.5) +
+                theme_classic() +
+                labs(title = paste("UMAP - %", cat_label), x = "UMAP 1", y = "UMAP 2", color = "Transcripts, %") +
+                theme(
+                  plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+                  axis.title = element_text(size = 16),
+                  axis.text.x = element_text(size = 14),
+                  axis.text.y = element_text(size = 14),
+                  legend.title = element_text(face = "bold"),
+                  legend.position = "right",
+                  legend.key.height = unit(3, "cm") # Make legend bar taller
+                ) +
+                scale_color_gradientn(colors = c(light_color, cat_color, dark_color)) # Custom gradient
+
+              gg_umap_by_category[[cat_label]] <<- p
+            }
           }
         }
+      },
+      error = function(e) {
+        print(paste("Error generating UMAP by category plots:", e$message))
       }
-    }, error = function(e) {
-      print(paste("Error generating UMAP by category plots:", e$message))
-    })
+    )
   }
 
   # Helper: convert any R color (hex or named) to an rgba() string with alpha without affecting line color
@@ -1438,7 +1440,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     cfg_ujcs <- list(
       column = "UJCs_in_cell",
       name = "gg_JCs_in_cell",
-      title = "Number of Unique Junction Chains Across Cells",
+      title = "Number of Unique Junction\nChains Across Cells",
       fill = "#CC6633",
       y_label = "UJCs, count",
       x_label = "Cells",
@@ -1629,7 +1631,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       mutate(percentage = 100 * num_genes / sum(num_genes)) %>%
       ungroup() %>%
       tidyr::complete(CB, bin = gene_bin_levels, fill = list(num_genes = 0, percentage = 0))
-    
+
     plot_title_all <- paste("Distribution of Annotated Genes by", entity_label, "Count Bins Across Cells")
   } else {
     # All genes (Annotated + Novel)
@@ -1640,7 +1642,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       mutate(percentage = 100 * num_genes / sum(num_genes)) %>%
       ungroup() %>%
       tidyr::complete(CB, bin = gene_bin_levels, fill = list(num_genes = 0, percentage = 0))
-      
+
     plot_title_all <- paste("Distribution of Genes by", entity_label, "Count Bins Across Cells")
   }
 
@@ -1657,6 +1659,43 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       title = plot_title_all,
       x_labels = as.character(gene_bin_levels),
       fill_map = fill_map,
+      y_label = "Genes, %",
+      legend = FALSE,
+      ylim = c(0, 100),
+      violin_alpha = 0.5,
+      box_alpha = 0.3,
+      box_width = 0.05,
+      x_tickangle = 45,
+      box_outline_default = "black",
+      violin_outline_fill = FALSE
+    )
+  }
+
+  # New plot: Distribution of Known Genes by Unique Isoform Count Bins Across Cells (Isoforms mode)
+  if (mode == "isoforms") {
+    iso_bins_annot <- genes_by_cb %>%
+      filter(gene_type == "Annotated") %>%
+      group_by(CB, bin) %>%
+      summarise(num_genes = n(), .groups = "drop") %>%
+      group_by(CB) %>%
+      mutate(percentage = 100 * num_genes / sum(num_genes)) %>%
+      ungroup() %>%
+      tidyr::complete(CB, bin = gene_bin_levels, fill = list(num_genes = 0, percentage = 0))
+
+    iso_bins_annot$bin <- factor(iso_bins_annot$bin, levels = gene_bin_levels)
+
+    df_long_iso <- data.frame(
+      Variable = factor(iso_bins_annot$bin, levels = gene_bin_levels),
+      Value = iso_bins_annot$percentage
+    )
+    # Use Annotated color #e37744
+    fill_map_iso <- setNames(rep("#e37744", length(gene_bin_levels)), gene_bin_levels)
+
+    gg_isoform_bins <<- build_violin_plot(
+      df_long_iso,
+      title = "Distribution of Known Genes by Unique Isoform Count Bins Across Cells",
+      x_labels = as.character(gene_bin_levels),
+      fill_map = fill_map_iso,
       y_label = "Genes, %",
       legend = FALSE,
       ylim = c(0, 100),
@@ -1706,7 +1745,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         ujc_by_cb <- ujc_by_cb %>%
           mutate(gene_type = ifelse(grepl("^novel", associated_gene), "Novel", "Annotated")) %>%
           filter(gene_type == "Annotated")
-          
+
         plot_title_ujc_all <- "Distribution of Annotated Genes by UJC Count Bins Across Cells"
       } else {
         plot_title_ujc_all <- "Distribution of Genes by UJC Count Bins Across Cells"
@@ -2140,7 +2179,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       x_labels = cat_labels_pretty,
       y_label = paste(entity_label_plural, ", %", sep = ""),
       fill_map = noncoding_fill_map,
-
       plot_args = list(
         override_outline_vars = c(),
         violin_outline_fill = TRUE,
@@ -3401,6 +3439,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     render_pdf_plot("gg_annotation_of_reads_in_cell")
     render_pdf_plot("gg_read_bins_all")
     render_pdf_plot("gg_read_bins")
+    if (mode == "isoforms" && exists("gg_isoform_bins")) {
+      render_pdf_plot("gg_isoform_bins")
+    }
     # UJCs per Gene
     if (mode != "isoforms" && exists("gg_ujc_bins_all")) {
       render_pdf_plot("gg_ujc_bins_all")
@@ -3618,7 +3659,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     if (exists("gg_umap") && !is.null(gg_umap)) {
       section_page("Clustering analysis")
       print(gg_umap)
-      
+
       # Print UMAP by structural category if available (one per page)
       if (exists("gg_umap_by_category") && !is.null(gg_umap_by_category)) {
         for (cat_label in names(gg_umap_by_category)) {
