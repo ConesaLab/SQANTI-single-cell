@@ -1,4 +1,0 @@
-pytest
-scanpy
-leidenalg
-pandas

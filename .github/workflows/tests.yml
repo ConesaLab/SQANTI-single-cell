@@ -28,8 +28,8 @@ jobs:
       - name: Set up Conda
         uses: mamba-org/setup-micromamba@v2
         with:
-          environment-file: tests/environment.yml
-          environment-name: SQANTI3.env
+          environment-file: SQANTI-sc_env.yml
+          environment-name: SQANTI-sc_env
           cache-environment: true
 
       - name: Set PYTHONPATH
@@ -38,7 +38,6 @@ jobs:
       - name: Run tests
         shell: bash -l {0}
         run: |
-          micromamba activate SQANTI3.env
-          pip install -r requirements.txt
+          micromamba activate SQANTI-sc_env
           echo "Current Conda environment: $(micromamba info --envs)"
           pytest tests/
