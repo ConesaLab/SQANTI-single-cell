@@ -4,7 +4,9 @@ This directory contains standalone scripts and utilities to help users prepare t
 
 ## Available Scripts
 
-*   **(Add your scripts here, e.g., `spliced_bam2gff`)**: Description of what the script does.
+*   `Generate_IsoQuant_Matrix.py`: Generates single-cell count matrices (Matrix Market format) from `spl-IsoQuant` output (`*.allinfo`). Supports filtering for known/consistent reads.
+*   `make_pacbio_matrix.py`: Generates single-cell count matrices from PacBio Iso-Seq data (group file and BAM).
+*   `process_ont_bam.py`: Batch processes ONT single-cell BAM files, performing UMI deduplication and GFF conversion.
 
 ## Usage
 
