@@ -2,8 +2,8 @@ import os
 import sys
 
 # Compute project-relative paths used across modules
-utilitiesPath = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "./utilities")
+reportAssetsPath = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "./report_assets")
 )
 
 # Check for SQANTI3_DIR environment variable first
@@ -19,11 +19,11 @@ if sqantiqcPath not in sys.path:
     sys.path.insert(0, sqantiqcPath)
 
 # Also ensure utilities path is importable
-if utilitiesPath not in sys.path:
-    sys.path.insert(0, utilitiesPath)
+if reportAssetsPath not in sys.path:
+    sys.path.insert(0, reportAssetsPath)
 
 __all__ = [
-    'utilitiesPath',
+    'reportAssetsPath',
     'sqantiqcPath',
 ]
 

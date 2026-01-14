@@ -2,7 +2,7 @@ import os
 import sys
 import subprocess
 import pandas as pd
-from paths import utilitiesPath
+from paths import reportAssetsPath
     
 def generate_report(args, df):
     for index, row in df.iterrows():
@@ -38,7 +38,7 @@ def generate_report(args, df):
                     flags.extend(["--cell_summary", cell_summary_file])
 
                 cmd = (
-                    f"Rscript {utilitiesPath}/SQANTI-sc_reads.R "
+                    f"Rscript {reportAssetsPath}/SQANTI-sc_reads.R "
                     f"{class_file} {junc_file} {args.report} {outputPathPrefix} "
                     f"{args.mode} {' '.join(flags)}"
                 )
@@ -88,7 +88,7 @@ def generate_multisample_report(args, df):
     mode = args.mode
 
     cmd = (
-        f"Rscript {utilitiesPath}/SQANTI-sc_multisample.R "
+        f"Rscript {reportAssetsPath}/SQANTI-sc_multisample.R "
         f"--files \"{files_arg}\" --out_dir \"{out_dir}\" "
         f"--mode {mode} --report {report_fmt} --prefix \"{prefix}\""
     )
