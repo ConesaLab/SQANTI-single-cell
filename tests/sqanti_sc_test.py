@@ -464,7 +464,7 @@ def test_calculate_metrics_divzero_safety(tmpdir, mock_args):
 
 @patch('qc_reports.subprocess.run')
 @patch('qc_reports.os.path.isfile')
-@patch('qc_reports.utilitiesPath', 'utilities')
+@patch('qc_reports.reportAssetsPath', 'utilities')
 def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
     """Test report generation command."""
     mock_isfile.return_value = True
@@ -496,7 +496,7 @@ def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
 
 @patch('qc_reports.subprocess.run')
 @patch('qc_reports.os.path.isfile')
-@patch('qc_reports.utilitiesPath', 'utilities')
+@patch('qc_reports.reportAssetsPath', 'utilities')
 def test_generate_report_without_cell_summary(mock_isfile, mock_run, mock_args, capsys):
     """When the cell summary file is absent, the command should not include --cell_summary."""
     mock_args.mode = "reads"
@@ -527,7 +527,7 @@ def test_generate_report_without_cell_summary(mock_isfile, mock_run, mock_args, 
 
 @patch('qc_reports.subprocess.run')
 @patch('qc_reports.os.path.isfile')
-@patch('qc_reports.utilitiesPath', 'utilities')
+@patch('qc_reports.reportAssetsPath', 'utilities')
 def test_generate_report_subprocess_error(mock_isfile, mock_run, mock_args, capsys):
     """If the report subprocess fails, an error message should be printed."""
     mock_args.mode = "reads"
