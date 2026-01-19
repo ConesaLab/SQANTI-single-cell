@@ -87,7 +87,6 @@ def run_clustering_analysis(args, row):
     print(f"**** Running clustering analysis for {file_acc}...", file=sys.stdout)
     
     try:
-        # NO filtering of cells/genes as requested
         
         # Normalization
         if args.normalization == 'log1p':
@@ -99,7 +98,13 @@ def run_clustering_analysis(args, row):
             sc.experimental.pp.normalize_pearson_residuals(adata)
 
         # Highly Variable Genes
-        sc.pp.highly_variable_genes(adata, n_top_genes=args.n_top_genes)
+        n_genes = adata.n_vars
+        if args.n_top_genes > n_genes:
+            print(f"[WARNING] n_top_genes ({args.n_top_genes}) > number of genes ({n_genes}). Using all genes.", file=sys.stdout)
+            n_top = n_genes
+        else:
+            n_top = args.n_top_genes
+        sc.pp.highly_variable_genes(adata, n_top_genes=n_top)
         
         # Scale
         sc.pp.scale(adata, max_value=10)
@@ -115,7 +120,7 @@ def run_clustering_analysis(args, row):
         
         # Clustering
         if args.clustering_method == 'leiden':
-            sc.tl.leiden(adata, resolution=args.resolution)
+            sc.tl.leiden(adata, resolution=args.resolution, flavor="igraph", n_iterations=2, directed=False)
             cluster_col = 'leiden'
         elif args.clustering_method == 'louvain':
             sc.tl.louvain(adata, resolution=args.resolution)
