@@ -40,6 +40,7 @@ dependencies:
   - r-devtools=2.4.5
   - r-e1071=1.7_16
   - r-forcats=1.0.0
+  - r-ggdist
   - r-ggplot2>=3.4.0
   - r-ggplotify=0.1.2
   - r-gridbase=0.4_7
