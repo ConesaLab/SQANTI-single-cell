@@ -191,15 +191,15 @@ def calculate_metrics_per_cell(args, df):
         gene_counts['gene_type'] = np.where(gene_counts['associated_gene'].fillna('').str.startswith('novel'), 'novel', 'annotated')
         bins = gene_counts.groupby(['CB','gene_type']).agg(
             bin1_count=('read_count', lambda s: (s == 1).sum()),
-            bin2_3_count=('read_count', lambda s: ((s >= 2) & (s <= 3)).sum()),
-            bin4_5_count=('read_count', lambda s: ((s >= 4) & (s <= 5)).sum()),
-            bin6plus_count=('read_count', lambda s: (s >= 6).sum()),
+            bin2_4_count=('read_count', lambda s: ((s >= 2) & (s <= 4)).sum()),
+            bin5_9_count=('read_count', lambda s: ((s >= 5) & (s <= 9)).sum()),
+            bin10plus_count=('read_count', lambda s: (s >= 10).sum()),
             total_genes_in_type=('associated_gene','nunique')
         ).reset_index()
         def bin_props(df, gene_kind, out_prefix):
             out = pd.DataFrame(index=summary.index)
             keyed = df[df['gene_type'] == gene_kind].set_index('CB') if not df.empty else pd.DataFrame(index=summary.index)
-            for label, src in [(f"{out_prefix}_bin1_perc", 'bin1_count'), (f"{out_prefix}_bin2_3_perc", 'bin2_3_count'), (f"{out_prefix}_bin4_5_perc", 'bin4_5_count'), (f"{out_prefix}_bin6plus_perc", 'bin6plus_count')]:
+            for label, src in [(f"{out_prefix}_bin1_perc", 'bin1_count'), (f"{out_prefix}_bin2_4_perc", 'bin2_4_count'), (f"{out_prefix}_bin5_9_perc", 'bin5_9_count'), (f"{out_prefix}_bin10plus_perc", 'bin10plus_count')]:
                 if not keyed.empty and src in keyed.columns:
                     out[label] = safe_prop(keyed[src].reindex(summary.index, fill_value=0), keyed['total_genes_in_type'].reindex(summary.index, fill_value=0)).fillna(0)
                 else:
