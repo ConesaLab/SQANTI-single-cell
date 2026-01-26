@@ -16,9 +16,10 @@ Table of Contents:
     - [1. Reads Mode](#1-reads-mode---mode-reads)
     - [2. Isoforms Mode](#2-isoforms-mode---mode-isoforms)
 - [Providing orthogonal data to SQANTI-sc](#providing-orthogonal-data-to-sqanti-sc)
+- [Cell clustering](#clustering)
 - [Understanding the output of SQANTI-sc](#understanding-the-output-of-sqanti-sc)
     - [1. SQANTI3-based Outputs](#1-sqanti3-based-outputs)
-    - [2. SQANTI-reads based Outputs](#2-sqanti-reads-based-outputs)
+    - [2. SQANTI-reads-based Outputs](#2-sqanti-reads-based-outputs)
     - [3. SQANTI-sc Specific Outputs](#3-sqanti-sc-specific-outputs)
 
 <a name="prerequisites--installation"/>
@@ -347,12 +348,32 @@ python sqanti_sc.py \
 
 
 SQANTI-sc accepts orthogonal data to assist in the quality control and filtering of artifactual transcript models. 
-* CAGE peak data (`--CAGE_peak`).
-* PolyA information (`--polyA_motif_list`, `--polyA_peak`).
+* CAGE peak data (`--CAGE_peak`) for Transcription Start Site (TSS) validation.
+* PolyA information (`--polyA_motif_list`, `--polyA_peak`) for Trasncription Termination Site (TTS) validation. 
 
 For how to provide orthogonal data, visit the [SQANTI3 documentation](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-Quality-Control).
 
-**Note:** SQANTI-sc does not yet support this information in a cell barcode-aware manner. These validation data will be applied to all reads/transcript models collectively (bulk processing). Similarly, SQANTI-sc is currently not suppossed to work with short-reads as orthogonal data for the validation of junctions and ends. This functionality is planned to be added in future updates.
+**Note:** SQANTI-sc does not yet support this information in a cell barcode-aware manner. These validation data will be applied to all reads/transcript models collectively (bulk). Similarly, SQANTI-sc is currently not suppossed to work with short-reads as orthogonal data for the validation of junctions and ends. This functionality is planned to be added in future updates.
+
+
+<a name="clustering"/>
+
+## Cell clustering (`--run_clustering`)
+
+SQANTI-sc includes an optional step to perform cell clustering based on the expression of genes. This step is useful for exploring the heterogeneity of the cell population. SQANTI-sc uses the [Scanpy](https://scanpy.readthedocs.io/en/stable/) toolkit for cell clustering. 
+
+To enable this step, you must use the flag `--run_clustering`.
+
+### Customization options
+The clustering process can be customized using the following arguments:
+
+*   **`--normalization`**: Normalization method to apply to the count matrix before clustering. Options: `log1p` (default, log(CPM+1)), `sqrt` (square root), `pearson` (Pearson residuals).
+*   **`--n_neighbors`**: Number of neighbors for UMAP construction (Default: 15).
+*   **`--n_pc`**: Number of principal components to use for clustering (Default: 30).
+*   **`--resolution`**: Resolution parameter for Leiden clustering (Default: 0.5). Higher values result in more clusters.
+*   **`--n_top_genes`**: Number of highly variable genes to use for dimensionality reduction (Default: 2000).
+*   **`--clustering_method`**: Algorithm to use for clustering. Options: `leiden` (default), `louvain`, `kmeans`.
+*   **`--n_clusters`**: Number of clusters to force if using K-means clustering (Default: 10).
 
 
 <a name="understanding-the-output-of-sqanti-sc"/>
@@ -379,7 +400,7 @@ Standard SQANTI3 output files are generated for each sample, but they include ad
 
 <a name="2-sqanti-reads-based-outputs"/>
 
-### 2. SQANTI-reads based Outputs
+### 2. SQANTI-reads-based Outputs
 The majority of SQANTI-reads-specific otuputs are not output by SQANTI-sc, with the exception of some tables that add the cell barcode dimension. These per-cell matrices follow the logic of **SQANTI-reads** and are generated optionally if the `--write_per_cell_outputs` flag is used. They provide detailed metrics at the single-cell level.
 
 *   **`*_gene_counts.csv`**: Counts of reads/isoforms per gene per cell, broken down by structural category.
@@ -396,7 +417,7 @@ The majority of SQANTI-reads-specific otuputs are not output by SQANTI-sc, with 
 
 #### Glossary of Cell Summary columns
 
-The output `_SQANTI_cell_summary.txt.gz` has the following fields:
+The output `_SQANTI_cell_summary.txt.gz` has the following possible fields:
 
 * **`CB`** : Cell Barcode identifier.  
 * **`Reads_in_cell`** / **`Transcripts_in_cell`** : Total number of reads (Reads Mode) or transcripts (Isoforms Mode) associated with the cell.  
