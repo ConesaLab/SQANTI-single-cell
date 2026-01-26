@@ -5,20 +5,33 @@
 
 Table of Contents:
 - [Prerequisites & Installation](#prerequisites--installation)
+    - [0. Install Anaconda](#0-install-anaconda)
+    - [1. Install SQANTI-sc](#1-install-sqanti-sc)
+    - [2. Install SQANTI3](#2-install-sqanti3)
+    - [3. Set up the Environment](#3-set-up-the-environment)
+    - [4. Docker Support (Coming Soon)](#4-docker-support-coming-soon)
+- [Getting Ready](#getting-ready)
+- [Arguments and parameters in SQANTI-sc](#arguments-and-parameters-in-sqanti-sc)
 - [Running SQANTI-sc](#running-sqanti-sc)
     - [1. Reads Mode](#1-reads-mode---mode-reads)
     - [2. Isoforms Mode](#2-isoforms-mode---mode-isoforms)
-- [Arguments and Parameters](#arguments-and-parameters-in-sqanti-sc)
-- [Output Structure](#output-structure)
-
+- [Providing orthogonal data to SQANTI-sc](#providing-orthogonal-data-to-sqanti-sc)
+- [Understanding the output of SQANTI-sc](#understanding-the-output-of-sqanti-sc)
+    - [1. SQANTI3-based Outputs](#1-sqanti3-based-outputs)
+    - [2. SQANTI-reads based Outputs](#2-sqanti-reads-based-outputs)
+    - [3. SQANTI-sc Specific Outputs](#3-sqanti-sc-specific-outputs)
 
 <a name="prerequisites--installation"/>
 
 ## Prerequisites & Installation
 
 
+<a name="0-install-anaconda"/>
+
 ### 0. Install Anaconda
 Make sure you have installed Anaconda. If not, you can download the generic installer for Linux [here](http://docs.continuum.io/anaconda/install/#linux-install).
+
+<a name="1-install-sqanti-sc"/>
 
 ### 1. Install SQANTI-sc
 You can install SQANTI-sc by downloading the source code or cloning the repository.
@@ -40,6 +53,8 @@ git clone https://github.com/ConesaLab/SQANTI-sc.git
 cd SQANTI-sc
 ```
 
+<a name="2-install-sqanti3"/>
+
 ### 2. Install SQANTI3
 SQANTI-sc requires a functional installation of SQANTI3.
 Please follow the [SQANTI3 Installation Instructions](https://github.com/ConesaLab/SQANTI3/wiki/Dependencies-and-installation) to install SQANTI3.
@@ -53,6 +68,8 @@ SQANTI-sc needs to know where SQANTI3 is installed. You have two options:
 export SQANTI3_DIR=/path/to/your/SQANTI3/directory
 ```
 
+<a name="3-set-up-the-environment"/>
+
 ### 3. Set up the Environment
 We provide a unified Conda environment file `SQANTI-sc_env.yml` that includes all dependencies for both SQANTI3 and SQANTI-sc (including R packages for reporting).
 
@@ -61,8 +78,12 @@ conda env create -f SQANTI-sc_env.yml
 conda activate SQANTI-sc_env
 ```
 
+<a name="4-docker-support-coming-soon"/>
+
 ### 4. Docker Support (Coming Soon)
 Future releases of SQANTI-sc will be containerized and available on DockerHub. Currently, please use the Conda installation method.
+
+<a name="getting-ready"/>
 
 ## Getting Ready
 
@@ -71,8 +92,10 @@ Activate the SQANTI-sc conda environment:
 conda activate SQANTI-sc_env
 ```
 
+<a name="arguments-and-parameters-in-sqanti-sc"/>
+
 ## Arguments and parameters in SQANTI-sc
-</a>
+
 The SQANTI-sc quality control script accepts the following arguments:
 
 ```bash
@@ -208,6 +231,8 @@ Optional arguments:
 
 The tool operates in two main modes: **`reads`** and **`isoforms`**.
 
+<a name="1-reads-mode---mode-reads"/>
+
 ### 1. Reads Mode (`--mode reads`)
 The **Reads Mode** is an adaptation of the **[SQANTI-reads](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI-reads)** tool specifically designed for single-cell data. It provides a comprehensive structural and quality control assessment of long-read single-cell RNA-seq data **at the read level**. This step can be useful for validating your data structure and quality before committing to the more complex steps of isoform identification and quantification.
 
@@ -258,6 +283,8 @@ m64012_250421_000242/17565024/ccs/13918_14203	GGGTTTAAGGTTCCTA	GCGCGCAATTCA
 *   **Reference Annotation (`--refGTF`)**: GTF format (e.g., `gencode.v38.annotation.gtf`). Used to classify transcripts and assess novelty. Make sure that it matches the reference genome's coordinate system. You can find reference transcriptomes for different species in [GENCODE](https://www.gencodegenes.org) or [CHESS](https://ccb.jhu.edu/chess/).
 
 ---
+
+<a name="2-isoforms-mode---mode-isoforms"/>
 
 ### 2. Isoforms Mode (`--mode isoforms`)
 The **Isoforms Mode** is designed for the in-depth characterization of unique transcript isoforms across single cells. Unlike Reads Mode, which focuses on individual reads, this mode takes collapsed or assembled consensus transcript models as input and performs quality control at the single-cell level.
@@ -314,6 +341,8 @@ python sqanti_sc.py \
     --run_clustering \
     --multisample_report
 ```
+<a name="providing-orthogonal-data-to-sqanti-sc"/>
+
 ## Providing orthogonal data to SQANTI-sc
 
 
@@ -326,9 +355,13 @@ For how to provide orthogonal data, visit the [SQANTI3 documentation](https://gi
 **Note:** SQANTI-sc does not yet support this information in a cell barcode-aware manner. These validation data will be applied to all reads/transcript models collectively (bulk processing). Similarly, SQANTI-sc is currently not suppossed to work with short-reads as orthogonal data for the validation of junctions and ends. This functionality is planned to be added in future updates.
 
 
+<a name="understanding-the-output-of-sqanti-sc"/>
+
 ## Understanding the output of SQANTI-sc
 
 The majority of the outputs follow the same logic and structure as [SQANTI3](https://github.com/ConesaLab/SQANTI3/wiki/Understanding-the-output-of-SQANTI3) and [SQANTI-reads](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI-reads), with modifications to include single-cell information and new files specific to this pipeline.
+
+<a name="1-sqanti3-based-outputs"/>
 
 ### 1. SQANTI3-based Outputs
 Standard SQANTI3 output files are generated for each sample, but they include additional columns to track cell barcode of origin.
@@ -344,12 +377,16 @@ Standard SQANTI3 output files are generated for each sample, but they include ad
     *   New columns:
         *   `CB`: Cell Barcode associated with the junction. In isoforms mode, this column can contain multiple comma-separated cell barcodes if the junction pertains to a transcript model present in multiple cell barcodes. 
 
+<a name="2-sqanti-reads-based-outputs"/>
+
 ### 2. SQANTI-reads based Outputs
-These per-cell matrices follow the logic of **SQANTI-reads** and are generated optionally if the `--write_per_cell_outputs` flag is used. They provide detailed metrics at the single-cell level.
+The majority of SQANTI-reads-specific otuputs are not output by SQANTI-sc, with the exception of some tables that add the cell barcode dimension. These per-cell matrices follow the logic of **SQANTI-reads** and are generated optionally if the `--write_per_cell_outputs` flag is used. They provide detailed metrics at the single-cell level.
 
 *   **`*_gene_counts.csv`**: Counts of reads/isoforms per gene per cell, broken down by structural category.
 *   **`*_ujc_counts.csv`**: Counts of Unique Junction Chains (UJCs) per cell, including their structural classification and novelty status.
 *   **`*_cv.csv`**: Coefficient of Variation (CV) metrics for splice junctions per cell, useful for identifying splicing variability.
+
+<a name="3-sqanti-sc-specific-outputs"/>
 
 ### 3. SQANTI-sc Specific Outputs
 
@@ -357,49 +394,50 @@ These per-cell matrices follow the logic of **SQANTI-reads** and are generated o
 *   **`clustering/umap_results.csv`**: (If `--run_clustering` is active) Contains the UMAP coordinates and cluster assignments for each cell barcode.
 *   **`*_SQANTI_cell_summary.txt.gz`**: A GZIP-compressed tab-delimited file containing a wide array of quality control metrics aggregated per cell. This is the core file for downstream analysis of cellular transcriptome quality.
 
-### Glossary of Cell Summary columns
+#### Glossary of Cell Summary columns
 
-*   **`CB`**: Cell Barcode identifier.
-*   **`Reads_in_cell`** / **`Transcripts_in_cell`**: Total number of reads (Reads Mode) or transcripts (Isoforms Mode) associated with the cell.
-*   **`UMIs_in_cell`**: Total number of unique Molecular Identifiers (UMIs) detected (Reads Mode only).
-*   **`total_reads_no_monoexon`** / **`total_transcripts_no_monoexon`**: Count of reads/transcripts excluding mono-exons.
-*   **`Genes_in_cell`**: Number of unique genes detected in the cell.
-*   **`UJCs_in_cell`**: Number of Unique Junction Chains (UJCs) detected (multi-exon only).
-*   **`Annotated_genes`** / **`Novel_genes`**: Number of known (annotated) versus novel genes detected.
-*   **`Annotated_genes_prop_in_cell`**: Proportion of genes detected that are annotated.
-*   **`MT_reads_count`** / **`MT_transcripts_count`**: Number of reads/transcripts mapping to mitochondrial genes. 
-*   **`MT_perc`**: Percentage of reads/transcripts mapping to mitochondrial genes.
-*   **Structural Category Counts**:
-    *   **`FSM`**, **`ISM`**, **`NIC`**, **`NNC`**, **`Genic_Genomic`**, **`Antisense`**, **`Fusion`**, **`Intergenic`**, **`Genic_intron`**: Absolute counts of reads/transcripts belonging to each SQANTI3 structural category.
-    *   **`*_prop`**: The proportion of reads/transcripts in the cell belonging to each category (e.g., `FSM_prop`, `NIC_prop`).
-*   **Subcategory Proportions**:
-    *   **`*_prop`** (e.g., `FSM_alternative_3end_prop`): Proportion of reads/transcripts within a category that belong to a specific subcategory (e.g., alternative 3' end).
-*   **Length Metrics**:
-    *   **`Total_*_length_prop`**: Proportion of all reads falling into specific length bins: `<250bp`, `250-500bp`, `500-1000bp` (`short`), `1000-2000bp` (`mid`), `>2000bp` (`long`).
-    *   **`Total_*_length_mono_prop`**: Same as above, but specifically for mono-exonic reads.
-    *   **`[Category]_*_length_prop`**: Same length bins calculated specifically for each structural category (e.g., `FSM_long_length_prop`).
-*   **Reference Coverage**:
-    *   **`*_ref_coverage_prop`**: Proportion of reads/transcripts in each category covering at least `ref_cov_min_pct` (default 45%) of the reference transcript length.
-*   **Junction Metrics**:
-    *   **`total_junctions`**: Total number of splice junctions identified in the cell.
-    *   **`*_junctions`**: Counts of `Known_canonical`, `Known_non_canonical`, `Novel_canonical`, and `Novel_non_canonical` junctions.
-    *   **`*_junctions_prop`**: Proportions of the above junction types relative to the total junctions.
-    *   **`Annotated_juction_strings_prop_in_cell`**: Proportion of UJCs that match annotated junction combinations.
-    *   **`Canonical_prop_in_cell`**: Proportion of reads/transcripts with canonical splicing.
-    *   **`[Category]_canon_prop`**: Proportion of canonical splicing within each structural category.
-*   **Artifact Flags & Quality Metrics**:
-    *   **`RTS_prop_in_cell`** / **`[Category]_RTS_prop`**: Proportion of reads flagged as Reverse Transcriptase Switching (RTS) artifacts (overall and per category).
-    *   **`Intrapriming_prop_in_cell`** / **`[Category]_intrapriming_prop`**: Proportion of reads flagged as intra-priming artifacts (overall and per category).
-    *   **`Non_canonical_prop_in_cell`**: Proportion of reads with non-canonical splicing.
-    *   **`TSSAnnotationSupport_prop`** / **`[Category]_TSSAnnotationSupport`**: Proportion of reads where the TSS is within 50bp of an annotated TSS.
-*   **Gene Expression Bins**:
-    *   **`anno_bin*_perc`**: Proportion of annotated genes with expression levels in specific bins (1, 2-3, 4-5, >=6 reads).
-    *   **`novel_bin*_perc`**: Proportion of novel genes with expression levels in specific bins (1, 2-3, 4-5, >=6 reads).
-    *   **`*_ujc_bin*_perc`**: Similar expression bins calculated for Unique Junction Chains (UJCs).
-*   **Coding & NMD**:
-    *   **`NMD_prop_in_cell`** / **`[Category]_NMD_prop`**: Proportion of reads predicted to be NMD candidates (if ORF prediction is on).
-    *   **`[Category]_coding_prop`** / **`[Category]_non_coding_prop`**: Proportion of coding vs non-coding transcripts within each category.
-*   **Orthogonal Data Support**:
-    *   **`CAGE_peak_support_prop`** / **`[Category]_CAGE_peak_support_prop`**: Proportion of reads supported by CAGE peaks (if provided).
-    *   **`PolyA_motif_support_prop`** / **`[Category]_PolyA_motif_support_prop`**: Proportion of reads with identified PolyA motifs (if provided).
+The output `_SQANTI_cell_summary.txt.gz` has the following fields:
+
+* **`CB`** : Cell Barcode identifier.  
+* **`Reads_in_cell`** / **`Transcripts_in_cell`** : Total number of reads (Reads Mode) or transcripts (Isoforms Mode) associated with the cell.  
+* **`UMIs_in_cell`** : Total number of unique Molecular Identifiers (UMIs) detected (Reads Mode only) in the cell.  
+* **`total_reads_no_monoexon`** / **`total_transcripts_no_monoexon`** : Count of reads/transcripts excluding mono-exons.  
+* **`FSM`**, **`ISM`**, **`NIC`**, **`NNC`**, **`Genic_Genomic`**, **`Antisense`**, **`Fusion`**, **`Intergenic`**, **`Genic_intron`** : Absolute counts of reads/transcripts belonging to each SQANTI3 structural category.
+* **`[Category]_prop`** (e.g., `FSM_prop`, `NIC_prop`) : The proportion of reads/transcripts in the cell belonging to each structural category.
+* **`Genes_in_cell`** : Number of unique genes detected in the cell.
+* **`UJCs_in_cell`** : Number of Unique Junction Chains (UJCs) detected (multi-exon only).
+* **`MT_reads_count`** : Number of reads/transcripts mapping to mitochondrial genes.  
+* **`MT_perc`** : Percentage of reads/transcripts mapping to mitochondrial genes.  
+* **`Annotated_genes`** : Number of known (annotated) genes detected. 
+* **`Novel_genes`** : Number of novel genes detected.
+* **`*_junctions`** (e.g., `Known_canonical_junctions`, `Novel_canonical_junctions`, `Novel_non_canonical_junctions`, `Known_non_canonical_junctions`) : Counts of splice junctions by type.  
+* **`total_junctions`** : Total number of splice junctions identified in the cell.  
+* **`*_junctions_prop`** : Proportions of each junction type relative to total junctions.  
+* **`[Category]_[Subcategory]_prop`** : Proportion of reads/transcripts within a category that belong to a specific subcategory (e.g., `FSM_alternative_3end_prop`, `ISM_intron_retention_prop`, `Genic_mono_exon_prop`).  
+* **`anno_bin*_perc`** : Proportion of annotated genes with expression levels (reads or transcript model counts) in specific bins (`bin1`: 1 count, `bin2_4`: 2-4 counts, `bin5_9`: 5-9 counts, `bin10plus`: >=10 counts).  
+* **`novel_bin*_perc`** : Proportion of novel genes with expression levels in specific bins (same as above).  
+* **`*_ujc_bin*_perc`** : Similar bins calculated for Unique Junction Chains (UJCs) (Reads Mode only): `bin1` (1 count), `bin2_3` (2-3 counts), `bin4_5` (4-5 counts), `bin6plus` (>=6 counts).  
+* **`[Total|Category]_*_length_[mono]_prop`** : Proportion of reads falling into specific length bins (Total and per-category, including mono-exonic specific). Length bins: `<250bp`, `250-500bp`, `500-1000bp` (`short`), `1000-2000bp` (`mid`), `>2000bp` (`long`).  
+* **`*_ref_coverage_prop`** : Proportion of reads/transcripts in each category covering at least `ref_cov_min_pct` of the reference transcript length.  
+* **`ref_cov_min_pct`** : The minimum reference coverage percentage used for the above metric (parameter value).  
+* **`RTS_prop_in_cell`** : Proportion of reads flagged as Reverse Transcriptase Switching (RTS) artifacts.  
+* **`[Category]_RTS_prop`** : Proportion of RTS artifacts within each structural category.  
+* **`Non_canonical_prop_in_cell`** : Proportion of reads with non-canonical splicing.  
+* **`[Category]_noncanon_prop`** : Proportion of non-canonical splicing within each structural category.  
+* **`Intrapriming_prop_in_cell`** : Proportion of reads flagged as intra-priming artifacts.  
+* **`[Category]_intrapriming_prop`** : Proportion of intra-priming artifacts within each structural category.  
+* **`TSSAnnotationSupport_prop`** : Proportion of reads where the TSS is within 50bp of an annotated TSS.  
+* **`[Category]_TSSAnnotationSupport`** : Proportion of TSS support within each structural category.  
+* **`Annotated_genes_prop_in_cell`** : Proportion of genes detected that are annotated.  
+* **`Annotated_juction_strings_prop_in_cell`** : Proportion of UJCs that match annotated junction combinations.  
+* **`Canonical_prop_in_cell`** : Proportion of reads/transcripts with canonical splicing.  
+* **`[Category]_canon_prop`** : Proportion of canonical splicing within each structural category.  
+* **`NMD_prop_in_cell`** : Proportion of reads predicted to be NMD candidates (if ORF prediction is on).  
+* **`[Category]_NMD_prop`** : Proportion of NMD candidates within each structural category.  
+* **`[Category]_[non]_coding_prop`** : Proportion of coding vs non-coding transcripts within each category.  
+* **`CAGE_peak_support_prop`** : Proportion of reads supported by CAGE peaks (if provided).  
+* **`[Category]_CAGE_peak_support_prop`** : Proportion of CAGE support within each structural category.  
+* **`PolyA_motif_support_prop`** : Proportion of reads with identified PolyA motifs (if provided).  
+* **`[Category]_PolyA_motif_support_prop`** : Proportion of PolyA support within each structural category.  
+
 ---
