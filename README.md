@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="img/Conesalab_logos_V3_singlecell.svg" width="400" title="SQANTI-sc logo">
+</p>
+
 # SQANTI-single cell
 
 **SQANTI-single cell (SQANTI-sc)** is a pipeline for the structural and quality control of long-read single-cell transcriptomics datasets. It extends the capabilities of [SQANTI3](https://github.com/ConesaLab/SQANTI3) and [SQANTI-reads](https://github.com/ConesaLab/SQANTI3) frameworks to provide cell-level structural and quality control metrics. 
@@ -22,17 +26,17 @@ Table of Contents:
     - [2. SQANTI-reads-based Outputs](#2-sqanti-reads-based-outputs)
     - [3. SQANTI-sc Specific Outputs](#3-sqanti-sc-specific-outputs)
 
-<a name="prerequisites--installation"/>
+<a name="prerequisites--installation"></a>
 
 ## Prerequisites & Installation
 
 
-<a name="0-install-anaconda"/>
+<a name="0-install-anaconda"></a>
 
 ### 0. Install Anaconda
 Make sure you have installed Anaconda. If not, you can download the generic installer for Linux [here](http://docs.continuum.io/anaconda/install/#linux-install).
 
-<a name="1-install-sqanti-sc"/>
+<a name="1-install-sqanti-sc"></a>
 
 ### 1. Install SQANTI-sc
 You can install SQANTI-sc by downloading the source code or cloning the repository.
@@ -54,7 +58,7 @@ git clone https://github.com/ConesaLab/SQANTI-sc.git
 cd SQANTI-sc
 ```
 
-<a name="2-install-sqanti3"/>
+<a name="2-install-sqanti3"></a>
 
 ### 2. Install SQANTI3
 SQANTI-sc requires a functional installation of SQANTI3.
@@ -69,7 +73,7 @@ SQANTI-sc needs to know where SQANTI3 is installed. You have two options:
 export SQANTI3_DIR=/path/to/your/SQANTI3/directory
 ```
 
-<a name="3-set-up-the-environment"/>
+<a name="3-set-up-the-environment"></a>
 
 ### 3. Set up the Environment
 We provide a unified Conda environment file `SQANTI-sc_env.yml` that includes all dependencies for both SQANTI3 and SQANTI-sc (including R packages for reporting).
@@ -79,12 +83,12 @@ conda env create -f SQANTI-sc_env.yml
 conda activate SQANTI-sc_env
 ```
 
-<a name="4-docker-support-coming-soon"/>
+<a name="4-docker-support-coming-soon"></a>
 
 ### 4. Docker Support (Coming Soon)
 Future releases of SQANTI-sc will be containerized and available on DockerHub. Currently, please use the Conda installation method.
 
-<a name="getting-ready"/>
+<a name="getting-ready"></a>
 
 ## Getting Ready
 
@@ -93,7 +97,7 @@ Activate the SQANTI-sc conda environment:
 conda activate SQANTI-sc_env
 ```
 
-<a name="arguments-and-parameters-in-sqanti-sc"/>
+<a name="arguments-and-parameters-in-sqanti-sc"></a>
 
 ## Arguments and parameters in SQANTI-sc
 
@@ -226,13 +230,13 @@ Optional arguments:
 ```
 </details>
 
-<a name="running-sqanti-sc"/>
+<a name="running-sqanti-sc"></a>
 
 ## Running SQANTI-sc
 
 The tool operates in two main modes: **`reads`** and **`isoforms`**.
 
-<a name="1-reads-mode---mode-reads"/>
+<a name="1-reads-mode---mode-reads"></a>
 
 ### 1. Reads Mode (`--mode reads`)
 The **Reads Mode** is an adaptation of the **[SQANTI-reads](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI-reads)** tool specifically designed for single-cell data. It provides a comprehensive structural and quality control assessment of long-read single-cell RNA-seq data **at the read level**. This step can be useful for validating your data structure and quality before committing to the more complex steps of isoform identification and quantification.
@@ -285,7 +289,7 @@ m64012_250421_000242/17565024/ccs/13918_14203	GGGTTTAAGGTTCCTA	GCGCGCAATTCA
 
 ---
 
-<a name="2-isoforms-mode---mode-isoforms"/>
+<a name="2-isoforms-mode---mode-isoforms"></a>
 
 ### 2. Isoforms Mode (`--mode isoforms`)
 The **Isoforms Mode** is designed for the in-depth characterization of unique transcript isoforms across single cells. Unlike Reads Mode, which focuses on individual reads, this mode takes collapsed or assembled consensus transcript models as input and performs quality control at the single-cell level.
@@ -342,7 +346,7 @@ python sqanti_sc.py \
     --run_clustering \
     --multisample_report
 ```
-<a name="providing-orthogonal-data-to-sqanti-sc"/>
+<a name="providing-orthogonal-data-to-sqanti-sc"></a>
 
 ## Providing orthogonal data to SQANTI-sc
 
@@ -356,7 +360,7 @@ For how to provide orthogonal data, visit the [SQANTI3 documentation](https://gi
 **Note:** SQANTI-sc does not yet support this information in a cell barcode-aware manner. These validation data will be applied to all reads/transcript models collectively (bulk). Similarly, SQANTI-sc is currently not suppossed to work with short-reads as orthogonal data for the validation of junctions and ends. This functionality is planned to be added in future updates.
 
 
-<a name="clustering"/>
+<a name="clustering"></a>
 
 ## Cell clustering (`--run_clustering`)
 
@@ -376,13 +380,13 @@ The clustering process can be customized using the following arguments:
 *   **`--n_clusters`**: Number of clusters to force if using K-means clustering (Default: 10).
 
 
-<a name="understanding-the-output-of-sqanti-sc"/>
+<a name="understanding-the-output-of-sqanti-sc"></a>
 
 ## Understanding the output of SQANTI-sc
 
 The majority of the outputs follow the same logic and structure as [SQANTI3](https://github.com/ConesaLab/SQANTI3/wiki/Understanding-the-output-of-SQANTI3) and [SQANTI-reads](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI-reads), with modifications to include single-cell information and new files specific to this pipeline.
 
-<a name="1-sqanti3-based-outputs"/>
+<a name="1-sqanti3-based-outputs"></a>
 
 ### 1. SQANTI3-based Outputs
 Standard SQANTI3 output files are generated for each sample, but they include additional columns to track cell barcode of origin.
@@ -398,7 +402,7 @@ Standard SQANTI3 output files are generated for each sample, but they include ad
     *   New columns:
         *   `CB`: Cell Barcode associated with the junction. In isoforms mode, this column can contain multiple comma-separated cell barcodes if the junction pertains to a transcript model present in multiple cell barcodes. 
 
-<a name="2-sqanti-reads-based-outputs"/>
+<a name="2-sqanti-reads-based-outputs"></a>
 
 ### 2. SQANTI-reads-based Outputs
 The majority of SQANTI-reads-specific otuputs are not output by SQANTI-sc, with the exception of some tables that add the cell barcode dimension. These per-cell matrices follow the logic of **SQANTI-reads** and are generated optionally if the `--write_per_cell_outputs` flag is used. They provide detailed metrics at the single-cell level.
@@ -407,7 +411,7 @@ The majority of SQANTI-reads-specific otuputs are not output by SQANTI-sc, with 
 *   **`*_ujc_counts.csv`**: Counts of Unique Junction Chains (UJCs) per cell, including their structural classification and novelty status.
 *   **`*_cv.csv`**: Coefficient of Variation (CV) metrics for splice junctions per cell, useful for identifying splicing variability.
 
-<a name="3-sqanti-sc-specific-outputs"/>
+<a name="3-sqanti-sc-specific-outputs"></a>
 
 ### 3. SQANTI-sc Specific Outputs
 
