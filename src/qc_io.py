@@ -32,6 +32,10 @@ def fill_design_table(args):
         df['cell_association'] = ''
     if 'abundance' not in df.columns:
         df['abundance'] = ''
+    if 'coverage' not in df.columns:
+        df['coverage'] = ''
+    if 'SR_bam' not in df.columns:
+        df['SR_bam'] = ''
 
     for index, row in df.iterrows():
         # Handle cell_association
@@ -47,6 +51,16 @@ def fill_design_table(args):
                 df.at[index, 'cell_association'] = os.path.abspath(bam_files[0])
             elif os.path.isfile(assoc_file_path):
                 df.at[index, 'cell_association'] = os.path.abspath(assoc_file_path)
+
+        # Handle coverage
+        if pd.notna(row['coverage']) and row['coverage']:
+            if os.path.isfile(row['coverage']):
+                 df.at[index, 'coverage'] = os.path.abspath(row['coverage'])
+
+        # Handle SR_bam
+        if pd.notna(row['SR_bam']) and row['SR_bam']:
+            if os.path.isfile(row['SR_bam']):
+                 df.at[index, 'SR_bam'] = os.path.abspath(row['SR_bam'])
         
         # Validation based on mode
         has_assoc = pd.notna(df.at[index, 'cell_association']) and df.at[index, 'cell_association']

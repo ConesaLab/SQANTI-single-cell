@@ -1,6 +1,7 @@
 import os
 import sys
 import glob
+import pandas as pd
 from paths import sqantiqcPath
 from src.commands import run_command
 from src.module_logging import qc_logger, update_logger
@@ -15,7 +16,7 @@ def run_sqanti3_qc(args, df):
             return False
         return True
 
-    def build_sqanti_command(input_file, file_acc, sampleID, is_fastq=False):
+    def build_sqanti_command(input_file, file_acc, sampleID, is_fastq=False, coverage=None, SR_bam=None):
         cmd_parts = [
             "python", f"{sqantiqcPath}/sqanti3_qc.py",
             "--isoforms", input_file,
@@ -53,7 +54,7 @@ def run_sqanti3_qc(args, df):
                 cmd_parts.append(flag)
 
         # Handle skipORF logic:
-        # If mode is 'reads', ALWAYS skip ORF (force it).
+        # If mode is 'reads', ALWAYS skip ORF.
         # If mode is 'isoforms', use the user's --skipORF flag (if provided).
         if args.mode == 'reads':
             cmd_parts.append('--skipORF')
@@ -67,14 +68,19 @@ def run_sqanti3_qc(args, df):
             ("phyloP_bed", "--phyloP_bed"),
             ("orf_input", "--orf_input"),
             ("expression", "--expression"),
-            ("coverage", "--coverage"),
             ("gff3", "--gff3"),
-            ("short_reads", "--short_reads"),
-            ("SR_bam", "--SR_bam"),
         ]
         for arg_name, flag in optional_files:
             if getattr(args, arg_name, None):
                 cmd_parts.extend([flag, getattr(args, arg_name)])
+
+        # Handle per-sample orthogonal data
+        if coverage:
+            cmd_parts.extend(["--coverage", coverage])
+        
+        if SR_bam:
+            cmd_parts.extend(["--SR_bam", SR_bam])
+
 
         return " ".join(cmd_parts)
 
@@ -85,6 +91,14 @@ def run_sqanti3_qc(args, df):
     for index, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
+        
+        # Extract per-sample short reads orthogonal data (ONLY for Isoforms mode)
+        coverage_file = None
+        sr_bam_file = None
+        if args.mode == 'isoforms':
+            coverage_file = row['coverage'] if 'coverage' in row and pd.notna(row['coverage']) and row['coverage'] else None
+            sr_bam_file = row['SR_bam'] if 'SR_bam' in row and pd.notna(row['SR_bam']) and row['SR_bam'] else None
+
         file_acc_dir = os.path.join(args.out_dir, file_acc)
         logs_dir = os.path.join(file_acc_dir, "logs")
         os.makedirs(logs_dir, exist_ok=True)
@@ -97,7 +111,7 @@ def run_sqanti3_qc(args, df):
             gtf_file = gtf_files[0]
             if args.verbose:
                 print(f'[INFO] Running SQANTI-sc qc for {gtf_file}', file=sys.stdout)
-            cmd = build_sqanti_command(gtf_file, file_acc, sampleID)
+            cmd = build_sqanti_command(gtf_file, file_acc, sampleID, coverage=coverage_file, SR_bam=sr_bam_file)
             if args.is_fusion:
                 cmd += " --is_fusion"
                 if not args.skipORF:
@@ -117,7 +131,7 @@ def run_sqanti3_qc(args, df):
             fastq_file = fastq_files[0]
             if args.verbose:
                 print(f'[INFO] Running SQANTI-sc qc for {fastq_file}', file=sys.stdout)
-            cmd = build_sqanti_command(fastq_file, file_acc, sampleID, is_fastq=True)
+            cmd = build_sqanti_command(fastq_file, file_acc, sampleID, is_fastq=True, coverage=coverage_file, SR_bam=sr_bam_file)
             print(cmd, file=sys.stdout)
             run_command(cmd, qc_logger, out_file=log_file,
                         description="SQANTI3 failed to execute")
@@ -145,7 +159,7 @@ def run_sqanti3_qc(args, df):
                     continue
 
                 cmd = build_sqanti_command(
-                    tmp_fastq, file_acc, sampleID, is_fastq=True
+                    tmp_fastq, file_acc, sampleID, is_fastq=True, coverage=coverage_file, SR_bam=sr_bam_file
                 )
                 print(cmd, file=sys.stdout)
                 run_command(cmd, qc_logger, out_file=log_file,

@@ -319,14 +319,16 @@ A comma-separated values (CSV) file containing the metadata for your samples.
 | `file_acc` | **Required**. The file prefix used to locate your input transcript models files (matches `{file_acc}.gtf` or `{file_acc}.fasta`). These will also be the names of the output directories where the output files corresponding to each sample will be located. |
 | `cell_association` | **Conditional**. Path to the file linking Isoform IDs to Cell Barcodes (TSV) *if no abundance matrix is present*. |
 | `abundance` | **Conditional**. Path to a folder containing quantification data in **Market Exchange (MEX) format**. The folder **MUST** contain three files: `matrix.mtx`, `features.tsv` (with the transcript model IDs used in the input), and `barcodes.tsv`.|
+| `coverage` | **Optional**. Path to the STAR splice junction output file (`SJ.out.tab`). Used to validate splice junctions. |
+| `SR_bam` | **Optional**. Path to a sorted and indexed BAM file of short reads. Used to validate TSS. |
 
 *Note*: You can provide either a `cell_association` file or `abundance` directory as your cell barcode-isoform association file. If you want to perform quality control with the quantification of the expression of the isoforms (recommended) you will need the count matrix, but is not mandatory to run the isoforms mode.
 
 **Example `design_isoforms.csv`:**
 ```csv
-sampleID,file_acc,abundance
-Sample1,Iso_S1,/data/S1_counts/
-Sample2,Iso_S2,/data/S2_counts/
+sampleID,file_acc,abundance,coverage,SR_bam
+Sample1,Iso_S1,/data/S1_counts/,/path/to/S1_SJ.out.tab,/path/to/S1_sorted.bam
+Sample2,Iso_S2,/data/S2_counts/,/path/to/S2_SJ.out.tab,/path/to/S2_sorted.bam
 ```
 
 *   **Reference Files**: Same as Reads Mode (`--refFasta`, `--refGTF`).
@@ -353,11 +355,28 @@ python sqanti_sc.py \
 
 SQANTI-sc accepts orthogonal data to assist in the quality control and filtering of artifactual transcript models. 
 * CAGE peak data (`--CAGE_peak`) for Transcription Start Site (TSS) validation.
-* PolyA information (`--polyA_motif_list`, `--polyA_peak`) for Trasncription Termination Site (TTS) validation. 
+* PolyA information (`--polyA_motif_list`, `--polyA_peak`) for Transcription Termination Site (TTS) validation. 
+* Short Reads data (Splice Junctions and BAMs) provided via the **Design File**.
 
-For how to provide orthogonal data, visit the [SQANTI3 documentation](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-Quality-Control).
+### Short Reads Validation
 
-**Note:** SQANTI-sc does not yet support this information in a cell barcode-aware manner. These validation data will be applied to all reads/transcript models collectively (bulk). Similarly, SQANTI-sc is currently not suppossed to work with short-reads as orthogonal data for the validation of junctions and ends. This functionality is planned to be added in future updates.
+SQANTI-sc supports orthogonal validation of Splice Junctions and TSS using short reads. However, unlike SQANTI3, it does **not** accept raw FASTQ inputs (`--short_reads`). Instead, users must perform the short-read alignment externally (e.g., using [STAR](https://github.com/alexdobin/STAR)) and provide the resulting files via new columns in the **Design File**.
+
+This strategy treats short-read data as a "bulk proxy" to validate the single-cell long-read isoforms. We recommend using deeper bulk RNA-seq data from the same tissue/condition to validate the single-cell library. To learn more about the metrics related to short-reads coverage, visit [SQANTI3 documentation](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-Quality-Control#SR).
+
+**Design File Columns for Short Reads:**
+
+| Column | Description |
+| :--- | :--- |
+| `coverage` | **Optional**. Path to the STAR splice junction output file (usually `SJ.out.tab`). Used to validate splice junctions. Equivalent to `--coverage` flag from SQANTI3. |
+| `SR_bam` | **Optional**. Path to a sorted and indexed BAM file of short reads. Used to calculate the TSS ratio and validate 5' ends. Equivalent to `--SR_bam` flag from SQANTI3.|
+
+> NOTE:
+> **Why matching 10x Short Reads are not supported?**
+>
+> SQANTI-sc relies on "bulk-like" short read coverage to validate splice junctions across the full length of transcripts. Common single-cell short-read application (e.g., 10x Genomics) typically generate end-biased reads that do not cover the full transcript body, making them unsuitable for validating internal splice junctions.
+> 
+> Therefore, we recommend using **Bulk RNA-seq** samples (condition or tissue-comparable) for this validation step.
 
 
 <a name="clustering"></a>
@@ -464,5 +483,3 @@ The output `_SQANTI_cell_summary.txt.gz` has the following possible fields:
 * **`[Category]_CAGE_peak_support_prop`** : Proportion of CAGE support within each structural category.  
 * **`PolyA_motif_support_prop`** : Proportion of reads with identified PolyA motifs (if provided).  
 * **`[Category]_PolyA_motif_support_prop`** : Proportion of PolyA support within each structural category.  
-
----

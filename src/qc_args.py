@@ -72,19 +72,11 @@ def build_parser(version_str: str = '0.2.1'):
 
     # SQANTI3 Orthogonal data inputs
     apod = ap.add_argument_group("SQANTI3 orthogonal data inputs")
-    apod.add_argument('--short_reads',
-                     help='FOFN of short-read RNA-Seq files (FASTA/FASTQ).')
-    apod.add_argument('--SR_bam',
-                     help='Directory or FOFN of short-read BAM files.')
     apod.add_argument('--CAGE_peak', help="FANTOM5 CAGE Peak (BED).")
     apod.add_argument('--polyA_motif_list',
                      help="Ranked list of polyA motifs (text).")
     apod.add_argument('--polyA_peak', help="PolyA Peak (BED).")
     apod.add_argument('--phyloP_bed', help="PhyloP conservation scores (BED).")
-    apod.add_argument('-e', '--expression',
-                     help='Expression matrix (e.g., Kallisto tsv).')
-    apod.add_argument('-c', '--coverage',
-                     help='Junction coverage files (single, comma-separated, or pattern).')
 
     # SQANTI3 Functional annotation
     apf = ap.add_argument_group("SQANTI3 functional annotation")
