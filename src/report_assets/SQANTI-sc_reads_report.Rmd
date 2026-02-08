@@ -12,7 +12,6 @@ output:
       version: 3
       bootswatch: flatly
     highlight: tango
-    code_folding: hide
     self_contained: true
 ---
 
@@ -609,6 +608,8 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
     setupDropdown("badq-across-dropdown");
     setupDropdown("goodq-across-dropdown");
     setupDropdown("coding-dropdown");
+    setupDropdown("sr-cluster-dropdown");
+    setupDropdown("tss-cluster-dropdown");
   });
 })();
 </script>
@@ -711,7 +712,7 @@ if (exists("gg_genes_in_cells")) {
 
 ```{r genesacross-knownnovel, fig.height=6, fig.width=10}
 if (exists("gg_annotation_of_genes_in_cell")) {
-  render_ggplotly(gg_annotation_of_genes_in_cell)
+  render_ggplotly(gg_annotation_of_genes_in_cell, target_width = 1000)
 }
 ```
 
@@ -721,7 +722,7 @@ if (exists("gg_annotation_of_genes_in_cell")) {
 
 ```{r genesacross-percent, fig.height=6, fig.width=10}
 if (exists("gg_annotation_of_genes_percent_in_cell")) {
-  render_ggplotly(gg_annotation_of_genes_percent_in_cell)
+  render_ggplotly(gg_annotation_of_genes_percent_in_cell, target_width = 1000)
 }
 ```
 
@@ -752,7 +753,7 @@ if (exists("gg_annotation_of_genes_percent_in_cell")) {
 
 ```{r readspergene-perc-reads-annot, fig.height=6, fig.width=12}
 if (exists("gg_annotation_of_reads_in_cell")) {
-  render_ggplotly(gg_annotation_of_reads_in_cell)
+  render_ggplotly(gg_annotation_of_reads_in_cell, target_width = 1000)
 }
 ```
 
@@ -762,7 +763,7 @@ if (exists("gg_annotation_of_reads_in_cell")) {
 
 ```{r readspergene-bins-all, fig.height=6, fig.width=12}
 if (exists("gg_read_bins_all")) {
-  render_ggplotly(gg_read_bins_all)
+  render_ggplotly(gg_read_bins_all, target_width = 1000)
 }
 ```
 
@@ -772,7 +773,7 @@ if (exists("gg_read_bins_all")) {
 
 ```{r readspergene-bins-annot, fig.height=6, fig.width=12}
 if (exists("gg_read_bins")) {
-  render_ggplotly(gg_read_bins)
+  render_ggplotly(gg_read_bins, target_width = 1000)
 }
 ```
 
@@ -786,7 +787,7 @@ if (mode == "isoforms" && exists("gg_isoform_bins")) {
 
 ```{r iso-per-gene-plot, fig.height=6, fig.width=12}
 if (mode == "isoforms" && exists("gg_isoform_bins")) {
-  render_ggplotly(gg_isoform_bins)
+  render_ggplotly(gg_isoform_bins, target_width = 1000)
 }
 ```
 
@@ -822,7 +823,7 @@ show_ujcs_gene <- (mode != "isoforms" && exists("gg_ujc_bins_all"))
  
  ```{r ujcspergene-bins-all, fig.height=6, fig.width=12, eval=show_ujcs_gene}
 if (exists("gg_ujc_bins_all")) {
-  render_ggplotly(gg_ujc_bins_all)
+  render_ggplotly(gg_ujc_bins_all, target_width = 1000)
 }
  ```
  
@@ -833,7 +834,7 @@ if (exists("gg_ujc_bins_all")) {
  
  ```{r ujcspergene-bins-annot, fig.height=6, fig.width=12, eval=show_ujcs_gene}
 if (exists("gg_ujc_bins")) {
-  render_ggplotly(gg_ujc_bins)
+  render_ggplotly(gg_ujc_bins, target_width = 1000)
 }
  ```
  
@@ -882,7 +883,7 @@ if (exists("gg_MT_perc")) {
 
 ```{r bulk-length-all-plot, fig.height=6, fig.width=10}
 if (exists("gg_bulk_all_reads")) {
-  render_ggplotly(gg_bulk_all_reads)
+  render_ggplotly(gg_bulk_all_reads, target_width = 1000)
 }
 ```
 
@@ -892,7 +893,7 @@ if (exists("gg_bulk_all_reads")) {
 
 ```{r bulk-length-category-plot, fig.height=6, fig.width=12}
 if (exists("gg_bulk_length_by_category")) {
-  render_ggplotly(gg_bulk_length_by_category)
+  render_ggplotly(gg_bulk_length_by_category, target_width = 1000)
 }
 ```
 
@@ -902,7 +903,7 @@ if (exists("gg_bulk_length_by_category")) {
 
 ```{r bulk-length-exon-plot, fig.height=6, fig.width=10}
 if (exists("gg_bulk_length_by_exon_type")) {
-  render_ggplotly(gg_bulk_length_by_exon_type)
+  render_ggplotly(gg_bulk_length_by_exon_type, target_width = 1000)
 }
 ```
 
@@ -936,7 +937,7 @@ if (exists("gg_bulk_length_by_exon_type")) {
 
 ```{r multiexon-length-all-plot, fig.height=6, fig.width=10}
 if (exists("gg_read_distr")) {
-  render_ggplotly(gg_read_distr)
+  render_ggplotly(gg_read_distr, target_width = 1000)
 }
 ```
 
@@ -946,7 +947,7 @@ if (exists("gg_read_distr")) {
 
 ```{r multiexon-length-fsm-plot, fig.height=6, fig.width=10}
 if (exists("gg_FSM_read_distr")) {
-  render_ggplotly(gg_FSM_read_distr)
+  render_ggplotly(gg_FSM_read_distr, target_width = 1000)
 }
 ```
 
@@ -956,7 +957,7 @@ if (exists("gg_FSM_read_distr")) {
 
 ```{r multiexon-length-ism-plot, fig.height=6, fig.width=10}
 if (exists("gg_ISM_read_distr")) {
-  render_ggplotly(gg_ISM_read_distr)
+  render_ggplotly(gg_ISM_read_distr, target_width = 1000)
 }
 ```
 
@@ -966,7 +967,7 @@ if (exists("gg_ISM_read_distr")) {
 
 ```{r multiexon-length-nic-plot, fig.height=6, fig.width=10}
 if (exists("gg_NIC_read_distr")) {
-  render_ggplotly(gg_NIC_read_distr)
+  render_ggplotly(gg_NIC_read_distr, target_width = 1000)
 }
 ```
 
@@ -976,7 +977,7 @@ if (exists("gg_NIC_read_distr")) {
 
 ```{r multiexon-length-nnc-plot, fig.height=6, fig.width=10}
 if (exists("gg_NNC_read_distr")) {
-  render_ggplotly(gg_NNC_read_distr)
+  render_ggplotly(gg_NNC_read_distr, target_width = 1000)
 }
 ```
 
@@ -986,7 +987,7 @@ if (exists("gg_NNC_read_distr")) {
 
 ```{r multiexon-length-genic-plot, fig.height=6, fig.width=10}
 if (exists("gg_genic_read_distr")) {
-  render_ggplotly(gg_genic_read_distr)
+  render_ggplotly(gg_genic_read_distr, target_width = 1000)
 }
 ```
 
@@ -996,7 +997,7 @@ if (exists("gg_genic_read_distr")) {
 
 ```{r multiexon-length-antisense-plot, fig.height=6, fig.width=10}
 if (exists("gg_antisense_read_distr")) {
-  render_ggplotly(gg_antisense_read_distr)
+  render_ggplotly(gg_antisense_read_distr, target_width = 1000)
 }
 ```
 
@@ -1006,7 +1007,7 @@ if (exists("gg_antisense_read_distr")) {
 
 ```{r multiexon-length-fusion-plot, fig.height=6, fig.width=10}
 if (exists("gg_fusion_read_distr")) {
-  render_ggplotly(gg_fusion_read_distr)
+  render_ggplotly(gg_fusion_read_distr, target_width = 1000)
 }
 ```
 
@@ -1016,7 +1017,7 @@ if (exists("gg_fusion_read_distr")) {
 
 ```{r multiexon-length-intergenic-plot, fig.height=6, fig.width=10}
 if (exists("gg_intergenic_read_distr")) {
-  render_ggplotly(gg_intergenic_read_distr)
+  render_ggplotly(gg_intergenic_read_distr, target_width = 1000)
 }
 ```
 
@@ -1026,7 +1027,7 @@ if (exists("gg_intergenic_read_distr")) {
 
 ```{r multiexon-length-genicintron-plot, fig.height=6, fig.width=10}
 if (exists("gg_genic_intron_read_distr")) {
-  render_ggplotly(gg_genic_intron_read_distr)
+  render_ggplotly(gg_genic_intron_read_distr, target_width = 1000)
 }
 ```
 
@@ -1058,7 +1059,7 @@ if (exists("gg_genic_intron_read_distr")) {
 
 ```{r monoexon-length-all-plot, fig.height=6, fig.width=10}
 if (exists("gg_read_distr_mono")) {
-  render_ggplotly(gg_read_distr_mono)
+  render_ggplotly(gg_read_distr_mono, target_width = 1000)
 }
 ```
 
@@ -1068,7 +1069,7 @@ if (exists("gg_read_distr_mono")) {
 
 ```{r monoexon-length-fsm-plot, fig.height=6, fig.width=10}
 if (exists("gg_FSM_mono_read_distr")) {
-  render_ggplotly(gg_FSM_mono_read_distr)
+  render_ggplotly(gg_FSM_mono_read_distr, target_width = 1000)
 }
 ```
 
@@ -1078,7 +1079,7 @@ if (exists("gg_FSM_mono_read_distr")) {
 
 ```{r monoexon-length-ism-plot, fig.height=6, fig.width=10}
 if (exists("gg_ISM_mono_read_distr")) {
-  render_ggplotly(gg_ISM_mono_read_distr)
+  render_ggplotly(gg_ISM_mono_read_distr, target_width = 1000)
 }
 ```
 
@@ -1088,7 +1089,7 @@ if (exists("gg_ISM_mono_read_distr")) {
 
 ```{r monoexon-length-nic-plot, fig.height=6, fig.width=10}
 if (exists("gg_NIC_mono_read_distr")) {
-  render_ggplotly(gg_NIC_mono_read_distr)
+  render_ggplotly(gg_NIC_mono_read_distr, target_width = 1000)
 }
 ```
 
@@ -1098,7 +1099,7 @@ if (exists("gg_NIC_mono_read_distr")) {
 
 ```{r monoexon-length-genic-plot, fig.height=6, fig.width=10}
 if (exists("gg_genic_mono_read_distr")) {
-  render_ggplotly(gg_genic_mono_read_distr)
+  render_ggplotly(gg_genic_mono_read_distr, target_width = 1000)
 }
 ```
 
@@ -1108,7 +1109,7 @@ if (exists("gg_genic_mono_read_distr")) {
 
 ```{r monoexon-length-antisense-plot, fig.height=6, fig.width=10}
 if (exists("gg_antisense_mono_read_distr")) {
-  render_ggplotly(gg_antisense_mono_read_distr)
+  render_ggplotly(gg_antisense_mono_read_distr, target_width = 1000)
 }
 ```
 
@@ -1118,7 +1119,7 @@ if (exists("gg_antisense_mono_read_distr")) {
 
 ```{r monoexon-length-intergenic-plot, fig.height=6, fig.width=10}
 if (exists("gg_intergenic_mono_read_distr")) {
-  render_ggplotly(gg_intergenic_mono_read_distr)
+  render_ggplotly(gg_intergenic_mono_read_distr, target_width = 1000)
 }
 ```
 
@@ -1128,7 +1129,7 @@ if (exists("gg_intergenic_mono_read_distr")) {
 
 ```{r monoexon-length-genicintron-plot, fig.height=6, fig.width=10}
 if (exists("gg_genic_intron_mono_read_distr")) {
-  render_ggplotly(gg_genic_intron_mono_read_distr)
+  render_ggplotly(gg_genic_intron_mono_read_distr, target_width = 1000)
 }
 ```
 
@@ -1138,7 +1139,7 @@ if (exists("gg_genic_intron_mono_read_distr")) {
 
 ```{r ref-transcript-coverage, fig.height=6, fig.width=12}
 if (exists("gg_ref_coverage_across_category")) {
-  render_ggplotly(gg_ref_coverage_across_category)
+  render_ggplotly(gg_ref_coverage_across_category, target_width = 1000)
 }
 ```
 
@@ -1174,7 +1175,7 @@ if (exists("gg_ref_coverage_across_category")) {
 
 ```{r rd-across-cat, fig.height=6, fig.width=12}
 if (exists("gg_SQANTI_across_category")) {
-  render_ggplotly(gg_SQANTI_across_category)
+  render_ggplotly(gg_SQANTI_across_category, target_width = 1000)
 }
 ```
 
@@ -1184,7 +1185,7 @@ if (exists("gg_SQANTI_across_category")) {
 
 ```{r rd-across-mono, fig.height=6, fig.width=12}
 if (exists("gg_exon_mono_by_category")) {
-  render_ggplotly(gg_exon_mono_by_category)
+  render_ggplotly(gg_exon_mono_by_category, target_width = 1000)
 }
 ```
 
@@ -1194,7 +1195,7 @@ if (exists("gg_exon_mono_by_category")) {
 
 ```{r rd-fsm, fig.height=6, fig.width=12}
 if (exists("gg_SQANTI_across_FSM")) {
-  render_ggplotly(gg_SQANTI_across_FSM)
+  render_ggplotly(gg_SQANTI_across_FSM, target_width = 1000)
 }
 ```
 
@@ -1204,7 +1205,7 @@ if (exists("gg_SQANTI_across_FSM")) {
 
 ```{r rd-ism, fig.height=6, fig.width=12}
 if (exists("gg_SQANTI_across_ISM")) {
-  render_ggplotly(gg_SQANTI_across_ISM)
+  render_ggplotly(gg_SQANTI_across_ISM, target_width = 1000)
 }
 ```
 
@@ -1214,7 +1215,7 @@ if (exists("gg_SQANTI_across_ISM")) {
 
 ```{r rd-nic, fig.height=6, fig.width=12}
 if (exists("gg_SQANTI_across_NIC")) {
-  render_ggplotly(gg_SQANTI_across_NIC)
+  render_ggplotly(gg_SQANTI_across_NIC, target_width = 1000)
 }
 ```
 
@@ -1224,7 +1225,7 @@ if (exists("gg_SQANTI_across_NIC")) {
 
 ```{r rd-nnc, fig.height=6, fig.width=12}
 if (exists("gg_SQANTI_across_NNC")) {
-  render_ggplotly(gg_SQANTI_across_NNC)
+  render_ggplotly(gg_SQANTI_across_NNC, target_width = 1000)
 }
 ```
 
@@ -1234,7 +1235,7 @@ if (exists("gg_SQANTI_across_NNC")) {
 
 ```{r rd-genic, fig.height=6, fig.width=12}
 if (exists("gg_SQANTI_across_Genic")) {
-  render_ggplotly(gg_SQANTI_across_Genic)
+  render_ggplotly(gg_SQANTI_across_Genic, target_width = 1000)
 }
 ```
 
@@ -1244,7 +1245,7 @@ if (exists("gg_SQANTI_across_Genic")) {
 
 ```{r rd-antisense, fig.height=6, fig.width=12}
 if (exists("gg_SQANTI_across_Antisense")) {
-  render_ggplotly(gg_SQANTI_across_Antisense)
+  render_ggplotly(gg_SQANTI_across_Antisense, target_width = 1000)
 }
 ```
 
@@ -1254,7 +1255,7 @@ if (exists("gg_SQANTI_across_Antisense")) {
 
 ```{r rd-fusion, fig.height=6, fig.width=12}
 if (exists("gg_SQANTI_across_Fusion")) {
-  render_ggplotly(gg_SQANTI_across_Fusion)
+  render_ggplotly(gg_SQANTI_across_Fusion, target_width = 1000)
 }
 ```
 
@@ -1264,7 +1265,7 @@ if (exists("gg_SQANTI_across_Fusion")) {
 
 ```{r rd-intergenic, fig.height=6, fig.width=12}
 if (exists("gg_SQANTI_across_Intergenic")) {
-  render_ggplotly(gg_SQANTI_across_Intergenic)
+  render_ggplotly(gg_SQANTI_across_Intergenic, target_width = 1000)
 }
 ```
 
@@ -1274,7 +1275,7 @@ if (exists("gg_SQANTI_across_Intergenic")) {
 
 ```{r rd-genic-intron, fig.height=6, fig.width=12}
 if (exists("gg_SQANTI_across_Genic_Intron")) {
-  render_ggplotly(gg_SQANTI_across_Genic_Intron)
+  render_ggplotly(gg_SQANTI_across_Genic_Intron, target_width = 1000)
 }
 ```
 
@@ -1309,7 +1310,7 @@ if (exists("gg_SQANTI_across_Genic_Intron")) {
 
 ```{r exoncounts-across, fig.height=6, fig.width=12}
 if (exists("gg_exon_mean_by_category")) {
-  render_ggplotly(gg_exon_mean_by_category)
+  render_ggplotly(gg_exon_mean_by_category, target_width = 1000)
 }
 ```
 
@@ -1319,7 +1320,7 @@ if (exists("gg_exon_mean_by_category")) {
 
 ```{r exoncounts-fsm-prof, fig.height=6, fig.width=12}
 if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["FSM"]])) {
-  render_ggplotly(gg_exon_profile_by_category[["FSM"]])
+  render_ggplotly(gg_exon_profile_by_category[["FSM"]], target_width = 1000)
 }
 ```
 
@@ -1329,7 +1330,7 @@ if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_categor
 
 ```{r exoncounts-ism-prof, fig.height=6, fig.width=12}
 if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["ISM"]])) {
-  render_ggplotly(gg_exon_profile_by_category[["ISM"]])
+  render_ggplotly(gg_exon_profile_by_category[["ISM"]], target_width = 1000)
 }
 ```
 
@@ -1339,7 +1340,7 @@ if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_categor
 
 ```{r exoncounts-nic-prof, fig.height=6, fig.width=12}
 if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["NIC"]])) {
-  render_ggplotly(gg_exon_profile_by_category[["NIC"]])
+  render_ggplotly(gg_exon_profile_by_category[["NIC"]], target_width = 1000)
 }
 ```
 
@@ -1349,7 +1350,7 @@ if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_categor
 
 ```{r exoncounts-nnc-prof, fig.height=6, fig.width=12}
 if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["NNC"]])) {
-  render_ggplotly(gg_exon_profile_by_category[["NNC"]])
+  render_ggplotly(gg_exon_profile_by_category[["NNC"]], target_width = 1000)
 }
 ```
 
@@ -1359,7 +1360,7 @@ if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_categor
 
 ```{r exoncounts-genic-genomic-prof, fig.height=6, fig.width=12}
 if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["Genic Genomic"]])) {
-  render_ggplotly(gg_exon_profile_by_category[["Genic Genomic"]])
+  render_ggplotly(gg_exon_profile_by_category[["Genic Genomic"]], target_width = 1000)
 }
 ```
 
@@ -1369,7 +1370,7 @@ if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_categor
 
 ```{r exoncounts-antisense-prof, fig.height=6, fig.width=12}
 if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["Antisense"]])) {
-  render_ggplotly(gg_exon_profile_by_category[["Antisense"]])
+  render_ggplotly(gg_exon_profile_by_category[["Antisense"]], target_width = 1000)
 }
 ```
 
@@ -1379,7 +1380,7 @@ if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_categor
 
 ```{r exoncounts-fusion-prof, fig.height=6, fig.width=12}
 if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["Fusion"]])) {
-  render_ggplotly(gg_exon_profile_by_category[["Fusion"]])
+  render_ggplotly(gg_exon_profile_by_category[["Fusion"]], target_width = 1000)
 }
 ```
 
@@ -1389,7 +1390,7 @@ if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_categor
 
 ```{r exoncounts-intergenic-prof, fig.height=6, fig.width=12}
 if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["Intergenic"]])) {
-  render_ggplotly(gg_exon_profile_by_category[["Intergenic"]])
+  render_ggplotly(gg_exon_profile_by_category[["Intergenic"]], target_width = 1000)
 }
 ```
 
@@ -1399,7 +1400,7 @@ if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_categor
 
 ```{r exoncounts-genic-intron-prof, fig.height=6, fig.width=12}
 if (exists("gg_exon_profile_by_category") && !is.null(gg_exon_profile_by_category[["Genic Intron"]])) {
-  render_ggplotly(gg_exon_profile_by_category[["Genic Intron"]])
+  render_ggplotly(gg_exon_profile_by_category[["Genic Intron"]], target_width = 1000)
 }
 ```
 
@@ -1433,7 +1434,7 @@ show_coding <- (mode == "isoforms" && exists("gg_coding_across_category"))
 
 ```{r coding-coding, fig.height=6, fig.width=12, eval=show_coding}
 if (exists("gg_coding_across_category")) {
-  render_ggplotly(gg_coding_across_category)
+  render_ggplotly(gg_coding_across_category, target_width = 1000)
 }
 ```
 
@@ -1445,7 +1446,7 @@ if (exists("gg_coding_across_category")) {
 
 ```{r coding-noncoding, fig.height=6, fig.width=12, eval=show_coding}
 if (exists("gg_non_coding_across_category")) {
-  render_ggplotly(gg_non_coding_across_category)
+  render_ggplotly(gg_non_coding_across_category, target_width = 1000)
 }
 ```
 
@@ -1476,7 +1477,7 @@ if (exists("gg_non_coding_across_category")) {
 
 ```{r sj-dist-class, fig.height=6, fig.width=12}
 if (exists("gg_known_novel_canon")) {
-  render_ggplotly(gg_known_novel_canon)
+  render_ggplotly(gg_known_novel_canon, target_width = 1000)
 }
 ```
 
@@ -1503,7 +1504,7 @@ if (exists("gg_sj_type_by_category_stack")) {
       ),
       margin = list(b = 135)
     )
-  render_ggplotly(gg_sj_type_by_category_stack)
+  render_ggplotly(gg_sj_type_by_category_stack, target_width = 1000)
 }
 ```
 
@@ -1513,7 +1514,7 @@ if (exists("gg_sj_type_by_category_stack")) {
 
 ```{r sj-dist-readscanon, fig.height=6, fig.width=12}
 if (exists("gg_allcanon_by_category")) {
-  render_ggplotly(gg_allcanon_by_category)
+  render_ggplotly(gg_allcanon_by_category, target_width = 1000)
 }
 ```
 
@@ -1539,7 +1540,7 @@ if (exists("gg_allcanon_by_category")) {
 
 ```{r sj-rts-all, fig.height=6, fig.width=12}
 if (exists("gg_rts_all_by_sjtype")) {
-  render_ggplotly(gg_rts_all_by_sjtype)
+  render_ggplotly(gg_rts_all_by_sjtype, target_width = 1000)
 }
 ```
 
@@ -1549,7 +1550,7 @@ if (exists("gg_rts_all_by_sjtype")) {
 
 ```{r sj-rts-uniq, fig.height=6, fig.width=12}
 if (exists("gg_rts_unique_by_sjtype")) {
-  render_ggplotly(gg_rts_unique_by_sjtype)
+  render_ggplotly(gg_rts_unique_by_sjtype, target_width = 1000)
 }
 ```
 
@@ -1561,7 +1562,7 @@ if (exists("gg_rts_unique_by_sjtype")) {
 
 ```{r badq-allreads, fig.height=6, fig.width=12}
 if (exists("gg_bad_feature")) {
-  render_ggplotly(gg_bad_feature)
+  render_ggplotly(gg_bad_feature, target_width = 1000)
 }
 ```
 
@@ -1587,7 +1588,7 @@ if (exists("gg_bad_feature")) {
 
 ```{r badfeatures-intrapriming, fig.height=6, fig.width=12}
 if (exists("gg_intrapriming_by_category")) {
-  render_ggplotly(gg_intrapriming_by_category)
+  render_ggplotly(gg_intrapriming_by_category, target_width = 1000)
 }
 ```
 
@@ -1597,7 +1598,7 @@ if (exists("gg_intrapriming_by_category")) {
 
 ```{r badfeatures-rts, fig.height=6, fig.width=12}
 if (exists("gg_RTS_by_category")) {
-  render_ggplotly(gg_RTS_by_category)
+  render_ggplotly(gg_RTS_by_category, target_width = 1000)
 }
 ```
 
@@ -1607,7 +1608,7 @@ if (exists("gg_RTS_by_category")) {
 
 ```{r badfeatures-noncanon, fig.height=6, fig.width=12}
 if (exists("gg_noncanon_by_category")) {
-  render_ggplotly(gg_noncanon_by_category)
+  render_ggplotly(gg_noncanon_by_category, target_width = 1000)
 }
 ```
 
@@ -1617,7 +1618,7 @@ if (exists("gg_noncanon_by_category")) {
 
 ```{r badfeatures-nmd, fig.height=6, fig.width=12}
 if (exists("gg_nmd_by_category")) {
-  render_ggplotly(gg_nmd_by_category)
+  render_ggplotly(gg_nmd_by_category, target_width = 1000)
 }
 ```
 
@@ -1629,7 +1630,7 @@ if (exists("gg_nmd_by_category")) {
 
 ```{r goodq-allreads, fig.height=6, fig.width=12}
 if (exists("gg_good_feature")) {
-  render_ggplotly(gg_good_feature)
+  render_ggplotly(gg_good_feature, target_width = 1000)
 }
 ```
 
@@ -1646,6 +1647,8 @@ if (exists("gg_good_feature")) {
       <li><a href="#" data-target="#goodq-cage">CAGE Peak Support</a></li>
       <li><a href="#" data-target="#goodq-polya">PolyA Support</a></li>
       <li><a href="#" data-target="#goodq-canon">Canonical Junctions</a></li>
+      <li><a href="#" data-target="#goodq-sr-validation">SJs Validated by Short Reads</a></li>
+      <li><a href="#" data-target="#goodq-tss-validation">TSS Validated by Short Reads</a></li>
     </ul>
   </div>
 </div>
@@ -1655,7 +1658,7 @@ if (exists("gg_good_feature")) {
 
 ```{r goodq-tss, fig.height=6, fig.width=12}
 if (exists("gg_tss_annotation_support")) {
-  render_ggplotly(gg_tss_annotation_support)
+  render_ggplotly(gg_tss_annotation_support, target_width = 1000)
 }
 ```
 
@@ -1665,7 +1668,7 @@ if (exists("gg_tss_annotation_support")) {
 
 ```{r goodq-cage, fig.height=6, fig.width=12}
 if (exists("CAGE_peak") && CAGE_peak && exists("gg_cage_peak_support")) {
-  render_ggplotly(gg_cage_peak_support)
+  render_ggplotly(gg_cage_peak_support, target_width = 1000)
 }
 ```
 
@@ -1675,7 +1678,7 @@ if (exists("CAGE_peak") && CAGE_peak && exists("gg_cage_peak_support")) {
 
 ```{r goodq-polya, fig.height=6, fig.width=12}
 if (exists("polyA_motif_list") && polyA_motif_list && exists("gg_polyA_motif_support")) {
-  render_ggplotly(gg_polyA_motif_support)
+  render_ggplotly(gg_polyA_motif_support, target_width = 1000)
 }
 ```
 
@@ -1718,6 +1721,26 @@ $(document).ready(function() {
 ```{r goodq-canon, fig.height=6, fig.width=12}
 if (exists("gg_canon_by_category")) {
   render_ggplotly(gg_canon_by_category)
+}
+```
+
+</div>
+
+<div id="goodq-sr-validation" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r goodq-sr-validation, fig.height=6, fig.width=12}
+if (exists("gg_sr_support_by_category")) {
+  render_ggplotly(gg_sr_support_by_category, target_width = 1000)
+}
+```
+
+</div>
+
+<div id="goodq-tss-validation" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r goodq-tss-validation, fig.height=6, fig.width=12}
+if (exists("gg_tss_validation_by_category")) {
+  render_ggplotly(gg_tss_validation_by_category, target_width = 1000)
 }
 ```
 
@@ -1806,6 +1829,38 @@ $(document).ready(function() {
     
     // Hide all category plots
     $('[id^="umap-cat-"]').not('#umap-cat-dropdown').addClass('hidden-pane').hide();
+    
+    // Show target plot
+    $(target).removeClass('hidden-pane').show();
+  });
+
+  // Handler for sr-cluster-dropdown
+  $('#sr-cluster-dropdown .dropdown-menu a').click(function(e) {
+    e.preventDefault();
+    var target = $(this).data('target');
+    
+    // Update button label
+    var label = $(this).text();
+    $('#sr-cluster-dropdown button .label').text(label);
+    
+    // Hide all sr-cluster plots
+    $('[id^="sr-cluster-"]').not('#sr-cluster-dropdown').addClass('hidden-pane').hide();
+    
+    // Show target plot
+    $(target).removeClass('hidden-pane').show();
+  });
+
+  // Handler for goodq-across-dropdown
+  $('#goodq-across-dropdown .dropdown-menu a').click(function(e) {
+    e.preventDefault();
+    var target = $(this).data('target');
+    
+    // Update button label
+    var label = $(this).text();
+    $('#goodq-across-dropdown button .label').text(label);
+    
+    // Hide all goodq toggle panes
+    $('[id^="goodq-"]').filter('.toggle-pane').addClass('hidden-pane').hide();
     
     // Show target plot
     $(target).removeClass('hidden-pane').show();
@@ -1918,3 +1973,235 @@ if (mode != "reads" && !show_umap) {
   cat("Clustering and UMAP analysis was not run or results are missing.\n")
 }
 ```
+
+```{r sr-cluster-header, results='asis'}
+if (mode != "reads") {
+  style_str <- if (!exists("gg_sr_cluster_plots") || length(gg_sr_cluster_plots) == 0) "style='display:none;'" else ""
+  cat(paste0("## Junctions Coverage by Short Reads {", style_str, "}\n"))
+}
+```
+
+```{r sr-cluster-check, include=FALSE}
+show_sr_cluster <- (exists("gg_sr_cluster_plots") && length(gg_sr_cluster_plots) > 0)
+```
+
+```{r sr-cluster-missing, results='asis'}
+if (mode == "isoforms" && !show_sr_cluster) {
+  cat("Short Read Validation data (coverage) not available or Clustering was not run.\n")
+}
+```
+
+```{=html}
+<div id="sr-cluster-dropdown" class="dropdown-toolbar" style="display:`r if(show_sr_cluster) 'block' else 'none'`">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">All Transcripts</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#sr-cluster-Global">All Transcripts</a></li>
+      <li><a href="#" data-target="#sr-cluster-FSM">FSM</a></li>
+      <li><a href="#" data-target="#sr-cluster-ISM">ISM</a></li>
+      <li><a href="#" data-target="#sr-cluster-NIC">NIC</a></li>
+      <li><a href="#" data-target="#sr-cluster-NNC">NNC</a></li>
+      <li><a href="#" data-target="#sr-cluster-Genic_Genomic">Genic Genomic</a></li>
+      <li><a href="#" data-target="#sr-cluster-Antisense">Antisense</a></li>
+      <li><a href="#" data-target="#sr-cluster-Fusion">Fusion</a></li>
+      <li><a href="#" data-target="#sr-cluster-Intergenic">Intergenic</a></li>
+      <li><a href="#" data-target="#sr-cluster-Genic_Intron">Genic Intron</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="sr-cluster-Global" class="toggle-pane" style="display:block;">
+```{r sr-cluster-Global, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["All Transcripts"]])) {
+  render_ggplotly(gg_sr_cluster_plots[["All Transcripts"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="sr-cluster-FSM" class="toggle-pane hidden-pane" style="display:block;">
+```{r sr-cluster-FSM, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["FSM"]])) {
+  render_ggplotly(gg_sr_cluster_plots[["FSM"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="sr-cluster-ISM" class="toggle-pane hidden-pane" style="display:block;">
+```{r sr-cluster-ISM, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["ISM"]])) {
+  render_ggplotly(gg_sr_cluster_plots[["ISM"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="sr-cluster-NIC" class="toggle-pane hidden-pane" style="display:block;">
+```{r sr-cluster-NIC, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["NIC"]])) {
+  render_ggplotly(gg_sr_cluster_plots[["NIC"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="sr-cluster-NNC" class="toggle-pane hidden-pane" style="display:block;">
+```{r sr-cluster-NNC, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["NNC"]])) {
+  render_ggplotly(gg_sr_cluster_plots[["NNC"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="sr-cluster-Genic_Genomic" class="toggle-pane hidden-pane" style="display:block;">
+```{r sr-cluster-Genic_Genomic, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["Genic_Genomic"]])) {
+  render_ggplotly(gg_sr_cluster_plots[["Genic_Genomic"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="sr-cluster-Antisense" class="toggle-pane hidden-pane" style="display:block;">
+```{r sr-cluster-Antisense, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["Antisense"]])) {
+  render_ggplotly(gg_sr_cluster_plots[["Antisense"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="sr-cluster-Fusion" class="toggle-pane hidden-pane" style="display:block;">
+```{r sr-cluster-Fusion, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["Fusion"]])) {
+  render_ggplotly(gg_sr_cluster_plots[["Fusion"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="sr-cluster-Intergenic" class="toggle-pane hidden-pane" style="display:block;">
+```{r sr-cluster-Intergenic, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["Intergenic"]])) {
+  render_ggplotly(gg_sr_cluster_plots[["Intergenic"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="sr-cluster-Genic_Intron" class="toggle-pane hidden-pane" style="display:block;">
+```{r sr-cluster-Genic_Intron, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["Genic Intron"]])) {
+  render_ggplotly(gg_sr_cluster_plots[["Genic Intron"]], target_width = 1000)
+}
+```
+</div>
+
+```{r tss-cluster-header, results='asis'}
+if (mode != "reads") {
+  style_str <- if (!exists("gg_tss_cluster_plots") || length(gg_tss_cluster_plots) == 0) "style='display:none;'" else ""
+  cat(paste0("## TSS Coverage by Short Reads {", style_str, "}\n"))
+}
+```
+
+```{r tss-cluster-check, include=FALSE}
+show_tss_cluster <- (exists("gg_tss_cluster_plots") && length(gg_tss_cluster_plots) > 0)
+```
+
+```{=html}
+<div id="tss-cluster-dropdown" class="dropdown-toolbar" style="display:`r if(show_tss_cluster) 'block' else 'none'`">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">All Transcripts</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#tss-cluster-Global">All Transcripts</a></li>
+      <li><a href="#" data-target="#tss-cluster-FSM">FSM</a></li>
+      <li><a href="#" data-target="#tss-cluster-ISM">ISM</a></li>
+      <li><a href="#" data-target="#tss-cluster-NIC">NIC</a></li>
+      <li><a href="#" data-target="#tss-cluster-NNC">NNC</a></li>
+      <li><a href="#" data-target="#tss-cluster-Genic_Genomic">Genic Genomic</a></li>
+      <li><a href="#" data-target="#tss-cluster-Antisense">Antisense</a></li>
+      <li><a href="#" data-target="#tss-cluster-Fusion">Fusion</a></li>
+      <li><a href="#" data-target="#tss-cluster-Intergenic">Intergenic</a></li>
+      <li><a href="#" data-target="#tss-cluster-Genic_Intron">Genic Intron</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="tss-cluster-Global" class="toggle-pane" style="display:block;">
+```{r tss-cluster-Global, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["All Transcripts"]])) {
+  render_ggplotly(gg_tss_cluster_plots[["All Transcripts"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="tss-cluster-FSM" class="toggle-pane hidden-pane" style="display:block;">
+```{r tss-cluster-FSM, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["FSM"]])) {
+  render_ggplotly(gg_tss_cluster_plots[["FSM"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="tss-cluster-ISM" class="toggle-pane hidden-pane" style="display:block;">
+```{r tss-cluster-ISM, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["ISM"]])) {
+  render_ggplotly(gg_tss_cluster_plots[["ISM"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="tss-cluster-NIC" class="toggle-pane hidden-pane" style="display:block;">
+```{r tss-cluster-NIC, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["NIC"]])) {
+  render_ggplotly(gg_tss_cluster_plots[["NIC"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="tss-cluster-NNC" class="toggle-pane hidden-pane" style="display:block;">
+```{r tss-cluster-NNC, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["NNC"]])) {
+  render_ggplotly(gg_tss_cluster_plots[["NNC"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="tss-cluster-Genic_Genomic" class="toggle-pane hidden-pane" style="display:block;">
+```{r tss-cluster-Genic_Genomic, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Genic Genomic"]])) {
+  render_ggplotly(gg_tss_cluster_plots[["Genic Genomic"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="tss-cluster-Antisense" class="toggle-pane hidden-pane" style="display:block;">
+```{r tss-cluster-Antisense, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Antisense"]])) {
+  render_ggplotly(gg_tss_cluster_plots[["Antisense"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="tss-cluster-Fusion" class="toggle-pane hidden-pane" style="display:block;">
+```{r tss-cluster-Fusion, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Fusion"]])) {
+  render_ggplotly(gg_tss_cluster_plots[["Fusion"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="tss-cluster-Intergenic" class="toggle-pane hidden-pane" style="display:block;">
+```{r tss-cluster-Intergenic, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Intergenic"]])) {
+  render_ggplotly(gg_tss_cluster_plots[["Intergenic"]], target_width = 1000)
+}
+```
+</div>
+
+<div id="tss-cluster-Genic_Intron" class="toggle-pane hidden-pane" style="display:block;">
+```{r tss-cluster-Genic_Intron, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Genic Intron"]])) {
+  render_ggplotly(gg_tss_cluster_plots[["Genic Intron"]], target_width = 1000)
+}
+```
+</div>

@@ -1356,6 +1356,12 @@ main <- function() {
       quiet = TRUE
     )
 
+    # Cleanup: remove the copied CSS file
+    css_output <- file.path(dirname(html_output_file), basename(css_file))
+    if (file.exists(css_output)) {
+      file.remove(css_output)
+    }
+
     message("HTML report generated: ", html_output_file)
   }
 }

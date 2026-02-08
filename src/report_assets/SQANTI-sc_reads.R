@@ -72,6 +72,15 @@ if (length(args) > 5) {
         stop("--cell_summary requires a path argument")
       }
     }
+    if (arg == "--clustering") {
+      if ((i + 1) <= length(args)) {
+        clustering_path <- args[i + 1]
+        i <- i + 2
+        next
+      } else {
+        stop("--clustering requires a path argument")
+      }
+    }
     i <- i + 1
   }
 }
@@ -159,6 +168,542 @@ if (mode == "isoforms" && file.exists(clustering_output)) {
 }
 
 
+# ----------------------------------------------------------------
+# Helper Functions (Global Scope)
+# ----------------------------------------------------------------
+
+# Helper: convert any R color (hex or named) to an rgba() string with alpha without affecting line color
+to_rgba <- function(col, alpha = 1.0) {
+  rgb <- grDevices::col2rgb(col)
+  sprintf("rgba(%d,%d,%d,%.3f)", rgb[1], rgb[2], rgb[3], alpha)
+}
+
+# Helper: pivot selected columns to long and return factor-ordered long df
+pivot_long <- function(df, cols) {
+  out <- pivot_longer(df, cols = all_of(cols), names_to = "Variable", values_to = "Value") %>%
+    select(Variable, Value)
+  out$Variable <- factor(out$Variable, levels = cols)
+  out
+}
+
+# Helper: generic violin + box + mean-cross plot with shared theme (ggplot version for PDF)
+build_violin_plot_ggplot <- function(df_long,
+                                     title,
+                                     x_labels,
+                                     fill_map,
+                                     color_map = fill_map,
+                                     x_title = "",
+                                     y_label = paste(entity_label_plural, ", %", sep = ""),
+                                     legend = FALSE,
+                                     ylim = NULL,
+                                     override_outline_vars = character(0),
+                                     violin_alpha = 0.7,
+                                     box_alpha = 0.6,
+                                     box_width = 0.05,
+                                     x_tickangle = 45,
+                                     violin_outline_fill = FALSE,
+                                     box_outline_default = "grey20",
+                                     bandwidth = NULL) {
+  # Determine a robust bandwidth for KDE; floor to avoid bw=0 on constant data
+  vals <- df_long$Value
+  vals <- vals[is.finite(vals)]
+  bw_eff <- bandwidth
+  if (is.null(bw_eff) || !is.numeric(bw_eff) || is.na(bw_eff) || bw_eff <= 0) {
+    if (length(vals) >= 2) {
+      bw_eff <- stats::bw.nrd0(vals)
+    } else {
+      bw_eff <- NA_real_
+    }
+  }
+  if (is.na(bw_eff) || bw_eff <= 0) bw_eff <- 0.1
+
+  # Create ggplot version for PDF output
+  p <- ggplot(df_long, aes(x = Variable, y = Value)) +
+    # Violin layer with outline rule
+    {
+      if (isTRUE(violin_outline_fill)) {
+        geom_violin(aes(fill = Variable, color = Variable), alpha = violin_alpha, scale = "width", show.legend = legend, bw = bw_eff, trim = TRUE)
+      } else {
+        geom_violin(aes(fill = Variable), color = "black", alpha = violin_alpha, scale = "width", show.legend = legend, bw = bw_eff, trim = TRUE)
+      }
+    } +
+    scale_fill_manual(values = fill_map, labels = x_labels) +
+    {
+      if (isTRUE(violin_outline_fill)) scale_color_manual(values = fill_map, guide = "none") else NULL
+    } +
+    # Add mean markers on top
+    stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1, show.legend = FALSE) +
+    scale_x_discrete(labels = x_labels) +
+    labs(title = title, x = x_title, y = y_label) +
+    theme_classic(base_size = 14) +
+    theme(
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+      axis.title = element_text(size = 16),
+      axis.text.y = element_text(size = 14),
+      axis.text.x = element_text(size = 12, angle = x_tickangle, hjust = ifelse(x_tickangle == 0, 0.5, 1)),
+      legend.position = if (legend) "bottom" else "none"
+    )
+
+  # Add boxplots per variable with correct outline color (grey90 overrides)
+  for (var in levels(df_long$Variable)) {
+    var_df <- df_long[df_long$Variable == var, , drop = FALSE]
+    box_col <- if (var %in% override_outline_vars) "grey90" else box_outline_default
+    p <- p + geom_boxplot(
+      data = var_df,
+      aes(x = Variable, y = Value, fill = Variable),
+      width = box_width, outlier.shape = NA, alpha = box_alpha, show.legend = FALSE, color = box_col
+    )
+  }
+
+  if (!is.null(ylim)) {
+    p <- p + coord_cartesian(ylim = ylim)
+  }
+
+  return(p)
+}
+
+# Helper: generic violin + box + mean-cross plot with shared theme
+build_violin_plot <- function(df_long,
+                              title,
+                              x_labels,
+                              fill_map,
+                              color_map = fill_map,
+                              x_title = "",
+                              y_label = paste(entity_label_plural, ", %", sep = ""),
+                              legend = FALSE,
+                              ylim = NULL,
+                              override_outline_vars = character(0),
+                              violin_alpha = 0.7,
+                              box_alpha = 0.6,
+                              box_width = 0.05,
+                              x_tickangle = 45,
+                              violin_outline_fill = FALSE,
+                              box_outline_default = "grey20") {
+  # Store data globally for PDF generation
+  plot_data_key <- paste0("plot_data_", gsub("[^A-Za-z0-9]", "_", title))
+  assign(plot_data_key, list(
+    df_long = df_long,
+    title = title,
+    x_labels = x_labels,
+    fill_map = fill_map,
+    color_map = color_map,
+    x_title = x_title,
+    y_label = y_label,
+    legend = legend,
+    ylim = ylim,
+    override_outline_vars = override_outline_vars,
+    violin_alpha = violin_alpha,
+    box_alpha = box_alpha,
+    box_width = box_width,
+    x_tickangle = x_tickangle,
+    violin_outline_fill = violin_outline_fill,
+    box_outline_default = box_outline_default
+  ), envir = .GlobalEnv)
+
+  # If this is a percentage plot, clamp values to [0,100] so violins don't extend under/over bounds
+  df_plot <- df_long
+  if (grepl("%", y_label)) {
+    df_plot$Value <- pmin(pmax(df_plot$Value, 0), 100)
+  } else if (grepl("count", y_label, ignore.case = TRUE)) {
+    df_plot$Value <- pmax(df_plot$Value, 0)
+  }
+
+  # Compute shared bandwidth for KDE across both HTML and PDF
+  valid_vals <- df_plot$Value[is.finite(df_plot$Value)]
+  bw_shared <- if (length(valid_vals) >= 2) stats::bw.nrd0(valid_vals) else NULL
+
+  # Store the clamped data for PDF generation as well (keeps parity)
+  assign(plot_data_key, list(
+    df_long = df_plot,
+    title = title,
+    x_labels = x_labels,
+    fill_map = fill_map,
+    color_map = color_map,
+    x_title = x_title,
+    y_label = y_label,
+    legend = legend,
+    ylim = ylim,
+    override_outline_vars = override_outline_vars,
+    violin_alpha = violin_alpha,
+    box_alpha = box_alpha,
+    box_width = box_width,
+    x_tickangle = x_tickangle,
+    violin_outline_fill = violin_outline_fill,
+    box_outline_default = box_outline_default,
+    bandwidth = bw_shared
+  ), envir = .GlobalEnv)
+
+  # Create plotly plot directly with explicit x-axis positioning
+  p <- plot_ly()
+
+  # Get all unique levels and create numeric positions
+  all_levels <- levels(df_plot$Variable)
+  if (is.null(all_levels)) {
+    all_levels <- unique(as.character(df_plot$Variable))
+  }
+
+  # Create numeric x positions for each level
+  x_positions <- seq_along(all_levels)
+  names(x_positions) <- all_levels
+
+  # Determine Plotly tick angle so labels finish at the tick mark (matching PDF hjust = 1)
+  tick_angle_plotly <- if (!is.null(x_tickangle) && is.finite(x_tickangle) && x_tickangle != 0) x_tickangle else 0
+  tick_label_position <- if (tick_angle_plotly == 0) "outside" else "outside right"
+
+  # Add violin traces first (they will be in the background)
+  for (i in seq_along(all_levels)) {
+    var <- all_levels[i]
+    var_data <- df_plot[df_plot$Variable == var, ]
+
+    # Skip if no data for this level
+    if (nrow(var_data) == 0) next
+
+    line_col <- if (isTRUE(violin_outline_fill)) fill_map[var] else "black"
+    fill_rgba <- to_rgba(fill_map[var], violin_alpha)
+
+    p <- p %>% add_trace(
+      x = rep(x_positions[var], nrow(var_data)),
+      y = var_data$Value,
+      type = "violin",
+      side = "both",
+      name = x_labels[i],
+      fillcolor = fill_rgba,
+      line = list(color = to_rgba(line_col, 1.0), width = 0.6),
+      spanmode = "hard",
+      bandwidth = bw_shared,
+      points = FALSE,
+      showlegend = FALSE,
+      box = list(visible = FALSE),
+      meanline = list(visible = FALSE),
+      scalemode = "width",
+      width = 0.8
+    )
+  }
+
+  # Add boxplot traces second (they will be on top)
+  for (i in seq_along(all_levels)) {
+    var <- all_levels[i]
+    var_data <- df_plot[df_plot$Variable == var, ]
+
+    # Determine box outline color
+    box_color <- if (var %in% override_outline_vars) "grey90" else box_outline_default
+    fill_rgba_box <- to_rgba(fill_map[var], box_alpha)
+
+    p <- p %>% add_trace(
+      x = rep(x_positions[var], nrow(var_data)),
+      y = var_data$Value,
+      type = "box",
+      name = paste(x_labels[i], "Box"),
+      fillcolor = fill_rgba_box,
+      line = list(color = to_rgba(box_color, 1.0), width = 0.8),
+      showlegend = FALSE,
+      boxpoints = FALSE,
+      width = box_width
+    )
+  }
+
+  # Add mean points last (on top of everything)
+  mean_data <- df_plot %>%
+    group_by(Variable) %>%
+    summarise(mean_value = mean(Value, na.rm = TRUE), .groups = "drop")
+
+  for (i in seq_along(all_levels)) {
+    var <- all_levels[i]
+    mean_row <- mean_data[mean_data$Variable == var, ]
+
+    # Skip if no data for this level
+    if (nrow(mean_row) == 0) next
+
+    p <- p %>% add_trace(
+      x = x_positions[var],
+      y = mean_row$mean_value,
+      type = "scatter",
+      mode = "markers",
+      name = paste(x_labels[i], "Mean"),
+      marker = list(
+        symbol = "x-thin-open",
+        size = 6,
+        color = "red",
+        line = list(width = 1.5, color = "red")
+      ),
+      showlegend = FALSE
+    )
+  }
+
+  # Store the data key as an attribute for PDF conversion
+  attr(p, "plot_data_key") <- plot_data_key
+
+  # Configure layout with explicit tick positions and labels
+  html_title <- paste0("<b>", gsub("\n", "<br>", title), "</b>")
+  p <- p %>% layout(
+    title = list(text = html_title, font = list(size = 18), x = 0.5, xanchor = "center"),
+    xaxis = list(
+      title = x_title,
+      tickmode = "array",
+      tickvals = x_positions,
+      ticktext = x_labels,
+      tickangle = tick_angle_plotly,
+      ticklabelposition = tick_label_position,
+      tickfont = list(size = 16),
+      showline = TRUE,
+      linecolor = "black",
+      linewidth = 1,
+      zeroline = FALSE,
+      range = c(min(x_positions) - 0.5, max(x_positions) + 0.5)
+    ),
+    yaxis = list(
+      title = y_label,
+      titlefont = list(size = 16),
+      tickfont = list(size = 14),
+      showline = TRUE,
+      linecolor = "black",
+      linewidth = 1,
+      zeroline = FALSE
+    ),
+    showlegend = legend,
+    paper_bgcolor = "rgba(0,0,0,0)",
+    plot_bgcolor = "rgba(0,0,0,0)",
+    font = list(family = "Arial", size = 14),
+    margin = list(t = 110, l = 80, r = 80, b = ifelse(x_tickangle == 0, 60, 90))
+  )
+
+  # Apply y-axis limits if specified
+  if (!is.null(ylim)) {
+    p <- p %>% layout(yaxis = list(range = ylim))
+  } else if (grepl("%", y_label)) {
+    p <- p %>% layout(yaxis = list(range = c(0, 100)))
+  } else if (grepl("count", y_label, ignore.case = TRUE)) {
+    max_y <- suppressWarnings(max(df_plot$Value, na.rm = TRUE))
+    if (!is.finite(max_y)) max_y <- 1
+    p <- p %>% layout(yaxis = list(range = c(0, max_y * 1.05)))
+  }
+
+  return(p)
+}
+
+# Helper: convert plotly object back to ggplot for PDF output
+plotly_to_ggplot <- function(plotly_obj) {
+  if (is.null(plotly_obj) || !inherits(plotly_obj, "plotly")) {
+    return(ggplot() +
+      labs(title = "Plot not available") +
+      theme_minimal())
+  }
+
+  # Check if this plotly object has stored data
+  plot_data_key <- attr(plotly_obj, "plot_data_key")
+  if (!is.null(plot_data_key) && exists(plot_data_key, envir = .GlobalEnv)) {
+    plot_data <- get(plot_data_key, envir = .GlobalEnv)
+
+    # Use the stored data to create a proper ggplot
+    return(build_violin_plot_ggplot(
+      df_long = plot_data$df_long,
+      title = plot_data$title,
+      x_labels = plot_data$x_labels,
+      fill_map = plot_data$fill_map,
+      color_map = plot_data$color_map,
+      x_title = if (!is.null(plot_data$x_title)) plot_data$x_title else "",
+      y_label = plot_data$y_label,
+      legend = plot_data$legend,
+      ylim = plot_data$ylim,
+      override_outline_vars = plot_data$override_outline_vars,
+      violin_alpha = if (!is.null(plot_data$violin_alpha)) plot_data$violin_alpha else 0.7,
+      box_alpha = if (!is.null(plot_data$box_alpha)) plot_data$box_alpha else 0.6,
+      box_width = if (!is.null(plot_data$box_width)) plot_data$box_width else 0.05,
+      x_tickangle = if (!is.null(plot_data$x_tickangle)) plot_data$x_tickangle else 45,
+      violin_outline_fill = isTRUE(plot_data$violin_outline_fill),
+      box_outline_default = if (!is.null(plot_data$box_outline_default)) plot_data$box_outline_default else "grey20",
+      bandwidth = plot_data$bandwidth
+    ))
+  }
+
+  # Check if this is a grouped plot built via build_grouped_violin_plot
+  grouped_info <- attr(plotly_obj, "grouped_data")
+  if (!is.null(grouped_info)) {
+    df <- grouped_info$df
+    # Ensure factor levels
+    df$bin <- factor(df$bin, levels = grouped_info$bin_levels)
+    df$group <- factor(df$group, levels = names(grouped_info$fill_map))
+
+    # Compute effective bandwidth for grouped PDF
+    vals <- df$value
+    vals <- vals[is.finite(vals)]
+    bw_eff <- grouped_info$bandwidth
+    if (is.null(bw_eff) || !is.numeric(bw_eff) || is.na(bw_eff) || bw_eff <= 0) {
+      if (length(vals) >= 2) {
+        bw_eff <- stats::bw.nrd0(vals)
+      } else {
+        bw_eff <- NA_real_
+      }
+    }
+    if (is.na(bw_eff) || bw_eff <= 0) bw_eff <- 0.1
+
+    p <- ggplot(df, aes(x = bin, y = value, fill = group)) +
+      # Violin outlines should match fill color
+      geom_violin(aes(color = group),
+        alpha = if (!is.null(grouped_info$violin_alpha)) grouped_info$violin_alpha else 0.7,
+        position = position_dodge(width = if (!is.null(grouped_info$dodge_width)) grouped_info$dodge_width else 0.8), scale = "width", show.legend = TRUE, bw = bw_eff, trim = TRUE
+      ) +
+      scale_color_manual(values = grouped_info$fill_map, guide = "none") +
+      geom_boxplot(
+        width = if (!is.null(grouped_info$box_width)) grouped_info$box_width else 0.05,
+        outlier.shape = NA,
+        alpha = if (!is.null(grouped_info$box_alpha)) grouped_info$box_alpha else 0.6,
+        position = position_dodge(width = if (!is.null(grouped_info$dodge_width)) grouped_info$dodge_width else 0.8),
+        color = "grey20", show.legend = FALSE
+      ) +
+      stat_summary(
+        fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1,
+        position = position_dodge(width = if (!is.null(grouped_info$dodge_width)) grouped_info$dodge_width else 0.8), show.legend = FALSE
+      ) +
+      scale_fill_manual(values = grouped_info$fill_map, labels = grouped_info$legend_labels) +
+      labs(title = grouped_info$title, x = "", y = grouped_info$y_label) +
+      theme_classic(base_size = 14) +
+      theme(
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 16),
+        axis.text.y = element_text(size = 14),
+        axis.text.x = element_text(
+          size = 12, angle = if (!is.null(grouped_info$x_tickangle)) grouped_info$x_tickangle else 0,
+          hjust = ifelse(!is.null(grouped_info$x_tickangle) && grouped_info$x_tickangle == 0, 0.5, 1)
+        ),
+        legend.position = "bottom",
+        legend.title = element_blank()
+      )
+
+    if (!is.null(grouped_info$ylim)) {
+      p <- p + coord_cartesian(ylim = grouped_info$ylim)
+    }
+    return(p)
+  }
+
+  # Check if this is a faceted plot built via build_violin_plot_facets
+  facet_info <- attr(plotly_obj, "facet_data")
+  if (!is.null(facet_info)) {
+    df <- facet_info$df
+    fill_map <- facet_info$fill_map
+    x_labels <- facet_info$x_labels
+    # Ensure factors and orders
+    df$Variable <- factor(df$Variable, levels = names(fill_map))
+    df$facet <- factor(df$facet, levels = facet_info$facet_levels)
+
+    p <- ggplot(df, aes(x = Variable, y = Value, fill = Variable)) +
+      geom_violin(alpha = if (!is.null(facet_info$violin_alpha)) facet_info$violin_alpha else 0.7, scale = "width", show.legend = FALSE) +
+      geom_boxplot(width = if (!is.null(facet_info$box_width)) facet_info$box_width else 0.05, outlier.shape = NA, alpha = if (!is.null(facet_info$box_alpha)) facet_info$box_alpha else 0.6, show.legend = FALSE) +
+      stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1, show.legend = FALSE) +
+      scale_fill_manual(values = fill_map, labels = x_labels, guide = if (isTRUE(facet_info$show_legend)) guide_legend(override.aes = list(shape = NA)) else "none") +
+      scale_x_discrete(labels = x_labels) +
+      labs(title = facet_info$title, x = "", y = facet_info$y_label) +
+      theme_classic(base_size = 14) +
+      theme(
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 16),
+        axis.text.y = element_text(size = 14),
+        axis.text.x = element_text(
+          size = 12, angle = if (!is.null(facet_info$x_tickangle)) facet_info$x_tickangle else 45,
+          hjust = ifelse(!is.null(facet_info$x_tickangle) && facet_info$x_tickangle == 0, 0.5, 1)
+        ),
+        legend.position = if (isTRUE(facet_info$show_legend)) "bottom" else "none",
+        strip.placement = "outside",
+        strip.text.x = element_text(size = 16),
+        strip.background = element_blank()
+      ) +
+      facet_grid(. ~ facet, scales = "free_x", space = "free", switch = "x")
+
+    if (!is.null(facet_info$ylim)) {
+      p <- p + coord_cartesian(ylim = facet_info$ylim)
+    }
+    return(p)
+  }
+
+  # Profile fallback: build ggplot from stored profile_data
+  prof_info <- attr(plotly_obj, "profile_data")
+  if (!is.null(prof_info)) {
+    df <- prof_info$df
+    # Canonical Fusion color override
+    FUSION_COLOR <- "#F1C40F"
+    detect_fusion <- function(df) {
+      tryCatch(
+        {
+          (("category" %in% names(df)) && any(grepl("fusion", df$category, ignore.case = TRUE))) ||
+            (("label" %in% names(df)) && any(grepl("fusion", df$label, ignore.case = TRUE)))
+        },
+        error = function(e) FALSE
+      )
+    }
+    lc <- if (detect_fusion(df)) FUSION_COLOR else prof_info$line_color
+
+    # Compute x-axis break count (1..K-1, ≥K)
+    k_max <- if (!is.null(prof_info$k_max) && is.finite(prof_info$k_max)) prof_info$k_max else suppressWarnings(max(df$k[is.finite(df$k)], na.rm = TRUE))
+    if (!is.finite(k_max) || is.na(k_max) || k_max < 2) k_max <- 20
+
+    # Helper to lighten HEX colors
+    lighten_hex <- function(hex, amount = 0.4) {
+      rgb <- grDevices::col2rgb(hex)
+      r <- as.integer(round(rgb[1] + (255 - rgb[1]) * amount))
+      g <- as.integer(round(rgb[2] + (255 - rgb[2]) * amount))
+      b <- as.integer(round(rgb[3] + (255 - rgb[3]) * amount))
+      grDevices::rgb(r, g, b, maxColorValue = 255)
+    }
+
+    # Prepare summary-line data and aesthetics so PDF mirrors HTML styling
+    stat_cols <- intersect(colnames(df), c("mean", "median"))
+    line_stats <- if (length(stat_cols)) {
+      df %>%
+        dplyr::select(k, dplyr::all_of(stat_cols)) %>%
+        tidyr::pivot_longer(cols = dplyr::all_of(stat_cols), names_to = "stat", values_to = "value") %>%
+        dplyr::filter(!is.na(value)) %>%
+        dplyr::mutate(stat = dplyr::recode(stat, mean = "Mean", median = "Median"))
+    } else {
+      data.frame(k = numeric(0), stat = character(0), value = numeric(0))
+    }
+
+    line_levels <- unique(line_stats$stat)
+    line_palette <- if (length(line_levels)) setNames(rep(lc, length(line_levels)), line_levels) else character(0)
+    linetype_values <- if (length(line_levels)) setNames(rep("solid", length(line_levels)), line_levels) else character(0)
+    if ("Median" %in% names(linetype_values)) linetype_values["Median"] <- "dotdash"
+    central_stat <- if ("Mean" %in% line_levels) "Mean" else if ("Median" %in% line_levels) "Median" else NULL
+    legend_linewidths <- if (length(line_levels)) setNames(ifelse(line_levels == "Median", 1.0, 1.2), line_levels) else numeric(0)
+
+    tick_breaks <- seq_len(k_max)
+    label_last <- paste0("\u2265", k_max)
+    ticktexts <- c(as.character(seq_len(k_max - 1)), label_last)
+
+    p <- ggplot(df, aes(x = k)) +
+      geom_ribbon(aes(ymin = q1, ymax = q3, fill = "IQR"), alpha = 0.25, show.legend = TRUE, key_glyph = "rect") +
+      theme(legend.position = "bottom") +
+      scale_y_continuous(limits = c(0, 100)) +
+      scale_x_continuous(
+        breaks = tick_breaks,
+        labels = ticktexts,
+        expand = expansion(mult = c(0.01, 0.01))
+      ) +
+      labs(title = prof_info$title, x = "Exons", y = "% Transcripts", fill = "") +
+      scale_fill_manual(values = c("IQR" = lighten_hex(lc, 0.6))) +
+      theme_classic(base_size = 14) +
+      theme(
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12),
+        legend.position = "bottom",
+        legend.box = "horizontal"
+      )
+
+    # Add lines
+    if (nrow(line_stats) > 0) {
+      p <- p + geom_line(data = line_stats, aes(y = value, color = stat, linetype = stat, linewidth = stat)) +
+        scale_color_manual(values = line_palette, name = "") +
+        scale_linetype_manual(values = linetype_values, name = "") +
+        scale_linewidth_manual(values = legend_linewidths, name = "")
+    }
+
+    return(p)
+  }
+
+  return(ggplot() +
+    labs(title = "Plot not convertible") +
+    theme_minimal())
+}
+
 generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Junctions, report_output, generate_pdf = TRUE) {
   # Helper function to mix colors
   mix_color <- function(col, target, amount) {
@@ -235,6 +780,159 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
               gg_umap_by_category[[cat_label]] <<- p
             }
           }
+
+          # ----------------------------------------------------------------
+          # Short Read Support by Cluster (Violin Plots)
+          # ----------------------------------------------------------------
+          # Use the new column name: srjunctions_support_prop
+          if ("srjunctions_support_prop" %in% colnames(merged_umap)) {
+            gg_sr_cluster_plots <<- list()
+            
+            # Helper: Prepare data for build_violin_plot
+            # We need a long DF with columns: Variable (Cluster), Value (Prop) for the function
+            prepare_violin_data <- function(data, y_col) {
+              df <- data[!is.na(data[[y_col]]), c("Cluster", y_col)]
+              colnames(df) <- c("Variable", "Value")
+              df$Variable <- as.factor(df$Variable)
+              return(df)
+            }
+            
+
+            # ----------------------------------------------------------------
+            # Define Cluster Colors (Shared for both TSS and Short Read Coverage)
+            # ----------------------------------------------------------------
+            unique_clusters <- levels(merged_umap$Cluster)
+            cluster_colors <- scales::hue_pal()(length(unique_clusters))
+            names(cluster_colors) <- unique_clusters
+
+            # ----------------------------------------------------------------
+            # TSS Ratio Validated Support by Cluster (Violin Plots)
+            # ----------------------------------------------------------------
+            if ("TSS_ratio_validated_prop" %in% colnames(merged_umap)) {
+               gg_tss_cluster_plots <<- list()
+
+                # Reuse helper if available, or redefine locally
+               prepare_violin_data <- function(data, y_col) {
+                 df <- data[!is.na(data[[y_col]]), c("Cluster", y_col)]
+                 colnames(df) <- c("Variable", "Value")
+                 df$Variable <- as.factor(df$Variable)
+                 return(df)
+               }
+               
+                 # 1. All Transcripts Plot - TSS
+                # Use Cluster Colors (same as Junctions Coverage)
+               p_all_tss <- build_violin_plot(
+                 df_long = prepare_violin_data(merged_umap, "TSS_ratio_validated_prop"),
+                 title = "All Transcripts TSS Validation by Short Reads",
+                 x_labels = levels(merged_umap$Cluster),
+                 fill_map = cluster_colors, 
+                 x_title = "Cluster",
+                 y_label = "TSS Ratio Validated, %",
+                 x_tickangle = 0,
+                 violin_outline_fill = TRUE,
+                 violin_alpha = 0.7,
+                 box_alpha = 0.3
+               )
+               gg_tss_cluster_plots[["All Transcripts"]] <<- p_all_tss
+
+                # 2. Per-Category Plots - TSS
+                # Use Category Color for ALL clusters
+               for (cat_col in names(cat_colors)) {
+                 tag <- cat_labels[[cat_col]]
+                 prop_col <- paste0(tag, "_TSS_ratio_validated_prop") 
+                 if (tag == "Genic Genomic") prop_col <- "Genic_TSS_ratio_validated_prop" # Handle Genic weirdness if needed
+                 if (tag == "Genic Intron") prop_col <- "Genic_intron_TSS_ratio_validated_prop"
+                 
+                 # Clean up tag to match column naming convention if straightforward
+                 simple_tag <- names(cat_labels)[which(cat_labels == tag)] 
+                 simple_tag <- gsub("_prop", "", simple_tag) 
+                 prop_col <- paste0(simple_tag, "_TSS_ratio_validated_prop")
+
+                 if (prop_col %in% colnames(merged_umap)) {
+                   # Define single color map
+                   current_cat_color <- cat_colors[[cat_col]]
+                   fixed_color_map <- rep(current_cat_color, length(unique_clusters))
+                   names(fixed_color_map) <- unique_clusters
+
+                   p_cat_tss <- build_violin_plot(
+                     df_long = prepare_violin_data(merged_umap, prop_col),
+                     title = paste(tag, "TSS Validation by Short Reads"),
+                     x_labels = levels(merged_umap$Cluster),
+                     fill_map = fixed_color_map,
+                     x_title = "Cluster",
+                     y_label = "TSS Ratio Validated, %",
+                      x_tickangle = 0,
+                      violin_outline_fill = TRUE,
+                      violin_alpha = 0.7,
+                      box_alpha = 0.3
+                   )
+                   gg_tss_cluster_plots[[tag]] <<- p_cat_tss
+                 }
+               }
+            }
+
+            # ----------------------------------------------------------------
+            # Short Read Support by Cluster (Violin Plots)
+            # ----------------------------------------------------------------
+            # 1. Global Plot
+            global_data <- prepare_violin_data(merged_umap, "srjunctions_support_prop")
+            
+            # Use build_violin_plot (which returns a Plotly object)
+            gg_sr_cluster_plots[["All Transcripts"]] <<- build_violin_plot(
+              df_long = global_data,
+              title = "All Transcripts Junction Coverage by Short Reads",
+              x_labels = levels(global_data$Variable),
+              fill_map = cluster_colors,
+              y_label = "Transcripts Supported, %",
+              legend = FALSE,
+              x_title = "Cluster",
+              x_tickangle = 0,
+              ylim = c(0, 100),
+              violin_outline_fill = TRUE,
+              violin_alpha = 0.7,
+              box_alpha = 0.3
+            )
+
+            # 2. Per-Category Plots
+            # For these, we want to maintain the specific Structural Category color Scheme?
+            # The user said: "the colors used for the violins and boxes should be the same in each structural category and the color should be the corresponding to the structural category."
+            # This implies that for the FSM plot, ALL clusters should be colored with the FSM color.
+            
+            for (cat_col in names(cat_labels)) {
+               # cat_labels[[cat_col]] is e.g. "FSM", "Genic Genomic"
+               tag <- cat_labels[[cat_col]]
+               tag_clean <- gsub(" ", "_", tag)
+               # New column name format: {TAG}_srjunctions_support_prop
+               sr_col <- paste0(tag_clean, "_srjunctions_support_prop")
+               
+               if (sr_col %in% colnames(merged_umap)) {
+                    cat_data <- prepare_violin_data(merged_umap, sr_col)
+                    
+                    # Define a single color map for all clusters based on the category color
+                    # cat_colors[[cat_col]] gives the hex code for that category
+                    current_cat_color <- cat_colors[[cat_col]]
+                    fixed_color_map <- rep(current_cat_color, length(unique_clusters))
+                    names(fixed_color_map) <- unique_clusters
+                    
+                    title <- paste(tag, "Junction Coverage by Short Reads")
+                    
+                    gg_sr_cluster_plots[[tag]] <<- build_violin_plot(
+                      df_long = cat_data,
+                      title = title,
+                      x_labels = levels(cat_data$Variable),
+                      fill_map = fixed_color_map, # Per-category uses the category color for all clusters
+                      y_label = "Transcripts Supported, %",
+                      legend = FALSE,
+                      x_title = "Cluster",
+                      x_tickangle = 0,
+                      ylim = c(0, 100),
+                      violin_outline_fill = TRUE,
+                      violin_alpha = 0.7,
+                      box_alpha = 0.3
+                    )
+               }
+            }
+          }
         }
       },
       error = function(e) {
@@ -243,597 +941,13 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     )
   }
 
-  # Helper: convert any R color (hex or named) to an rgba() string with alpha without affecting line color
-  to_rgba <- function(col, alpha = 1.0) {
-    rgb <- grDevices::col2rgb(col)
-    sprintf("rgba(%d,%d,%d,%.3f)", rgb[1], rgb[2], rgb[3], alpha)
-  }
 
-  # Helper: pivot selected columns to long and return factor-ordered long df
-  pivot_long <- function(df, cols) {
-    out <- pivot_longer(df, cols = all_of(cols), names_to = "Variable", values_to = "Value") %>%
-      select(Variable, Value)
-    out$Variable <- factor(out$Variable, levels = cols)
-    out
-  }
 
-  # Helper: generic violin + box + mean-cross plot with shared theme (ggplot version for PDF)
-  build_violin_plot_ggplot <- function(df_long,
-                                       title,
-                                       x_labels,
-                                       fill_map,
-                                       color_map = fill_map,
-                                       y_label = paste(entity_label_plural, ", %", sep = ""),
-                                       legend = FALSE,
-                                       ylim = NULL,
-                                       override_outline_vars = character(0),
-                                       violin_alpha = 0.7,
-                                       box_alpha = 0.6,
-                                       box_width = 0.05,
-                                       x_tickangle = 45,
-                                       violin_outline_fill = FALSE,
-                                       box_outline_default = "grey20",
-                                       bandwidth = NULL) {
-    # Determine a robust bandwidth for KDE; floor to avoid bw=0 on constant data
-    vals <- df_long$Value
-    vals <- vals[is.finite(vals)]
-    bw_eff <- bandwidth
-    if (is.null(bw_eff) || !is.numeric(bw_eff) || is.na(bw_eff) || bw_eff <= 0) {
-      if (length(vals) >= 2) {
-        bw_eff <- stats::bw.nrd0(vals)
-      } else {
-        bw_eff <- NA_real_
-      }
-    }
-    if (is.na(bw_eff) || bw_eff <= 0) bw_eff <- 0.1
 
-    # Create ggplot version for PDF output
-    p <- ggplot(df_long, aes(x = Variable, y = Value)) +
-      # Violin layer with outline rule
-      {
-        if (isTRUE(violin_outline_fill)) {
-          geom_violin(aes(fill = Variable, color = Variable), alpha = violin_alpha, scale = "width", show.legend = legend, bw = bw_eff, trim = TRUE)
-        } else {
-          geom_violin(aes(fill = Variable), color = "black", alpha = violin_alpha, scale = "width", show.legend = legend, bw = bw_eff, trim = TRUE)
-        }
-      } +
-      scale_fill_manual(values = fill_map, labels = x_labels) +
-      {
-        if (isTRUE(violin_outline_fill)) scale_color_manual(values = fill_map, guide = "none") else NULL
-      } +
-      # Add mean markers on top
-      stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1, show.legend = FALSE) +
-      scale_x_discrete(labels = x_labels) +
-      labs(title = title, x = "", y = y_label) +
-      theme_classic(base_size = 14) +
-      theme(
-        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-        axis.title = element_text(size = 16),
-        axis.text.y = element_text(size = 14),
-        axis.text.x = element_text(size = 12, angle = x_tickangle, hjust = ifelse(x_tickangle == 0, 0.5, 1)),
-        legend.position = if (legend) "bottom" else "none"
-      )
 
-    # Add boxplots per variable with correct outline color (grey90 overrides)
-    for (var in levels(df_long$Variable)) {
-      var_df <- df_long[df_long$Variable == var, , drop = FALSE]
-      box_col <- if (var %in% override_outline_vars) "grey90" else box_outline_default
-      p <- p + geom_boxplot(
-        data = var_df,
-        aes(x = Variable, y = Value, fill = Variable),
-        width = box_width, outlier.shape = NA, alpha = box_alpha, show.legend = FALSE, color = box_col
-      )
-    }
 
-    if (!is.null(ylim)) {
-      p <- p + coord_cartesian(ylim = ylim)
-    }
 
-    return(p)
-  }
 
-  # Helper: generic violin + box + mean-cross plot with shared theme
-  build_violin_plot <- function(df_long,
-                                title,
-                                x_labels,
-                                fill_map,
-                                color_map = fill_map,
-                                y_label = paste(entity_label_plural, ", %", sep = ""),
-                                legend = FALSE,
-                                ylim = NULL,
-                                override_outline_vars = character(0),
-                                violin_alpha = 0.7,
-                                box_alpha = 0.6,
-                                box_width = 0.05,
-                                x_tickangle = 45,
-                                violin_outline_fill = FALSE,
-                                box_outline_default = "grey20") {
-    # Store data globally for PDF generation
-    plot_data_key <- paste0("plot_data_", gsub("[^A-Za-z0-9]", "_", title))
-    assign(plot_data_key, list(
-      df_long = df_long,
-      title = title,
-      x_labels = x_labels,
-      fill_map = fill_map,
-      color_map = color_map,
-      y_label = y_label,
-      legend = legend,
-      ylim = ylim,
-      override_outline_vars = override_outline_vars,
-      violin_alpha = violin_alpha,
-      box_alpha = box_alpha,
-      box_width = box_width,
-      x_tickangle = x_tickangle,
-      violin_outline_fill = violin_outline_fill,
-      box_outline_default = box_outline_default
-    ), envir = .GlobalEnv)
-
-    # If this is a percentage plot, clamp values to [0,100] so violins don't extend under/over bounds
-    df_plot <- df_long
-    if (grepl("%", y_label)) {
-      df_plot$Value <- pmin(pmax(df_plot$Value, 0), 100)
-    } else if (grepl("count", y_label, ignore.case = TRUE)) {
-      df_plot$Value <- pmax(df_plot$Value, 0)
-    }
-
-    # Compute shared bandwidth for KDE across both HTML and PDF
-    valid_vals <- df_plot$Value[is.finite(df_plot$Value)]
-    bw_shared <- if (length(valid_vals) >= 2) stats::bw.nrd0(valid_vals) else NULL
-
-    # Store the clamped data for PDF generation as well (keeps parity)
-    assign(plot_data_key, list(
-      df_long = df_plot,
-      title = title,
-      x_labels = x_labels,
-      fill_map = fill_map,
-      color_map = color_map,
-      y_label = y_label,
-      legend = legend,
-      ylim = ylim,
-      override_outline_vars = override_outline_vars,
-      violin_alpha = violin_alpha,
-      box_alpha = box_alpha,
-      box_width = box_width,
-      x_tickangle = x_tickangle,
-      violin_outline_fill = violin_outline_fill,
-      box_outline_default = box_outline_default,
-      bandwidth = bw_shared
-    ), envir = .GlobalEnv)
-
-    # Create plotly plot directly with explicit x-axis positioning
-    p <- plot_ly()
-
-    # Get all unique levels and create numeric positions
-    all_levels <- levels(df_plot$Variable)
-    if (is.null(all_levels)) {
-      all_levels <- unique(as.character(df_plot$Variable))
-    }
-
-    # Create numeric x positions for each level
-    x_positions <- seq_along(all_levels)
-    names(x_positions) <- all_levels
-
-    # Determine Plotly tick angle so labels finish at the tick mark (matching PDF hjust = 1)
-    tick_angle_plotly <- if (!is.null(x_tickangle) && is.finite(x_tickangle) && x_tickangle != 0) x_tickangle else 0
-    tick_label_position <- if (tick_angle_plotly == 0) "outside" else "outside right"
-
-    # Add violin traces first (they will be in the background)
-    for (i in seq_along(all_levels)) {
-      var <- all_levels[i]
-      var_data <- df_plot[df_plot$Variable == var, ]
-
-      # Skip if no data for this level
-      if (nrow(var_data) == 0) next
-
-      line_col <- if (isTRUE(violin_outline_fill)) fill_map[var] else "black"
-      fill_rgba <- to_rgba(fill_map[var], violin_alpha)
-
-      p <- p %>% add_trace(
-        x = rep(x_positions[var], nrow(var_data)),
-        y = var_data$Value,
-        type = "violin",
-        side = "both",
-        name = x_labels[i],
-        fillcolor = fill_rgba,
-        line = list(color = to_rgba(line_col, 1.0), width = 0.6),
-        spanmode = "hard",
-        bandwidth = bw_shared,
-        points = FALSE,
-        showlegend = FALSE,
-        box = list(visible = FALSE),
-        meanline = list(visible = FALSE),
-        scalemode = "width",
-        width = 0.8
-      )
-    }
-
-    # Add boxplot traces second (they will be on top)
-    for (i in seq_along(all_levels)) {
-      var <- all_levels[i]
-      var_data <- df_plot[df_plot$Variable == var, ]
-
-      # Determine box outline color
-      box_color <- if (var %in% override_outline_vars) "grey90" else box_outline_default
-      fill_rgba_box <- to_rgba(fill_map[var], box_alpha)
-
-      p <- p %>% add_trace(
-        x = rep(x_positions[var], nrow(var_data)),
-        y = var_data$Value,
-        type = "box",
-        name = paste(x_labels[i], "Box"),
-        fillcolor = fill_rgba_box,
-        line = list(color = to_rgba(box_color, 1.0), width = 0.8),
-        showlegend = FALSE,
-        boxpoints = FALSE,
-        width = box_width
-      )
-    }
-
-    # Add mean points last (on top of everything)
-    mean_data <- df_plot %>%
-      group_by(Variable) %>%
-      summarise(mean_value = mean(Value, na.rm = TRUE), .groups = "drop")
-
-    for (i in seq_along(all_levels)) {
-      var <- all_levels[i]
-      mean_row <- mean_data[mean_data$Variable == var, ]
-
-      # Skip if no data for this level
-      if (nrow(mean_row) == 0) next
-
-      p <- p %>% add_trace(
-        x = x_positions[var],
-        y = mean_row$mean_value,
-        type = "scatter",
-        mode = "markers",
-        name = paste(x_labels[i], "Mean"),
-        marker = list(
-          symbol = "x-thin-open",
-          size = 6,
-          color = "red",
-          line = list(width = 1.5, color = "red")
-        ),
-        showlegend = FALSE
-      )
-    }
-
-    # Store the data key as an attribute for PDF conversion
-    attr(p, "plot_data_key") <- plot_data_key
-
-    # Configure layout with explicit tick positions and labels
-    html_title <- paste0("<b>", gsub("\n", "<br>", title), "</b>")
-    p <- p %>% layout(
-      title = list(text = html_title, font = list(size = 18), x = 0.5, xanchor = "center"),
-      xaxis = list(
-        title = "",
-        tickmode = "array",
-        tickvals = x_positions,
-        ticktext = x_labels,
-        tickangle = tick_angle_plotly,
-        ticklabelposition = tick_label_position,
-        tickfont = list(size = 16),
-        showline = TRUE,
-        linecolor = "black",
-        linewidth = 1,
-        zeroline = FALSE,
-        range = c(min(x_positions) - 0.5, max(x_positions) + 0.5)
-      ),
-      yaxis = list(
-        title = y_label,
-        titlefont = list(size = 16),
-        tickfont = list(size = 14),
-        showline = TRUE,
-        linecolor = "black",
-        linewidth = 1,
-        zeroline = FALSE
-      ),
-      showlegend = legend,
-      paper_bgcolor = "rgba(0,0,0,0)",
-      plot_bgcolor = "rgba(0,0,0,0)",
-      font = list(family = "Arial", size = 14),
-      margin = list(t = 110, l = 80, r = 80, b = ifelse(x_tickangle == 0, 60, 90))
-    )
-
-    # Apply y-axis limits if specified
-    if (!is.null(ylim)) {
-      p <- p %>% layout(yaxis = list(range = ylim))
-    } else if (grepl("%", y_label)) {
-      p <- p %>% layout(yaxis = list(range = c(0, 100)))
-    } else if (grepl("count", y_label, ignore.case = TRUE)) {
-      max_y <- suppressWarnings(max(df_plot$Value, na.rm = TRUE))
-      if (!is.finite(max_y)) max_y <- 1
-      p <- p %>% layout(yaxis = list(range = c(0, max_y * 1.05)))
-    }
-
-    return(p)
-  }
-
-  # Helper: convert plotly object back to ggplot for PDF output
-  plotly_to_ggplot <- function(plotly_obj) {
-    if (is.null(plotly_obj) || !inherits(plotly_obj, "plotly")) {
-      return(ggplot() +
-        labs(title = "Plot not available") +
-        theme_minimal())
-    }
-
-    # Check if this plotly object has stored data
-    plot_data_key <- attr(plotly_obj, "plot_data_key")
-    if (!is.null(plot_data_key) && exists(plot_data_key, envir = .GlobalEnv)) {
-      plot_data <- get(plot_data_key, envir = .GlobalEnv)
-
-      # Use the stored data to create a proper ggplot
-      return(build_violin_plot_ggplot(
-        df_long = plot_data$df_long,
-        title = plot_data$title,
-        x_labels = plot_data$x_labels,
-        fill_map = plot_data$fill_map,
-        color_map = plot_data$color_map,
-        y_label = plot_data$y_label,
-        legend = plot_data$legend,
-        ylim = plot_data$ylim,
-        override_outline_vars = plot_data$override_outline_vars,
-        violin_alpha = if (!is.null(plot_data$violin_alpha)) plot_data$violin_alpha else 0.7,
-        box_alpha = if (!is.null(plot_data$box_alpha)) plot_data$box_alpha else 0.6,
-        box_width = if (!is.null(plot_data$box_width)) plot_data$box_width else 0.05,
-        x_tickangle = if (!is.null(plot_data$x_tickangle)) plot_data$x_tickangle else 45,
-        violin_outline_fill = isTRUE(plot_data$violin_outline_fill),
-        box_outline_default = if (!is.null(plot_data$box_outline_default)) plot_data$box_outline_default else "grey20",
-        bandwidth = plot_data$bandwidth
-      ))
-    }
-
-    # Check if this is a grouped plot built via build_grouped_violin_plot
-    grouped_info <- attr(plotly_obj, "grouped_data")
-    if (!is.null(grouped_info)) {
-      df <- grouped_info$df
-      # Ensure factor levels
-      df$bin <- factor(df$bin, levels = grouped_info$bin_levels)
-      df$group <- factor(df$group, levels = names(grouped_info$fill_map))
-
-      # Compute effective bandwidth for grouped PDF
-      vals <- df$value
-      vals <- vals[is.finite(vals)]
-      bw_eff <- grouped_info$bandwidth
-      if (is.null(bw_eff) || !is.numeric(bw_eff) || is.na(bw_eff) || bw_eff <= 0) {
-        if (length(vals) >= 2) {
-          bw_eff <- stats::bw.nrd0(vals)
-        } else {
-          bw_eff <- NA_real_
-        }
-      }
-      if (is.na(bw_eff) || bw_eff <= 0) bw_eff <- 0.1
-
-      p <- ggplot(df, aes(x = bin, y = value, fill = group)) +
-        # Violin outlines should match fill color
-        geom_violin(aes(color = group),
-          alpha = if (!is.null(grouped_info$violin_alpha)) grouped_info$violin_alpha else 0.7,
-          position = position_dodge(width = if (!is.null(grouped_info$dodge_width)) grouped_info$dodge_width else 0.8), scale = "width", show.legend = TRUE, bw = bw_eff, trim = TRUE
-        ) +
-        scale_color_manual(values = grouped_info$fill_map, guide = "none") +
-        geom_boxplot(
-          width = if (!is.null(grouped_info$box_width)) grouped_info$box_width else 0.05,
-          outlier.shape = NA,
-          alpha = if (!is.null(grouped_info$box_alpha)) grouped_info$box_alpha else 0.6,
-          position = position_dodge(width = if (!is.null(grouped_info$dodge_width)) grouped_info$dodge_width else 0.8),
-          color = "grey20", show.legend = FALSE
-        ) +
-        stat_summary(
-          fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1,
-          position = position_dodge(width = if (!is.null(grouped_info$dodge_width)) grouped_info$dodge_width else 0.8), show.legend = FALSE
-        ) +
-        scale_fill_manual(values = grouped_info$fill_map, labels = grouped_info$legend_labels) +
-        labs(title = grouped_info$title, x = "", y = grouped_info$y_label) +
-        theme_classic(base_size = 14) +
-        theme(
-          plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-          axis.title = element_text(size = 16),
-          axis.text.y = element_text(size = 14),
-          axis.text.x = element_text(
-            size = 12, angle = if (!is.null(grouped_info$x_tickangle)) grouped_info$x_tickangle else 0,
-            hjust = ifelse(!is.null(grouped_info$x_tickangle) && grouped_info$x_tickangle == 0, 0.5, 1)
-          ),
-          legend.position = "bottom",
-          legend.title = element_blank()
-        )
-
-      if (!is.null(grouped_info$ylim)) {
-        p <- p + coord_cartesian(ylim = grouped_info$ylim)
-      }
-      return(p)
-    }
-
-    # Check if this is a faceted plot built via build_violin_plot_facets
-    facet_info <- attr(plotly_obj, "facet_data")
-    if (!is.null(facet_info)) {
-      df <- facet_info$df
-      fill_map <- facet_info$fill_map
-      x_labels <- facet_info$x_labels
-      # Ensure factors and orders
-      df$Variable <- factor(df$Variable, levels = names(fill_map))
-      df$facet <- factor(df$facet, levels = facet_info$facet_levels)
-
-      p <- ggplot(df, aes(x = Variable, y = Value, fill = Variable)) +
-        geom_violin(alpha = if (!is.null(facet_info$violin_alpha)) facet_info$violin_alpha else 0.7, scale = "width", show.legend = FALSE) +
-        geom_boxplot(width = if (!is.null(facet_info$box_width)) facet_info$box_width else 0.05, outlier.shape = NA, alpha = if (!is.null(facet_info$box_alpha)) facet_info$box_alpha else 0.6, show.legend = FALSE) +
-        stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1, show.legend = FALSE) +
-        scale_fill_manual(values = fill_map, labels = x_labels, guide = if (isTRUE(facet_info$show_legend)) guide_legend(override.aes = list(shape = NA)) else "none") +
-        scale_x_discrete(labels = x_labels) +
-        labs(title = facet_info$title, x = "", y = facet_info$y_label) +
-        theme_classic(base_size = 14) +
-        theme(
-          plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-          axis.title = element_text(size = 16),
-          axis.text.y = element_text(size = 14),
-          axis.text.x = element_text(
-            size = 12, angle = if (!is.null(facet_info$x_tickangle)) facet_info$x_tickangle else 45,
-            hjust = ifelse(!is.null(facet_info$x_tickangle) && facet_info$x_tickangle == 0, 0.5, 1)
-          ),
-          legend.position = if (isTRUE(facet_info$show_legend)) "bottom" else "none",
-          strip.placement = "outside",
-          strip.text.x = element_text(size = 16),
-          strip.background = element_blank()
-        ) +
-        facet_grid(. ~ facet, scales = "free_x", space = "free", switch = "x")
-
-      if (!is.null(facet_info$ylim)) {
-        p <- p + coord_cartesian(ylim = facet_info$ylim)
-      }
-      return(p)
-    }
-
-    # Profile fallback: build ggplot from stored profile_data
-    prof_info <- attr(plotly_obj, "profile_data")
-    if (!is.null(prof_info)) {
-      df <- prof_info$df
-      # Canonical Fusion color override
-      FUSION_COLOR <- "#F1C40F"
-      detect_fusion <- function(df) {
-        tryCatch(
-          {
-            (("category" %in% names(df)) && any(grepl("fusion", df$category, ignore.case = TRUE))) ||
-              (("label" %in% names(df)) && any(grepl("fusion", df$label, ignore.case = TRUE)))
-          },
-          error = function(e) FALSE
-        )
-      }
-      lc <- if (detect_fusion(df)) FUSION_COLOR else prof_info$line_color
-
-      # Compute x-axis break count (1..K-1, ≥K)
-      k_max <- if (!is.null(prof_info$k_max) && is.finite(prof_info$k_max)) prof_info$k_max else suppressWarnings(max(df$k[is.finite(df$k)], na.rm = TRUE))
-      if (!is.finite(k_max) || is.na(k_max) || k_max < 2) k_max <- 20
-
-      # Helper to lighten HEX colors
-      lighten_hex <- function(hex, amount = 0.4) {
-        rgb <- grDevices::col2rgb(hex)
-        r <- as.integer(round(rgb[1] + (255 - rgb[1]) * amount))
-        g <- as.integer(round(rgb[2] + (255 - rgb[2]) * amount))
-        b <- as.integer(round(rgb[3] + (255 - rgb[3]) * amount))
-        grDevices::rgb(r, g, b, maxColorValue = 255)
-      }
-
-      # Prepare summary-line data and aesthetics so PDF mirrors HTML styling
-      stat_cols <- intersect(colnames(df), c("mean", "median"))
-      line_stats <- if (length(stat_cols)) {
-        df %>%
-          dplyr::select(k, dplyr::all_of(stat_cols)) %>%
-          tidyr::pivot_longer(cols = dplyr::all_of(stat_cols), names_to = "stat", values_to = "value") %>%
-          dplyr::filter(!is.na(value)) %>%
-          dplyr::mutate(stat = dplyr::recode(stat, mean = "Mean", median = "Median"))
-      } else {
-        data.frame(k = numeric(0), stat = character(0), value = numeric(0))
-      }
-
-      line_levels <- unique(line_stats$stat)
-      line_palette <- if (length(line_levels)) setNames(rep(lc, length(line_levels)), line_levels) else character(0)
-      linetype_values <- if (length(line_levels)) setNames(rep("solid", length(line_levels)), line_levels) else character(0)
-      if ("Median" %in% names(linetype_values)) linetype_values["Median"] <- "dotdash"
-      central_stat <- if ("Mean" %in% line_levels) "Mean" else if ("Median" %in% line_levels) "Median" else NULL
-      legend_linewidths <- if (length(line_levels)) setNames(ifelse(line_levels == "Median", 1.0, 1.2), line_levels) else numeric(0)
-
-      tick_breaks <- seq_len(k_max)
-      label_last <- paste0("\u2265", k_max)
-      ticktexts <- c(as.character(seq_len(k_max - 1)), label_last)
-
-      p <- ggplot(df, aes(x = k)) +
-        geom_ribbon(aes(ymin = q1, ymax = q3, fill = "IQR"), alpha = 0.25, show.legend = TRUE, key_glyph = "rect") +
-        theme(legend.position = "bottom") +
-        scale_y_continuous(limits = c(0, 100)) +
-        scale_x_continuous(
-          breaks = tick_breaks,
-          labels = ticktexts,
-          expand = expansion(mult = c(0.01, 0.01))
-        ) +
-        labs(title = prof_info$title, x = paste("Exons per", entity_label), y = prof_info$y_label) +
-        theme_classic(base_size = 14) +
-        theme(
-          plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-          axis.title = element_text(size = 16),
-          axis.text = element_text(size = 12),
-          legend.position = "bottom",
-          legend.direction = "horizontal",
-          legend.box = "horizontal",
-          legend.key = element_rect(fill = "transparent", color = NA),
-          legend.spacing.x = unit(6, "pt")
-        )
-
-      if ("Mean" %in% line_levels) {
-        p <- p + geom_line(
-          data = dplyr::filter(line_stats, stat == "Mean"),
-          aes(y = value, color = stat, linetype = stat),
-          linewidth = 1.2,
-          show.legend = TRUE,
-          key_glyph = "path"
-        )
-      }
-      if ("Median" %in% line_levels) {
-        p <- p + geom_line(
-          data = dplyr::filter(line_stats, stat == "Median"),
-          aes(y = value, color = stat, linetype = stat),
-          linewidth = 1.0,
-          show.legend = TRUE,
-          key_glyph = "path"
-        )
-      }
-      if (!is.null(central_stat)) {
-        p <- p + geom_point(
-          data = dplyr::filter(line_stats, stat == central_stat),
-          aes(y = value),
-          color = lc,
-          size = 1.6,
-          show.legend = FALSE
-        )
-      }
-
-      p <- p +
-        scale_fill_manual(
-          name = "IQR",
-          values = c("IQR" = lighten_hex(lc)),
-          guide = guide_legend(order = 1, override.aes = list(alpha = 0.25, color = NA, fill = lighten_hex(lc)))
-        )
-
-      if (length(line_levels)) {
-        p <- p +
-          scale_color_manual(
-            name = NULL,
-            values = line_palette,
-            breaks = line_levels,
-            limits = line_levels,
-            guide = guide_legend(
-              order = 2,
-              override.aes = list(
-                linetype = unname(linetype_values[line_levels]),
-                linewidth = unname(legend_linewidths[line_levels]),
-                color = unname(line_palette[line_levels]),
-                fill = NA
-              )
-            )
-          ) +
-          scale_linetype_manual(values = linetype_values, breaks = line_levels, limits = line_levels, guide = "none")
-      }
-
-      return(p)
-    }
-
-    # Fallback: create a simple placeholder
-    title <- if (!is.null(plotly_obj$x$layout$title$text)) {
-      plotly_obj$x$layout$title$text
-    } else {
-      "Distribution Plot"
-    }
-
-    ggplot() +
-      labs(title = title) +
-      theme_minimal() +
-      theme(
-        plot.title = element_text(size = 16, hjust = 0.5),
-        axis.text = element_text(size = 12)
-      ) +
-      annotate("text",
-        x = 0.5, y = 0.5,
-        label = "Plot data not available for PDF",
-        size = 5, hjust = 0.5, vjust = 0.5
-      )
-  }
 
   # Helper: grouped violins by bin with legend (Annotated/Novel) using plotly, rebuildable for PDF
   # df must contain columns: bin, group, value
@@ -2308,7 +2422,65 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     ),
     plot_args = list(violin_outline_fill = TRUE)
   ))
+  ### Good features plots (SR & TSS Validation) ###
+  #################################################
 
+  # 1. Combined Good Features Plot (All Transcripts)
+  all_good_features_map <- list(
+    "srjunctions_support_prop" = list(label = "SJs Validated by SRs", color = "#cd4f39"),
+    "TSS_ratio_validated_prop" = list(label = "TSS Validated by SRs", color = "#FFC125")
+    # Add other good features here if needed (e.g. polyA_motif_found_prop if available)
+  )
+  
+  # Determine which good feature columns are present
+  good_feature_cols_present <- intersect(names(all_good_features_map), colnames(SQANTI_cell_summary))
+  good_feature_cols_present <- good_feature_cols_present[sapply(good_feature_cols_present, function(col) any(!is.na(SQANTI_cell_summary[[col]])) && sum(SQANTI_cell_summary[[col]], na.rm = TRUE) > 0)]
+
+  if (length(good_feature_cols_present) > 0) {
+    current_good_colors <- sapply(all_good_features_map[good_feature_cols_present], function(x) x$color)
+    current_good_labels <- sapply(all_good_features_map[good_feature_cols_present], function(x) x$label)
+    names(current_good_colors) <- good_feature_cols_present
+    names(current_good_labels) <- good_feature_cols_present
+
+    pivot_violin(SQANTI_cell_summary, list(
+      name = "gg_good_feature",
+      columns = good_feature_cols_present,
+      title = "Validation Features Distribution Across Cells",
+      x_labels = current_good_labels,
+      y_label = paste(entity_label_plural, ", %", sep = ""),
+      fill_map = current_good_colors,
+      plot_args = list(violin_outline_fill = TRUE)
+    ))
+  }
+
+  # 2. Per-Category Plots
+  # Short Read (SJs) Support
+  sr_cat_cols <- cat_cols("_srjunctions_support_prop")
+  if (all(sr_cat_cols %in% colnames(SQANTI_cell_summary))) {
+     pivot_violin(SQANTI_cell_summary, list(
+      name = "gg_sr_support_by_category",
+      columns = sr_cat_cols,
+      title = "SJs Validated by Short Reads by Structural Category",
+      x_labels = cat_labels_pretty,
+      y_label = paste(entity_label_plural, ", %", sep = ""),
+      fill_map = setNames(rep("#cd4f39", length(sr_cat_cols)), sr_cat_cols),
+      plot_args = list(violin_outline_fill = TRUE)
+    ))
+  }
+
+  # TSS Validation Support
+  tss_cat_cols <- cat_cols("_TSS_ratio_validated_prop")
+  if (all(tss_cat_cols %in% colnames(SQANTI_cell_summary))) {
+     pivot_violin(SQANTI_cell_summary, list(
+      name = "gg_tss_validation_by_category",
+      columns = tss_cat_cols,
+      title = "TSS Validated by Short Reads by Structural Category",
+      x_labels = cat_labels_pretty,
+      y_label = paste(entity_label_plural, ", %", sep = ""),
+      fill_map = setNames(rep("#FFC125", length(tss_cat_cols)), tss_cat_cols),
+      plot_args = list(violin_outline_fill = TRUE)
+    ))
+  }
   ### Bad features plots ###
   ##########################
 
@@ -2398,7 +2570,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     list(cols = cat_cols("_TSSAnnotationSupport"), title = "TSS Annotation Support by Structural Category", color = "#66C2A4", name = "gg_tss_annotation_support", require_all = TRUE),
     list(cols = cat_cols("_CAGE_peak_support_prop"), title = "CAGE Peak Support by Structural Category", color = "#EE6A50", name = "gg_cage_peak_support", require_all = TRUE),
     list(cols = cat_cols("_PolyA_motif_support_prop"), title = "PolyA Support by Structural Category", color = "#78C679", name = "gg_polyA_motif_support", require_all = TRUE),
-    list(cols = cat_cols("_canon_prop"), title = "Canonical Junctions by Structural Category", color = "#CC6633", name = "gg_canon_by_category", require_all = TRUE)
+    list(cols = cat_cols("_canon_prop"), title = "Canonical Junctions by Structural Category", color = "#CC6633", name = "gg_canon_by_category", require_all = TRUE),
+    list(cols = cat_cols("_srjunctions_support_prop"), title = "Splice Junctions Support by Structural Category", color = "#cd4f39", name = "gg_sr_support_by_category", require_all = TRUE),
+    list(cols = cat_cols("_TSS_ratio_validated_prop"), title = "TSS Support by Structural Category", color = "#ffc125", name = "gg_tss_validation_by_category", require_all = TRUE)
   )
   invisible(lapply(good_specs, function(sp) {
     if (!is.null(sp$require_all) && sp$require_all && !all(sp$cols %in% colnames(SQANTI_cell_summary))) {
@@ -2426,17 +2600,28 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   }
   good_feature_cols <- c(good_feature_cols, "Canonical_prop_in_cell")
 
+  if ("srjunctions_support_prop" %in% colnames(SQANTI_cell_summary)) {
+    good_feature_cols <- c(good_feature_cols, "srjunctions_support_prop")
+  }
+  if ("TSS_ratio_validated_prop" %in% colnames(SQANTI_cell_summary)) {
+    good_feature_cols <- c(good_feature_cols, "TSS_ratio_validated_prop")
+  }
+
   color_map <- c(
     "TSSAnnotationSupport_prop" = "#66C2A4",
     "CAGE_peak_support_prop" = "#EE6A50",
     "PolyA_motif_support_prop" = "#78C679",
-    "Canonical_prop_in_cell" = "#CC6633"
+    "Canonical_prop_in_cell" = "#CC6633",
+    "srjunctions_support_prop" = "#cd4f39",
+    "TSS_ratio_validated_prop" = "#ffc125"
   )
   label_map <- c(
     "TSSAnnotationSupport_prop" = "TSS Annotated",
     "CAGE_peak_support_prop" = "Has Coverage CAGE",
     "PolyA_motif_support_prop" = "Has PolyA Motif",
-    "Canonical_prop_in_cell" = "Canonical Junctions"
+    "Canonical_prop_in_cell" = "Canonical Junctions",
+    "srjunctions_support_prop" = "SJs Support by SRs",
+    "TSS_ratio_validated_prop" = "TSS Support by SRs"
   )
   color_map <- color_map[good_feature_cols]
   label_map <- label_map[good_feature_cols]
@@ -3654,6 +3839,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     if (CAGE_peak) render_pdf_plot("gg_cage_peak_support")
     if (polyA_motif_list) render_pdf_plot("gg_polyA_motif_support")
     render_pdf_plot("gg_canon_by_category")
+    if (exists("gg_sr_support_by_category")) render_pdf_plot("gg_sr_support_by_category")
+    if (exists("gg_tss_validation_by_category")) render_pdf_plot("gg_tss_validation_by_category")
 
     # Clustering Analysis
     if (exists("gg_umap") && !is.null(gg_umap)) {
@@ -3664,6 +3851,26 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       if (exists("gg_umap_by_category") && !is.null(gg_umap_by_category)) {
         for (cat_label in names(gg_umap_by_category)) {
           print(gg_umap_by_category[[cat_label]])
+        }
+      }
+
+      # Print Short Read Support by Cluster if available
+      if (exists("gg_sr_cluster_plots") && !is.null(gg_sr_cluster_plots)) {
+        for (label in names(gg_sr_cluster_plots)) {
+           # Convert from plotly to ggplot for PDF
+           p_plotly <- gg_sr_cluster_plots[[label]]
+           p_ggplot <- plotly_to_ggplot(p_plotly)
+           print(p_ggplot)
+        }
+      }
+
+      # Print TSS Validation Support by Cluster if available
+      if (exists("gg_tss_cluster_plots") && !is.null(gg_tss_cluster_plots)) {
+        for (label in names(gg_tss_cluster_plots)) {
+           # Convert from plotly to ggplot for PDF
+           p_plotly <- gg_tss_cluster_plots[[label]]
+           p_ggplot <- plotly_to_ggplot(p_plotly)
+           print(p_ggplot)
         }
       }
     }
@@ -3794,6 +4001,12 @@ if (report.format == "html" || report.format == "both") {
     quiet = FALSE,
     envir = globalenv()
   )
+
+  # Cleanup: remove the copied CSS file
+  if (exists("css_output") && file.exists(css_output)) {
+    file.remove(css_output)
+    message("CSS file removed from output directory: ", css_output)
+  }
 
   message("HTML report generated: ", html_output_file)
 }

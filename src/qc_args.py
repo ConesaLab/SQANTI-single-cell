@@ -27,7 +27,6 @@ def build_parser(version_str: str = '0.2.1'):
                       help='Threads for samtools. Default: 10.')
     apsc.add_argument('--verbose', action="store_true", default=False,
                       help='Print all steps.')
-
     apsc.add_argument('--skip_hash', dest="SKIPHASH", action='store_true',
                       help='Skip UJC hashing step.')
     apsc.add_argument('--ignore_cell_summary', action="store_true",
@@ -39,6 +38,10 @@ def build_parser(version_str: str = '0.2.1'):
                      help='Output prefix for the multisample report (default: SQANTI_sc_multisample_report).')
     apsc.add_argument('--write_per_cell_outputs', action='store_true', default=False,
                        help='When set, writes per-cell gene_counts.csv, ujc_counts.csv, and cv.csv for each sample.')
+    apsc.add_argument('--min_cov', type=int, default=1,
+                      help='Minimum min_cov short read coverage to validate an isoform (default: 1).')
+    apsc.add_argument('--ratio_TSS', type=float, default=2.0, dest="ratio_TSS_threshold",
+                      help='Minimum ratio_TSS to validate a TSS (default: 2.0).')
 
     # SQANTI3 Customization and filtering
     apc = ap.add_argument_group("SQANTI3 customization and filtering")

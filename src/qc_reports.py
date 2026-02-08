@@ -33,9 +33,16 @@ def generate_report(args, df):
                     flags.append("--CAGE_peak")
                 if args.polyA_motif_list:
                     flags.append("--polyA_motif_list")
+                
                 cell_summary_file = f"{outputPathPrefix}_SQANTI_cell_summary.txt.gz"
                 if os.path.isfile(cell_summary_file):
                     flags.extend(["--cell_summary", cell_summary_file])
+                
+                # Check for clustering results
+                # Clustering is usually one level up from sampleID if run per file_acc
+                clustering_file = os.path.join(os.path.dirname(outputPathPrefix), "clustering", "umap_results.csv")
+                if os.path.isfile(clustering_file):
+                    flags.extend(["--clustering", clustering_file])
 
                 cmd = (
                     f"Rscript {reportAssetsPath}/SQANTI-sc_reads.R "

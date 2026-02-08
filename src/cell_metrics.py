@@ -74,10 +74,10 @@ def calculate_metrics_per_cell(args, df):
 
         for col in ['CB','isoform','associated_gene','structural_category','exons','length','ref_length',
                     'all_canonical','subcategory','chrom','UMI','jxn_string','associated_transcript',
-                    'RTS_stage','predicted_NMD','within_CAGE_peak','polyA_motif_found','perc_A_downstream_TTS','diff_to_gene_TSS','coding']:
+                    'RTS_stage','predicted_NMD','within_CAGE_peak','polyA_motif_found','perc_A_downstream_TTS','diff_to_gene_TSS','coding','min_cov','ratio_TSS']:
             if col not in cls.columns:
                 cls[col] = np.nan
-        for c in ['exons','length','ref_length','perc_A_downstream_TTS','diff_to_gene_TSS']:
+        for c in ['exons','length','ref_length','perc_A_downstream_TTS','diff_to_gene_TSS','min_cov','ratio_TSS']:
             cls[c] = pd.to_numeric(cls[c], errors='coerce')
 
         if args.mode == 'isoforms':
@@ -433,6 +433,59 @@ def calculate_metrics_per_cell(args, df):
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
                 summary[f"{tag}_PolyA_motif_support_prop"] = 0
+
+        # Short reads coverage support (if available)
+        if 'min_cov' in cls_valid.columns:
+             # Ensure min_cov is valid numeric
+            cls_valid['min_cov'] = pd.to_numeric(cls_valid['min_cov'], errors='coerce').fillna(0)
+             # Define support using configurable threshold
+            sr_sup = cls_valid[cls_valid['min_cov'] >= args.min_cov].groupby('CB')['_count'].sum()
+            summary['srjunctions_support_prop'] = safe_prop(sr_sup.reindex(summary.index, fill_value=0), summary['total_reads']).fillna(0)
+
+            # Add per-category SR support
+            for cat in structural_categories:
+                tag = cat_to_tag[cat]
+                denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
+                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['min_cov'] >= args.min_cov)].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
+                summary[f"{tag}_srjunctions_support_prop"] = safe_prop(numer, denom).fillna(0)
+            
+            for abbr, cat in abbr_pairs:
+                denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum()
+                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['min_cov'] >= args.min_cov)].groupby('CB')['_count'].sum()
+                summary[f"{abbr}_srjunctions_support_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0)).fillna(0)
+        else:
+             summary['srjunctions_support_prop'] = 0
+             for cat in structural_categories:
+                tag = cat_to_tag[cat]
+                summary[f"{tag}_srjunctions_support_prop"] = 0
+
+        # TSS Ratio Validation Support (configurable threshold)
+        # Check if 'ratio_TSS' column exists (and has valid data)
+        tss_threshold = args.ratio_TSS_threshold
+        if 'ratio_TSS' in cls_valid.columns:
+             # Ensure numeric, fill NA with 0 (unvalidated)
+            cls_valid['ratio_TSS'] = pd.to_numeric(cls_valid['ratio_TSS'], errors='coerce').fillna(0)
+            
+            # Identify validated transcripts
+            tss_valid = cls_valid[cls_valid['ratio_TSS'] >= tss_threshold].groupby('CB')['_count'].sum()
+            summary['TSS_ratio_validated_prop'] = safe_prop(tss_valid.reindex(summary.index, fill_value=0), summary['total_reads']).fillna(0)
+
+            # Add per-category TSS Validation
+            for cat in structural_categories:
+                tag = cat_to_tag[cat]
+                denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
+                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['ratio_TSS'] >= tss_threshold)].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
+                summary[f"{tag}_TSS_ratio_validated_prop"] = safe_prop(numer, denom).fillna(0)
+            
+            for abbr, cat in abbr_pairs:
+                denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum()
+                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['ratio_TSS'] >= tss_threshold)].groupby('CB')['_count'].sum()
+                summary[f"{abbr}_TSS_ratio_validated_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0)).fillna(0)
+        else:
+             summary['TSS_ratio_validated_prop'] = 0
+             for cat in structural_categories:
+                tag = cat_to_tag[cat]
+                summary[f"{tag}_TSS_ratio_validated_prop"] = 0
 
         summary = summary.reset_index()
         if args.mode == 'isoforms':
