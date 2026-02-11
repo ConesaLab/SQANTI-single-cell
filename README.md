@@ -119,9 +119,9 @@ usage: sqanti_sc.py [-h] --mode {reads,isoforms} --design DESIGN --refGTF REFGTF
                     [--skipORF] [--orf_input ORF_INPUT]
                     [--CAGE_peak CAGE_PEAK] [--polyA_motif_list POLYA_MOTIF_LIST] 
                     [--polyA_peak POLYA_PEAK] [--phyloP_bed PHYLOP_BED] 
-                    [-e EXPRESSION] [-c COVERAGE] 
                     [--isoAnnotLite] [--gff3 GFF3]
                     [--isoform_hits] [--ratio_TSS_metric {max,mean,median,3quartile}] 
+                    [--min_cov MIN_COV] [--ratio_TSS RATIO_TSS] 
                     [-t CPUS] [-n CHUNKS] [-l {ERROR,WARNING,INFO,DEBUG}] 
                     [--is_fusion] [-v]
 ```
@@ -160,6 +160,8 @@ SQANTI-sc specific options:
                         Prefix for multisample report (Default: SQANTI_sc_multisample_report)
   --write_per_cell_outputs
                         Write per-cell gene/UJC counts and CV matrices
+  --min_cov MIN_COV     Minimum short read coverage to validate an isoform (default: 1)
+  --ratio_TSS RATIO_TSS Minimum ratio_TSS to validate a TSS (default: 2.0)
 
 SQANTI-sc Clustering and UMAP options:
   --run_clustering      Run cell clustering and UMAP analysis
@@ -194,9 +196,7 @@ ORF prediction:
   --orf_input ORF_INPUT Input fasta to run ORF on.
 
 SQANTI3 Orthogonal data inputs:
-  --short_reads SHORT_READS
-                        FOFN of short-read RNA-Seq files (FASTA/FASTQ) for validation
-  --SR_bam SR_BAM       Directory or FOFN of short-read BAM files for validation
+  
   --CAGE_peak CAGE_PEAK FANTOM5 Cage Peak (BED format)
   --polyA_motif_list LIST
                         Ranked list of polyA motifs (text)
@@ -204,10 +204,6 @@ SQANTI3 Orthogonal data inputs:
                         PolyA Peak (BED format)
   --phyloP_bed PHYLOP_BED
                         PhyloP BED for conservation scores
-  -e EXPRESSION, --expression EXPRESSION
-                        Expression matrix (e.g. Kallisto tsv)
-  -c COVERAGE, --coverage COVERAGE
-                        Junction coverage files (comma-separated or pattern)
 
 Functional annotation:
   --isoAnnotLite        Run isoAnnot Lite for tappAS compatibility
@@ -319,8 +315,8 @@ A comma-separated values (CSV) file containing the metadata for your samples.
 | `file_acc` | **Required**. The file prefix used to locate your input transcript models files (matches `{file_acc}.gtf` or `{file_acc}.fasta`). These will also be the names of the output directories where the output files corresponding to each sample will be located. |
 | `cell_association` | **Conditional**. Path to the file linking Isoform IDs to Cell Barcodes (TSV) *if no abundance matrix is present*. |
 | `abundance` | **Conditional**. Path to a folder containing quantification data in **Market Exchange (MEX) format**. The folder **MUST** contain three files: `matrix.mtx`, `features.tsv` (with the transcript model IDs used in the input), and `barcodes.tsv`.|
-| `coverage` | **Optional**. Path to the STAR splice junction output file (`SJ.out.tab`). Used to validate splice junctions. |
-| `SR_bam` | **Optional**. Path to a sorted and indexed BAM file of short reads. Used to validate TSS. |
+| `coverage` | **Optional**. Path to STAR splice junction output(s). Used to validate splice junctions. Can be a single file, a directory, a comma-separated list, a wildcard pattern, or a File of File Names (FOFN). |
+| `SR_bam` | **Optional**. Path to short-read BAM file(s). Used to validate TSS. Can be a single BAM file or a File of File Names (FOFN) containing paths to multiple BAMs. |
 
 *Note*: You can provide either a `cell_association` file or `abundance` directory as your cell barcode-isoform association file. If you want to perform quality control with the quantification of the expression of the isoforms (recommended) you will need the count matrix, but is not mandatory to run the isoforms mode.
 
@@ -362,14 +358,14 @@ SQANTI-sc accepts orthogonal data to assist in the quality control and filtering
 
 SQANTI-sc supports orthogonal validation of Splice Junctions and TSS using short reads. However, unlike SQANTI3, it does **not** accept raw FASTQ inputs (`--short_reads`). Instead, users must perform the short-read alignment externally (e.g., using [STAR](https://github.com/alexdobin/STAR)) and provide the resulting files via new columns in the **Design File**.
 
-This strategy treats short-read data as a "bulk proxy" to validate the single-cell long-read isoforms. We recommend using deeper bulk RNA-seq data from the same tissue/condition to validate the single-cell library. To learn more about the metrics related to short-reads coverage, visit [SQANTI3 documentation](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-Quality-Control#SR).
+This strategy treats short-read data as a "bulk proxy" to validate the single-cell long-read isoforms. We recommend using deeper bulk RNA-seq data from the same tissue/condition to validate the single-cell library. To learn more about the metrics related to short-reads validation, visit [SQANTI3 documentation](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-Quality-Control#SR).
 
 **Design File Columns for Short Reads:**
 
 | Column | Description |
 | :--- | :--- |
-| `coverage` | **Optional**. Path to the STAR splice junction output file (usually `SJ.out.tab`). Used to validate splice junctions. Equivalent to `--coverage` flag from SQANTI3. |
-| `SR_bam` | **Optional**. Path to a sorted and indexed BAM file of short reads. Used to calculate the TSS ratio and validate 5' ends. Equivalent to `--SR_bam` flag from SQANTI3.|
+| `coverage` | **Optional**. Path to the STAR splice junction output file (usually `SJ.out.tab`). Used to validate splice junctions. <br> **Replicates**: You can provide multiple files using any of these methods: <br> 1. **Directory**: Path to a directory containing `*SJ.out.tab` files. <br> 2. **Comma-separated list**: Absolute paths separated by commas (e.g., `/path/to/rep1_SJ.out.tab,/path/to/rep2_SJ.out.tab`). <br> 3. **Wildcard pattern**: A pattern matching multiple files (e.g., `/path/to/*SJ.out.tab`). <br> 4. **FOFN (File of File Names)**: A text file containing the absolute path to each junction file on a new line. |
+| `SR_bam` | **Optional**. Path to a sorted and indexed BAM file of short reads. Used to calculate the TSS ratio and validate 5' ends. <br> **Replicates**: You can provide a **FOFN (File of File Names)**: A text file containing the absolute path to each BAM file on a new line. SQANTI-sc will pass this list to SQANTI3, which will process all BAMs and aggregate the results. |
 
 > NOTE:
 > **Why matching 10x Short Reads are not supported?**
@@ -478,6 +474,10 @@ The output `_SQANTI_cell_summary.txt.gz` has the following possible fields:
 * **`[Category]_canon_prop`** : Proportion of canonical splicing within each structural category.  
 * **`NMD_prop_in_cell`** : Proportion of reads predicted to be NMD candidates (if ORF prediction is on).  
 * **`[Category]_NMD_prop`** : Proportion of NMD candidates within each structural category.  
+* **`srjunctions_support_prop`** : Proportion of reads/transcripts supported by short read junctions (min_cov >= threshold).
+* **`[Category]_srjunctions_support_prop`** : Proportion of short read junction support within each structural category.
+* **`TSS_ratio_validated_prop`** : Proportion of reads/transcripts with validated TSS (ratio_TSS >= threshold).
+* **`[Category]_TSS_ratio_validated_prop`** : Proportion of TSS validation within each structural category.
 * **`[Category]_[non]_coding_prop`** : Proportion of coding vs non-coding transcripts within each category.  
 * **`CAGE_peak_support_prop`** : Proportion of reads supported by CAGE peaks (if provided).  
 * **`[Category]_CAGE_peak_support_prop`** : Proportion of CAGE support within each structural category.  
