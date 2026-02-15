@@ -27,6 +27,7 @@ from classification_enrichment import annotate_with_ujc_hash, annotate_with_cell
 from qc_reports import generate_report, generate_multisample_report
 from qc_pipeline import main as pipeline_main
 from cell_metrics import calculate_metrics_per_cell
+from sc_clustering import prepare_anndata, run_clustering_analysis
 
 
 @pytest.fixture
@@ -83,6 +84,19 @@ def mock_args(tmpdir):
             self.gff3 = None
             self.version = "0.1.1"
             self.log_level = "INFO"
+            self.min_cov = 1
+            self.ratio_TSS_threshold = 2.0
+            self.ref_cov_min_pct = 45.0
+
+            # Clustering-related attributes
+            self.run_clustering = False
+            self.normalization = 'log1p'
+            self.n_neighbors = 15
+            self.n_pc = 30
+            self.resolution = 0.5
+            self.n_top_genes = 2000
+            self.clustering_method = 'leiden'
+            self.n_clusters = 10
 
             # Create dummy design file and output directory
             design_content = "sampleID,file_acc\nsample1,file1"
@@ -467,30 +481,32 @@ def test_calculate_metrics_divzero_safety(tmpdir, mock_args):
 @patch('qc_reports.reportAssetsPath', 'utilities')
 def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
     """Test report generation command."""
-    mock_isfile.return_value = True
     mock_args.mode = "reads"
     df = pd.DataFrame({"sampleID": ["sample1"], "file_acc": ["file1"]})
+
+    prefix = f"{mock_args.out_dir}/file1/sample1"
+    class_file = f"{prefix}_classification.txt"
+    junc_file = f"{prefix}_junctions.txt"
+    cell_summary = f"{prefix}_SQANTI_cell_summary.txt.gz"
+    clustering_file = os.path.join(os.path.dirname(prefix), "clustering", "umap_results.csv")
+
+    # class, junc, and cell_summary exist; clustering does NOT
+    def _isfile(path):
+        return path != clustering_file
+    mock_isfile.side_effect = _isfile
 
     generate_report(mock_args, df)
 
     captured = capsys.readouterr()
     assert "SQANTI3 report generated for file1" in captured.out
 
-    # Verify subprocess.run was called with the correct new command
-    class_file = f"{mock_args.out_dir}/file1/sample1_classification.txt"
-    junc_file = f"{mock_args.out_dir}/file1/sample1_junctions.txt"
-    prefix = f"{mock_args.out_dir}/file1/sample1"
-    # The script appends --cell_summary when the file exists
-    cell_summary = f"{prefix}_SQANTI_cell_summary.txt.gz"
     expected_cmd = (
         f"Rscript utilities/SQANTI-sc_reads.R "
         f"{class_file} {junc_file} {mock_args.report} {prefix} "
         f"{mock_args.mode} --cell_summary {cell_summary}"
     ).strip()
 
-    # Extract the actual command, handle potential whitespace differences
     actual_cmd = " ".join(mock_run.call_args[0][0].split())
-
     assert actual_cmd == expected_cmd
 
 
@@ -624,3 +640,238 @@ def test_annotate_with_cell_metadata_missing_columns(
 
     captured = capsys.readouterr()
     assert "missing required columns" in captured.err
+
+
+# ==============================================================================
+# Clustering Tests
+# ==============================================================================
+
+def test_prepare_anndata_reads_mode(mock_args, tmpdir):
+    """Test prepare_anndata creates an AnnData with correct shape in reads mode."""
+    mock_args.mode = 'reads'
+    out_dir = str(tmpdir.join('output_dir'))
+    os.makedirs(out_dir, exist_ok=True)
+    mock_args.out_dir = out_dir
+    file_acc = 'f1'
+    sampleID = 's1'
+    sample_dir = os.path.join(out_dir, file_acc)
+    os.makedirs(sample_dir, exist_ok=True)
+    prefix = os.path.join(sample_dir, sampleID)
+
+    cls = pd.DataFrame({
+        'isoform': ['i1', 'i2', 'i3'],
+        'CB': ['CELL1', 'CELL1', 'CELL2'],
+        'associated_gene': ['geneA', 'geneB', 'geneA'],
+    })
+    cls.to_csv(f"{prefix}_classification.txt", sep='\t', index=False)
+
+    row = pd.Series({'sampleID': sampleID, 'file_acc': file_acc})
+    adata = prepare_anndata(mock_args, row)
+
+    assert adata is not None
+    assert adata.shape[0] == 2   # 2 cells: CELL1, CELL2
+    assert adata.shape[1] == 2   # 2 genes: geneA, geneB
+
+
+def test_prepare_anndata_isoforms_mode(mock_args, tmpdir):
+    """Test prepare_anndata correctly expands comma-separated CB and FL in isoforms mode."""
+    mock_args.mode = 'isoforms'
+    out_dir = str(tmpdir.join('output_dir'))
+    os.makedirs(out_dir, exist_ok=True)
+    mock_args.out_dir = out_dir
+    file_acc = 'f1'
+    sampleID = 's1'
+    sample_dir = os.path.join(out_dir, file_acc)
+    os.makedirs(sample_dir, exist_ok=True)
+    prefix = os.path.join(sample_dir, sampleID)
+
+    # Isoform i1 seen in two cells with 3 and 5 counts respectively
+    cls = pd.DataFrame({
+        'isoform': ['i1', 'i2'],
+        'CB': ['CELL1,CELL2', 'CELL2'],
+        'FL': ['3,5', '2'],
+        'associated_gene': ['geneA', 'geneA'],
+    })
+    cls.to_csv(f"{prefix}_classification.txt", sep='\t', index=False)
+
+    row = pd.Series({'sampleID': sampleID, 'file_acc': file_acc})
+    adata = prepare_anndata(mock_args, row)
+
+    assert adata is not None
+    assert adata.shape[0] == 2   # 2 cells
+    # CELL1: geneA=3, CELL2: geneA=5+2=7
+    cell2_geneA = adata[adata.obs_names == 'CELL2', 'geneA'].X
+    assert cell2_geneA.item() == 7
+
+
+def test_prepare_anndata_missing_file(mock_args, tmpdir, capsys):
+    """Test prepare_anndata returns None when classification file is missing."""
+    mock_args.mode = 'reads'
+    mock_args.out_dir = str(tmpdir.join('output_dir'))
+    os.makedirs(mock_args.out_dir, exist_ok=True)
+
+    row = pd.Series({'sampleID': 'nonexist', 'file_acc': 'nonexist'})
+    adata = prepare_anndata(mock_args, row)
+
+    assert adata is None
+    captured = capsys.readouterr()
+    assert "Classification file not found" in captured.err
+
+
+def test_prepare_anndata_no_valid_barcodes(mock_args, tmpdir, capsys):
+    """Test prepare_anndata returns None when all CBs are empty/NA."""
+    mock_args.mode = 'reads'
+    out_dir = str(tmpdir.join('output_dir'))
+    os.makedirs(out_dir, exist_ok=True)
+    mock_args.out_dir = out_dir
+    file_acc = 'f1'
+    sampleID = 's1'
+    sample_dir = os.path.join(out_dir, file_acc)
+    os.makedirs(sample_dir, exist_ok=True)
+    prefix = os.path.join(sample_dir, sampleID)
+
+    cls = pd.DataFrame({
+        'isoform': ['i1', 'i2'],
+        'CB': ['', 'NA'],
+        'associated_gene': ['geneA', 'geneB'],
+    })
+    cls.to_csv(f"{prefix}_classification.txt", sep='\t', index=False)
+
+    row = pd.Series({'sampleID': sampleID, 'file_acc': file_acc})
+    adata = prepare_anndata(mock_args, row)
+
+    assert adata is None
+    captured = capsys.readouterr()
+    assert "No valid cell barcodes" in captured.out
+
+
+@patch('sc_clustering.sc')
+def test_run_clustering_analysis_smoke(mock_scanpy, mock_args, tmpdir):
+    """Smoke test: run_clustering_analysis calls scanpy pipeline and writes CSV."""
+    mock_args.mode = 'reads'
+    out_dir = str(tmpdir.join('output_dir'))
+    os.makedirs(out_dir, exist_ok=True)
+    mock_args.out_dir = out_dir
+    file_acc = 'f1'
+    sampleID = 's1'
+    sample_dir = os.path.join(out_dir, file_acc)
+    os.makedirs(sample_dir, exist_ok=True)
+    prefix = os.path.join(sample_dir, sampleID)
+
+    # Create classification file with enough data
+    cls = pd.DataFrame({
+        'isoform': [f'i{i}' for i in range(20)],
+        'CB': [f'CELL{i % 5}' for i in range(20)],
+        'associated_gene': [f'gene{i % 3}' for i in range(20)],
+    })
+    cls.to_csv(f"{prefix}_classification.txt", sep='\t', index=False)
+
+    # Mock scanpy to avoid requiring the full pipeline
+    import numpy as np
+    mock_adata = MagicMock()
+    mock_adata.n_vars = 3
+    mock_adata.obs_names = [f'CELL{i}' for i in range(5)]
+    mock_adata.obsm = {'X_umap': np.random.rand(5, 2), 'X_pca': np.random.rand(5, 3)}
+    mock_adata.obs = pd.DataFrame({'leiden': ['0', '1', '0', '1', '0']}, index=mock_adata.obs_names)
+
+    with patch('sc_clustering.prepare_anndata', return_value=mock_adata):
+        row = pd.Series({'sampleID': sampleID, 'file_acc': file_acc})
+        run_clustering_analysis(mock_args, row)
+
+    # Check that the output CSV was written
+    out_csv = os.path.join(sample_dir, 'clustering', 'umap_results.csv')
+    assert os.path.isfile(out_csv)
+    result_df = pd.read_csv(out_csv)
+    assert 'Barcode' in result_df.columns
+    assert 'Cluster' in result_df.columns
+    assert 'UMAP_1' in result_df.columns
+    assert 'UMAP_2' in result_df.columns
+
+
+@patch('qc_reports.subprocess.run')
+@patch('qc_reports.os.path.isfile')
+@patch('qc_reports.reportAssetsPath', 'utilities')
+def test_generate_report_with_clustering_flag(mock_isfile, mock_run, mock_args):
+    """When clustering results exist, the report command should include --clustering."""
+    mock_args.mode = "isoforms"
+    df = pd.DataFrame({"sampleID": ["sample1"], "file_acc": ["file1"]})
+
+    prefix = f"{mock_args.out_dir}/file1/sample1"
+    clustering_file = os.path.join(os.path.dirname(prefix), "clustering", "umap_results.csv")
+
+    def _isfile_side_effect(path):
+        return True  # All files exist including clustering
+
+    mock_isfile.side_effect = _isfile_side_effect
+
+    generate_report(mock_args, df)
+
+    actual_cmd = " ".join(mock_run.call_args[0][0].split())
+    assert "--clustering" in actual_cmd
+    assert "umap_results.csv" in actual_cmd
+
+
+@patch('qc_reports.subprocess.run')
+@patch('qc_reports.os.path.isfile')
+@patch('qc_reports.reportAssetsPath', 'utilities')
+def test_generate_report_with_optional_flags(mock_isfile, mock_run, mock_args):
+    """Flags like --skipORF, --CAGE_peak, --polyA_motif_list should appear in command."""
+    mock_isfile.return_value = True
+    mock_args.mode = "reads"
+    mock_args.skipORF = True
+    mock_args.CAGE_peak = True
+    mock_args.polyA_motif_list = True
+    df = pd.DataFrame({"sampleID": ["sample1"], "file_acc": ["file1"]})
+
+    generate_report(mock_args, df)
+
+    actual_cmd = " ".join(mock_run.call_args[0][0].split())
+    assert "--skipORF" in actual_cmd
+    assert "--CAGE_peak" in actual_cmd
+    assert "--polyA_motif_list" in actual_cmd
+
+
+@patch('qc_pipeline.build_parser')
+@patch('qc_pipeline.run_sqanti3_qc')
+@patch('qc_pipeline.annotate_with_ujc_hash')
+@patch('qc_pipeline.annotate_with_cell_metadata')
+@patch('qc_pipeline.calculate_metrics_per_cell')
+@patch('qc_pipeline.generate_report')
+@patch('qc_pipeline.run_clustering_analysis')
+def test_pipeline_main_with_clustering(
+        mock_clustering,
+        mock_generate_report,
+        mock_calc,
+        mock_add,
+        mock_hash,
+        mock_get,
+        mock_build_parser,
+        tmpdir):
+    """Pipeline main calls run_clustering_analysis when --run_clustering is set."""
+    class DummyArgs:
+        def __init__(self):
+            self.inDESIGN = str(tmpdir.join('design.csv'))
+            self.input_dir = str(tmpdir)
+            self.out_dir = str(tmpdir)
+            self.refGTF = __file__
+            self.refFasta = __file__
+            self.mode = 'isoforms'
+            self.report = 'html'
+            self.SKIPHASH = True
+            self.write_per_cell_outputs = False
+            self.log_level = 'INFO'
+            self.run_clustering = True  # <-- enabled
+
+    tmpdir.join('design.csv').write(
+        'sampleID,file_acc,cell_association\ns1,f1,assoc.txt\n'
+    )
+
+    class DummyParser:
+        def parse_args(self_inner):
+            return DummyArgs()
+
+    mock_build_parser.return_value = DummyParser()
+    pipeline_main()
+
+    assert mock_clustering.called
+    assert mock_generate_report.called
