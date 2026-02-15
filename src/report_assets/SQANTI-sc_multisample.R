@@ -1345,9 +1345,7 @@ main <- function() {
       file.copy(css_file, dirname(html_output_file), overwrite = TRUE)
     }
 
-    message("Generating HTML report...")
-    message("Rmd file: ", rmd_file)
-    message("Output file: ", html_output_file)
+
 
     rmarkdown::render(
       rmd_file,
