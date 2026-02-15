@@ -56,6 +56,7 @@ dependencies:
   - r-reshape=0.8.9
   - r-readr=2.1.5
   - r-scales=1.3.0
+  - r-r.utils
   - r-stringi=1.8.4
   - r-stringr=1.5.1
   - r-tibble=3.2.1
