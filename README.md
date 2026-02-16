@@ -2,9 +2,9 @@
   <img src="img/Conesalab_logos_V3_singlecell.svg" width="400" title="SQANTI-sc logo">
 </p>
 
-# SQANTI-single cell
+# SQANTI-single-cell
 
-**SQANTI-single cell (SQANTI-sc)** is a pipeline for the structural and quality control of long-read single-cell transcriptomics datasets. It extends the capabilities of [SQANTI3](https://github.com/ConesaLab/SQANTI3) and [SQANTI-reads](https://github.com/ConesaLab/SQANTI3) frameworks to provide cell-level structural and quality control metrics. 
+**SQANTI-single-cell (SQANTI-sc)** is a pipeline for the structural and quality control of long-read single-cell transcriptomics datasets. It extends the capabilities of [SQANTI3](https://github.com/ConesaLab/SQANTI3) and [SQANTI-reads](https://github.com/ConesaLab/SQANTI3) frameworks to provide cell-level structural and quality control metrics. 
 
 
 Table of Contents:
@@ -352,11 +352,11 @@ python sqanti_sc.py \
 SQANTI-sc accepts orthogonal data to assist in the quality control and filtering of artifactual transcript models. 
 * CAGE peak data (`--CAGE_peak`) for Transcription Start Site (TSS) validation.
 * PolyA information (`--polyA_motif_list`, `--polyA_peak`) for Transcription Termination Site (TTS) validation. 
-* Short Reads data (Splice Junctions and BAMs) provided via the **Design File**.
+* Short Reads data (Splice Junctions and alignment BAMs) provided via the **Design File**.
 
 ### Short Reads Validation
 
-SQANTI-sc supports orthogonal validation of Splice Junctions and TSS using short reads. However, unlike SQANTI3, it does **not** accept raw FASTQ inputs (`--short_reads`). Instead, users must perform the short-read alignment externally (e.g., using [STAR](https://github.com/alexdobin/STAR)) and provide the resulting files via new columns in the **Design File**.
+SQANTI-sc supports orthogonal validation of Splice Junctions and TSS using short reads. However, unlike SQANTI3, it does **not** accept raw FASTQ inputs (`--short_reads`). Instead, users must perform the short-read alignment externally (e.g., using [STAR](https://github.com/alexdobin/STAR)) and provide the resulting files via new columns in the **Design File**. You can use the script `run_STAR.py` stored in the scripts/ directory to automatically run this alignment with the SQANTI3 parameters. 
 
 This strategy treats short-read data as a "bulk proxy" to validate the single-cell long-read isoforms. We recommend using deeper bulk RNA-seq data from the same tissue/condition to validate the single-cell library. To learn more about the metrics related to short-reads validation, visit [SQANTI3 documentation](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-Quality-Control#SR).
 
