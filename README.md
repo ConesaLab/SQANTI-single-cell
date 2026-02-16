@@ -1,8 +1,10 @@
 <p align="center">
-  <img src="img/Conesalab_logos_V3_singlecell.svg" width="400" title="SQANTI-sc logo">
+  <img src="img/Conesalab_logos_V3_singlecell.svg" width="600" title="SQANTI-sc logo">
 </p>
 
 # SQANTI-single-cell
+
+⚠️⚠️ WARNING: SQANTI-single-cell is currently under development. Use at your own risk. ⚠️⚠️
 
 **SQANTI-single-cell (SQANTI-sc)** is a pipeline for the structural and quality control of long-read single-cell transcriptomics datasets. It extends the capabilities of [SQANTI3](https://github.com/ConesaLab/SQANTI3) and [SQANTI-reads](https://github.com/ConesaLab/SQANTI3) frameworks to provide cell-level structural and quality control metrics. 
 
@@ -483,3 +485,10 @@ The output `_SQANTI_cell_summary.txt.gz` has the following possible fields:
 * **`[Category]_CAGE_peak_support_prop`** : Proportion of CAGE support within each structural category.  
 * **`PolyA_motif_support_prop`** : Proportion of reads with identified PolyA motifs (if provided).  
 * **`[Category]_PolyA_motif_support_prop`** : Proportion of PolyA support within each structural category.  
+
+## Citation
+
+If you are using SQANTI-single-cell, please cite:
+- https://github.com/ConesaLab/SQANTI-single-cell
+- Pardo-Palacios, F.J., Arzalluz-Luque, A. et al. **SQANTI3: curation of long-read transcriptomes for accurate identification of known and novel isoforms**. *Nat Methods* (2024). https://doi.org/10.1038/s41592-024-02229-2
+- Keil N, Monzó C, McIntyre L, Conesa A (2025). **Quality assessment of long read data in multisample lrRNA-seq experiments with SQANTI-reads**. *Genome Res*, 35(4), 987. https://doi.org/10.1101/gr.280021.124

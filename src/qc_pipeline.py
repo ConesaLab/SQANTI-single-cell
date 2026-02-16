@@ -11,7 +11,7 @@ from qc_reports import generate_report, generate_multisample_report
 from sc_clustering import run_clustering_analysis
 
 def main():
-    ap = build_parser(version_str='0.2.1')
+    ap = build_parser(version_str='1.0.0')
     args = ap.parse_args()
 
     try:
