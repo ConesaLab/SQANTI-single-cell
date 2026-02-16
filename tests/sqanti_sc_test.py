@@ -501,7 +501,7 @@ def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
     assert "SQANTI3 report generated for file1" in captured.out
 
     expected_cmd = (
-        f"Rscript utilities/SQANTI-sc_reads.R "
+        f"Rscript utilities/SQANTI-sc_report.R "
         f"{class_file} {junc_file} {mock_args.report} {prefix} "
         f"{mock_args.mode} --cell_summary {cell_summary}"
     ).strip()
@@ -534,7 +534,7 @@ def test_generate_report_without_cell_summary(mock_isfile, mock_run, mock_args, 
     actual_cmd = " ".join(mock_run.call_args[0][0].split())
     assert "--cell_summary" not in actual_cmd
     expected_cmd = (
-        f"Rscript utilities/SQANTI-sc_reads.R "
+        f"Rscript utilities/SQANTI-sc_report.R "
         f"{class_file} {junc_file} {mock_args.report} {prefix} "
         f"{mock_args.mode}"
     ).strip()

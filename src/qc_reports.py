@@ -45,7 +45,7 @@ def generate_report(args, df):
                     flags.extend(["--clustering", clustering_file])
 
                 cmd = (
-                    f"Rscript {reportAssetsPath}/SQANTI-sc_reads.R "
+                    f"Rscript {reportAssetsPath}/SQANTI-sc_report.R "
                     f"{class_file} {junc_file} {args.report} {outputPathPrefix} "
                     f"{args.mode} {' '.join(flags)}"
                 )
@@ -95,7 +95,7 @@ def generate_multisample_report(args, df):
     mode = args.mode
 
     cmd = (
-        f"Rscript {reportAssetsPath}/SQANTI-sc_multisample.R "
+        f"Rscript {reportAssetsPath}/SQANTI-sc_multisample_report.R "
         f"--files \"{files_arg}\" --out_dir \"{out_dir}\" "
         f"--mode {mode} --report {report_fmt} --prefix \"{prefix}\""
     )

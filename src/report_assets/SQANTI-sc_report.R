@@ -1,8 +1,8 @@
 #!/usr/env/bin Rscript
 
-######################################################
-##### SQANTI single-cell reads report generation #####
-######################################################
+################################################
+##### SQANTI single-cell report generation #####
+################################################
 
 
 
@@ -4210,14 +4210,14 @@ if (report.format == "html" || report.format == "both") {
     stop("Cannot determine script location")
   }
 
-  rmd_file <- file.path(script_dir, "SQANTI-sc_reads_report.Rmd")
+  rmd_file <- file.path(script_dir, "SQANTI-sc_report.Rmd")
   css_file <- file.path(script_dir, "style.css")
 
   # Check if Rmd file exists
   if (!file.exists(rmd_file)) {
     stop(
       "R Markdown file not found: ", rmd_file,
-      "\nPlease ensure SQANTI-sc_reads_report.Rmd is in the same directory as this script."
+      "\nPlease ensure SQANTI-sc_report.Rmd is in the same directory as this script."
     )
   }
 
