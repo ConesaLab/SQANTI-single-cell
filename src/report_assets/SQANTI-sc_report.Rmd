@@ -1767,13 +1767,13 @@ if (exists("gg_tss_validation_by_category")) {
 `r if(knitr::is_latex_output()) "\\newpage"`
 
 ```{r clustering-header, results='asis'}
-if (mode != "reads" && exists("gg_umap") && !is.null(gg_umap)) {
+if (exists("gg_umap") && !is.null(gg_umap)) {
   cat("# Clustering analysis {.tabset .tabset-fade}\n")
 }
 ```
 
 ```{r clustering-umap-check, include=FALSE}
-show_umap <- (mode != "reads" && exists("gg_umap") && !is.null(gg_umap))
+show_umap <- (exists("gg_umap") && !is.null(gg_umap))
 ```
 
 ```{r clustering-clusters-header, results='asis'}
@@ -2024,7 +2024,7 @@ if (show_umap_cat) cat("</div>\n")
 ```
 
 ```{r clustering-umap-missing, results='asis'}
-if (mode != "reads" && !show_umap) {
+if (!show_umap) {
   cat("Clustering and UMAP analysis was not run or results are missing.\n")
 }
 ```

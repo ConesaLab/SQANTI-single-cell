@@ -1,8 +1,8 @@
 #!/usr/env/bin Rscript
 
-################################################
-##### SQANTI single-cell report generation #####
-################################################
+######################################################
+##### SQANTI single-cell reads report generation #####
+######################################################
 
 
 
@@ -142,7 +142,7 @@ fill_color_orange <- "#CC6633"
 
 # Check for clustering results
 gg_umap <- NULL
-if (mode == "isoforms" && file.exists(clustering_output)) {
+if (file.exists(clustering_output)) {
   print(paste("Found clustering results at:", clustering_output))
   tryCatch(
     {
@@ -167,7 +167,7 @@ if (mode == "isoforms" && file.exists(clustering_output)) {
       print(paste("Error reading clustering results:", e$message))
     }
   )
-} else if (mode == "isoforms") {
+} else {
   print("No clustering results found.")
 }
 
@@ -469,7 +469,7 @@ build_violin_plot <- function(df_long,
   # Configure layout with explicit tick positions and labels
   html_title <- paste0("<b>", gsub("\n", "<br>", title), "</b>")
   p <- p %>% layout(
-    title = list(text = html_title, font = list(size = 18), x = 0.5, xanchor = "center"),
+    title = list(text = html_title, font = list(size = 22), x = 0.5, xanchor = "center"),
     xaxis = list(
       title = x_title,
       tickmode = "array",
@@ -477,7 +477,7 @@ build_violin_plot <- function(df_long,
       ticktext = x_labels,
       tickangle = tick_angle_plotly,
       ticklabelposition = tick_label_position,
-      tickfont = list(size = 16),
+      tickfont = list(size = 20),
       showline = TRUE,
       linecolor = "black",
       linewidth = 1,
@@ -486,8 +486,8 @@ build_violin_plot <- function(df_long,
     ),
     yaxis = list(
       title = y_label,
-      titlefont = list(size = 16),
-      tickfont = list(size = 14),
+      titlefont = list(size = 20),
+      tickfont = list(size = 18),
       showline = TRUE,
       linecolor = "black",
       linewidth = 1,
@@ -496,7 +496,7 @@ build_violin_plot <- function(df_long,
     showlegend = legend,
     paper_bgcolor = "rgba(0,0,0,0)",
     plot_bgcolor = "rgba(0,0,0,0)",
-    font = list(family = "Arial", size = 14),
+    font = list(family = "Arial", size = 18),
     margin = list(t = 110, l = 80, r = 80, b = ifelse(x_tickangle == 0, 60, 90))
   )
 
@@ -750,8 +750,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     rgb(mix[1], mix[2], mix[3], maxColorValue = 255)
   }
 
-  # Generate UMAP plots by structural category if UMAP exists and mode is isoforms
-  if (mode == "isoforms" && exists("gg_umap") && !is.null(gg_umap)) {
+  # Generate UMAP plots by structural category if UMAP exists
+  if (exists("gg_umap") && !is.null(gg_umap)) {
     tryCatch(
       {
         umap_data <- gg_umap$data
@@ -802,7 +802,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
               p <- ggplot(merged_umap, aes(x = UMAP_1, y = UMAP_2, color = .data[[cat_col]])) +
                 geom_point(alpha = 0.6, size = 0.5) +
                 theme_classic() +
-                labs(title = paste("UMAP - %", cat_label), x = "UMAP 1", y = "UMAP 2", color = "Transcripts, %") +
+                labs(title = paste("UMAP - %", cat_label), x = "UMAP 1", y = "UMAP 2", color = paste0(entity_label_plural, ", %")) +
                 theme(
                   plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
                   axis.title = element_text(size = 16),
@@ -1010,7 +1010,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         limits = c(0, max(plot_data[[color_col]], na.rm = TRUE))
       ) +
       guides(color = guide_colorbar(barwidth = 2.5, barheight = 15)) +
-      labs(title = title, x = "UMAP 1", y = "UMAP 2", color = "Transcripts, %") +
+      labs(title = title, x = "UMAP 1", y = "UMAP 2", color = paste0(entity_label_plural, ", %")) +
       theme_classic() +
       theme(
         plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
@@ -1267,7 +1267,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     if (!is.null(legend_title)) legend_obj$title <- list(text = legend_title)
 
     p <- p %>% layout(
-      title = list(text = html_title, font = list(size = 18), x = 0.5, xanchor = "center"),
+      title = list(text = html_title, font = list(size = 22), x = 0.5, xanchor = "center"),
       xaxis = list(
         title = "",
         tickmode = "array",
@@ -1275,7 +1275,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         ticktext = x_tick_labels,
         tickangle = tick_angle_plotly,
         ticklabelposition = tick_label_position,
-        tickfont = list(size = 16),
+        tickfont = list(size = 20),
         showline = TRUE,
         linecolor = "black",
         linewidth = 1,
@@ -1283,7 +1283,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         range = c(-0.5, max(x_tick_positions) + 1)
       ),
       yaxis = list(
-        title = y_label, titlefont = list(size = 16), tickfont = list(size = 14), range = ylim,
+        title = y_label, titlefont = list(size = 20), tickfont = list(size = 18), range = ylim,
         showline = TRUE, linecolor = "black", linewidth = 1, zeroline = FALSE
       ),
       violinmode = "overlay",
@@ -1291,7 +1291,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       showlegend = TRUE,
       paper_bgcolor = "rgba(0,0,0,0)",
       plot_bgcolor = "rgba(0,0,0,0)",
-      font = list(family = "Arial", size = 14),
+      font = list(family = "Arial", size = 18),
       margin = list(t = 80, l = 80, r = 80, b = 120)
     )
     return(p)
@@ -1493,7 +1493,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     tick_angle_plotly <- 45
     tick_label_position <- "outside right"
     p <- p %>% layout(
-      title = list(text = html_title, font = list(size = 18), x = 0.5, xanchor = "center"),
+      title = list(text = html_title, font = list(size = 22), x = 0.5, xanchor = "center"),
       xaxis = list(
         title = "",
         categoryorder = "array",
@@ -1503,7 +1503,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         ticktext = x_labels,
         tickangle = tick_angle_plotly,
         ticklabelposition = tick_label_position,
-        tickfont = list(size = 16),
+        tickfont = list(size = 20),
         showline = TRUE,
         linecolor = "black",
         linewidth = 1,
@@ -1511,8 +1511,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       ),
       yaxis = list(
         title = paste(entity_label_plural, ", %", sep = ""),
-        titlefont = list(size = 16),
-        tickfont = list(size = 14),
+        titlefont = list(size = 20),
+        tickfont = list(size = 18),
         range = c(0, 100),
         showline = TRUE,
         linecolor = "black",
@@ -1522,7 +1522,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       showlegend = FALSE,
       paper_bgcolor = "rgba(0,0,0,0)",
       plot_bgcolor = "rgba(0,0,0,0)",
-      font = list(family = "Arial", size = 14),
+      font = list(family = "Arial", size = 18),
       margin = list(t = 110, l = 80, r = 80, b = 100)
     )
 
@@ -1640,18 +1640,22 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       legend = list(orientation = "h", y = -0.2, x = 0.5, xanchor = "center")
     )
     p <- p %>% layout(
-      title = list(text = title, font = list(size = 18), x = 0.5, xanchor = "center"),
+      title = list(text = title, font = list(size = 22), x = 0.5, xanchor = "center"),
       xaxis = list(
         title = paste("Exons per", entity_label),
+        titlefont = list(size = 20),
+        tickfont = list(size = 18),
         tickmode = "array", tickvals = seq_len(k_max), ticktext = ticktexts,
         showline = TRUE, linecolor = "black", linewidth = 1, zeroline = FALSE
       ),
       yaxis = list(
         title = y_label, range = c(0, 100),
+        titlefont = list(size = 20),
+        tickfont = list(size = 18),
         showline = TRUE, linecolor = "black", linewidth = 1, zeroline = FALSE
       ),
       paper_bgcolor = "rgba(0,0,0,0)", plot_bgcolor = "rgba(0,0,0,0)",
-      font = list(family = "Arial", size = 14),
+      font = list(family = "Arial", size = 18),
       margin = list(t = 90, l = 80, r = 60, b = 80)
     )
 
