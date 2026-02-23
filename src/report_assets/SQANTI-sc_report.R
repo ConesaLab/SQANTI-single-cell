@@ -2778,6 +2778,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # Calculate bulk-level stats
     if (mode == "isoforms") {
       total_reads_count <- sum(Classification_file$count, na.rm = TRUE)
+      unique_isoforms <- nrow(Classification_file)
     } else {
       total_reads_count <- nrow(Classification_file)
     }
@@ -2861,15 +2862,28 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     table_reads <- tableGrob(read_class_table, rows = NULL, theme = big_table_theme)
     table_sj <- tableGrob(SJ_class_table, rows = NULL, theme = big_table_theme)
 
-    if (unique_junctions > 0) {
+    if (mode == "isoforms") {
       unique_counts_text <- sprintf(
-        "Number of %s: %d\nUnique Genes: %d\nUnique Junction Chains: %d",
-        entity_label_plural, total_reads_count, unique_genes, unique_junctions
+        "Number of %s: %s\nUnique Isoforms: %s\nUnique Genes: %s",
+        entity_label_plural,
+        format(total_reads_count, big.mark = ","),
+        format(unique_isoforms, big.mark = ","),
+        format(unique_genes, big.mark = ",")
+      )
+    } else if (unique_junctions > 0) {
+      unique_counts_text <- sprintf(
+        "Number of %s: %s\nUnique Genes: %s\nUnique Junction Chains: %s",
+        entity_label_plural,
+        format(total_reads_count, big.mark = ","),
+        format(unique_genes, big.mark = ","),
+        format(unique_junctions, big.mark = ",")
       )
     } else {
       unique_counts_text <- sprintf(
-        "Number of %s: %d\nUnique Genes: %d",
-        entity_label_plural, total_reads_count, unique_genes
+        "Number of %s: %s\nUnique Genes: %s",
+        entity_label_plural,
+        format(total_reads_count, big.mark = ","),
+        format(unique_genes, big.mark = ",")
       )
     }
     unique_counts_grob <- textGrob(

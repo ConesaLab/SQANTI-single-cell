@@ -100,6 +100,10 @@ if (exists("Classification") && has_data(Classification)) {
   }
 
   cat(paste0("**Number of ", entity_label_plural, ":** "), format(total_reads_count, big.mark = ","), "\n\n")
+  if (mode == "isoforms") {
+    unique_isoforms <- nrow(Classification)
+    cat("**Unique Isoforms:** ", format(unique_isoforms, big.mark = ","), "\n\n")
+  }
   cat("**Unique Genes:** ", format(unique_genes, big.mark = ","), "\n\n")
   if (mode != "isoforms" && exists("unique_junctions") && !is.null(unique_junctions)) {
     cat("**Unique Junction Chains:** ", format(unique_junctions, big.mark = ","), "\n\n")
