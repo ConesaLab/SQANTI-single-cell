@@ -753,10 +753,14 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       return(NULL)
     }
 
-    keep_cols <- c(required_cols, if ("count" %in% colnames(cls_df)) "count")
+    keep_cols <- c(
+      required_cols,
+      if ("count" %in% colnames(cls_df)) "count",
+      if ("structural_category" %in% colnames(cls_df)) "structural_category"
+    )
     df <- cls_df[, keep_cols, drop = FALSE]
     for (col in required_cols) df[[col]] <- suppressWarnings(as.numeric(df[[col]]))
-    if (!"count" %in% colnames(df)) df$count <- 1L
+    if (!("count" %in% colnames(df))) df$count <- 1L
     df$count <- suppressWarnings(as.numeric(df$count))
     df$count[is.na(df$count) | df$count <= 0] <- 1
     df <- df[complete.cases(df[, required_cols]) & df$ref_length > 0, ]
@@ -767,8 +771,58 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # Compute coverage fractions (fraction of ref body covered by each read)
     # diff_to_TSS: positive = read starts upstream of ref TSS, negative = downstream
     # diff_to_TTS: positive = read ends downstream of ref TTS, negative = upstream
-    df$start_frac <- pmax(0, pmin(1, -df$diff_to_TSS / df$ref_length))
-    df$end_frac <- pmax(0, pmin(1, 1 + df$diff_to_TTS / df$ref_length))
+    #
+    # For FSM: diffs are within terminal exons, so genomic = transcript space.
+    #          Use exact formula: start = -diff_to_TSS / ref_length
+    # For ISM: diffs may cross introns, so genomic >> transcript space.
+    #          Use length/ref_length ratio + sign-based positioning:
+    #          - 5' only truncated:  covers (1-ratio) to 1
+    #          - 3' only truncated:  covers 0 to ratio
+    #          - Both truncated:     use genomic ratio to split the gap (approximation)
+    is_fsm <- !is.na(df$structural_category) & df$structural_category == "full-splice_match"
+    cov_ratio <- pmin(1, df$length / df$ref_length)
+
+    # FSM: exact formula (diffs within terminal exons = transcript space)
+    df$start_frac <- ifelse(is_fsm,
+      pmax(0, pmin(1, -df$diff_to_TSS / df$ref_length)),
+      NA_real_
+    )
+    df$end_frac <- ifelse(is_fsm,
+      pmax(0, pmin(1, 1 + df$diff_to_TTS / df$ref_length)),
+      NA_real_
+    )
+
+    # ISM: sign-based positioning with length/ref_length ratio
+    is_ism <- !is_fsm
+    tss_neg <- df$diff_to_TSS < 0 # 5' truncated
+    tts_neg <- df$diff_to_TTS < 0 # 3' truncated
+
+    # ISM: only 3' truncated (starts at ref TSS, ends early)
+    idx <- is_ism & !tss_neg & tts_neg
+    df$start_frac[idx] <- 0
+    df$end_frac[idx] <- cov_ratio[idx]
+
+    # ISM: only 5' truncated (starts late, ends at ref TTS)
+    idx <- is_ism & tss_neg & !tts_neg
+    df$start_frac[idx] <- 1 - cov_ratio[idx]
+    df$end_frac[idx] <- 1
+
+    # ISM: both truncated — use genomic ratio to distribute the gap
+    idx <- is_ism & tss_neg & tts_neg
+    total_gap <- pmax(0, df$ref_length[idx] - df$length[idx])
+    abs_tss <- abs(df$diff_to_TSS[idx])
+    abs_tts <- abs(df$diff_to_TTS[idx])
+    genomic_total <- abs_tss + abs_tts
+    five_prime_share <- ifelse(genomic_total > 0, abs_tss / genomic_total, 0.5)
+    df$start_frac[idx] <- pmin(1, total_gap * five_prime_share / df$ref_length[idx])
+    df$end_frac[idx] <- pmin(1, df$start_frac[idx] + cov_ratio[idx])
+
+    # ISM: neither truncated (rare, but handle: full coverage)
+    idx <- is_ism & !tss_neg & !tts_neg
+    df$start_frac[idx] <- 0
+    df$end_frac[idx] <- pmin(1, cov_ratio[idx])
+
+    # Safety: keep only rows where end > start
     df <- df[df$end_frac > df$start_frac, ]
     if (nrow(df) == 0) {
       return(NULL)
