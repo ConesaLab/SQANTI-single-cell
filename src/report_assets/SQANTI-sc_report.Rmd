@@ -53,11 +53,12 @@ render_sqanti_table <- function(df, digits = 3, page_len = 10) {
   dt <- DT::datatable(
     df,
     rownames = FALSE,
+    width = "100%",
     options = list(
       ordering = TRUE,
       pageLength = page_len,
       paging = FALSE,
-      autoWidth = TRUE,
+      autoWidth = FALSE,
       lengthChange = FALSE,
       searching = FALSE,
       info = FALSE,
