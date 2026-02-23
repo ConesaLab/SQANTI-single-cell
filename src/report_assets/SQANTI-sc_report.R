@@ -4,8 +4,6 @@
 ##### SQANTI single-cell reads report generation #####
 ######################################################
 
-
-
 ### Author: Juan Francisco Cervilla & Carlos Blanco
 
 #********************** Packages
@@ -18,7 +16,6 @@ suppressWarnings(suppressPackageStartupMessages({
   library(grid)
   library(gridExtra)
   library(rmarkdown)
-  library(plotly)
   library(scales)
   library(data.table)
 }))
@@ -171,16 +168,9 @@ if (file.exists(clustering_output)) {
   print("No clustering results found.")
 }
 
-
 # ----------------------------------------------------------------
 # Helper Functions (Global Scope)
 # ----------------------------------------------------------------
-
-# Helper: convert any R color (hex or named) to an rgba() string with alpha without affecting line color
-to_rgba <- function(col, alpha = 1.0) {
-  rgb <- grDevices::col2rgb(col)
-  sprintf("rgba(%d,%d,%d,%.3f)", rgb[1], rgb[2], rgb[3], alpha)
-}
 
 # Helper: pivot selected columns to long and return factor-ordered long df
 pivot_long <- function(df, cols) {
@@ -190,39 +180,37 @@ pivot_long <- function(df, cols) {
   out
 }
 
-# Helper: generic violin + box + mean-cross plot with shared theme (ggplot version for PDF)
-build_violin_plot_ggplot <- function(df_long,
-                                     title,
-                                     x_labels,
-                                     fill_map,
-                                     color_map = fill_map,
-                                     x_title = "",
-                                     y_label = paste(entity_label_plural, ", %", sep = ""),
-                                     legend = FALSE,
-                                     ylim = NULL,
-                                     override_outline_vars = character(0),
-                                     violin_alpha = 0.7,
-                                     box_alpha = 0.6,
-                                     box_width = 0.05,
-                                     x_tickangle = 45,
-                                     violin_outline_fill = FALSE,
-                                     box_outline_default = "grey20",
-                                     bandwidth = NULL,
-                                     adjust = 1) {
-  # Determine a robust bandwidth for KDE; floor to avoid bw=0 on constant data
-  vals <- df_long$Value
-  vals <- vals[is.finite(vals)]
-  bw_eff <- bandwidth
-  if (is.null(bw_eff) || !is.numeric(bw_eff) || is.na(bw_eff) || bw_eff <= 0) {
-    if (length(vals) >= 2) {
-      bw_eff <- stats::bw.nrd0(vals) * adjust
-    } else {
-      bw_eff <- NA_real_
-    }
+# Helper: generic violin + box + mean-cross plot with shared theme
+build_violin_plot <- function(df_long,
+                              title,
+                              x_labels,
+                              fill_map,
+                              color_map = fill_map,
+                              x_title = "",
+                              y_label = paste(entity_label_plural, ", %", sep = ""),
+                              legend = FALSE,
+                              ylim = NULL,
+                              override_outline_vars = character(0),
+                              violin_alpha = 0.7,
+                              box_alpha = 0.6,
+                              box_width = 0.05,
+                              x_tickangle = 45,
+                              violin_outline_fill = FALSE,
+                              box_outline_default = "grey20",
+                              adjust = 1,
+                              ...) {
+  # Clamp values for percentage / count plots
+  if (grepl("%", y_label)) {
+    df_long$Value <- pmin(pmax(df_long$Value, 0), 100)
+  } else if (grepl("count", y_label, ignore.case = TRUE)) {
+    df_long$Value <- pmax(df_long$Value, 0)
   }
+
+  # Compute robust bandwidth for KDE
+  vals <- df_long$Value[is.finite(df_long$Value)]
+  bw_eff <- if (length(vals) >= 2) stats::bw.nrd0(vals) * adjust else 0.1
   if (is.na(bw_eff) || bw_eff <= 0) bw_eff <- 0.1
 
-  # Create ggplot version for PDF output
   p <- ggplot(df_long, aes(x = Variable, y = Value)) +
     # Violin layer with outline rule
     {
@@ -237,7 +225,6 @@ build_violin_plot_ggplot <- function(df_long,
       if (isTRUE(violin_outline_fill)) scale_color_manual(values = fill_map, guide = "none") else NULL
     } +
     scale_x_discrete(labels = x_labels) +
-    labs(title = title, x = x_title, y = y_label) +
     labs(title = title, x = x_title, y = y_label) +
     theme_classic(base_size = 11) +
     theme(
@@ -267,478 +254,6 @@ build_violin_plot_ggplot <- function(df_long,
   }
 
   return(p)
-}
-
-# Helper: generic violin + box + mean-cross plot with shared theme
-build_violin_plot <- function(df_long,
-                              title,
-                              x_labels,
-                              fill_map,
-                              color_map = fill_map,
-                              x_title = "",
-                              y_label = paste(entity_label_plural, ", %", sep = ""),
-                              legend = FALSE,
-                              ylim = NULL,
-                              override_outline_vars = character(0),
-                              violin_alpha = 0.7,
-                              box_alpha = 0.6,
-                              box_width = 0.05,
-                              x_tickangle = 45,
-                              violin_outline_fill = FALSE,
-                              box_outline_default = "grey20",
-                              adjust = 1,
-                              format = "plotly") {
-  # Store data globally for PDF generation
-  plot_data_key <- paste0("plot_data_", gsub("[^A-Za-z0-9]", "_", title))
-  assign(plot_data_key, list(
-    df_long = df_long,
-    title = title,
-    x_labels = x_labels,
-    fill_map = fill_map,
-    color_map = color_map,
-    x_title = x_title,
-    y_label = y_label,
-    legend = legend,
-    ylim = ylim,
-    override_outline_vars = override_outline_vars,
-    violin_alpha = violin_alpha,
-    box_alpha = box_alpha,
-    box_width = box_width,
-    x_tickangle = x_tickangle,
-    violin_outline_fill = violin_outline_fill,
-    box_outline_default = box_outline_default
-  ), envir = .GlobalEnv)
-
-  # If this is a percentage plot, clamp values to [0,100] so violins don't extend under/over bounds
-  df_plot <- df_long
-  if (grepl("%", y_label)) {
-    df_plot$Value <- pmin(pmax(df_plot$Value, 0), 100)
-  } else if (grepl("count", y_label, ignore.case = TRUE)) {
-    df_plot$Value <- pmax(df_plot$Value, 0)
-  }
-
-  # Compute shared bandwidth for KDE across both HTML and PDF (with smoothing adjust)
-  valid_vals <- df_plot$Value[is.finite(df_plot$Value)]
-  bw_shared <- if (length(valid_vals) >= 2) stats::bw.nrd0(valid_vals) * adjust else NULL
-
-  # Store the clamped data for PDF generation as well (keeps parity)
-  assign(plot_data_key, list(
-    df_long = df_plot,
-    title = title,
-    x_labels = x_labels,
-    fill_map = fill_map,
-    color_map = color_map,
-    x_title = x_title,
-    y_label = y_label,
-    legend = legend,
-    ylim = ylim,
-    override_outline_vars = override_outline_vars,
-    violin_alpha = violin_alpha,
-    box_alpha = box_alpha,
-    box_width = box_width,
-    x_tickangle = x_tickangle,
-    violin_outline_fill = violin_outline_fill,
-    box_outline_default = box_outline_default,
-    bandwidth = bw_shared,
-    adjust = adjust
-  ), envir = .GlobalEnv)
-
-  # If ggplot format is requested, return it directly
-  if (format == "ggplot") {
-    return(build_violin_plot_ggplot(
-      df_long = df_plot,
-      title = title,
-      x_labels = x_labels,
-      fill_map = fill_map,
-      color_map = color_map,
-      x_title = x_title,
-      y_label = y_label,
-      legend = legend,
-      ylim = ylim,
-      override_outline_vars = override_outline_vars,
-      violin_alpha = violin_alpha,
-      box_alpha = box_alpha,
-      box_width = box_width,
-      x_tickangle = x_tickangle,
-      violin_outline_fill = violin_outline_fill,
-      box_outline_default = box_outline_default,
-      bandwidth = bw_shared
-    ))
-  }
-
-  # Create plotly plot directly with explicit x-axis positioning
-  p <- plot_ly()
-
-  # Get all unique levels and create numeric positions
-  all_levels <- levels(df_plot$Variable)
-  if (is.null(all_levels)) {
-    all_levels <- unique(as.character(df_plot$Variable))
-  }
-
-  # Create numeric x positions for each level
-  x_positions <- seq_along(all_levels)
-  names(x_positions) <- all_levels
-
-  # Determine Plotly tick angle so labels finish at the tick mark (matching PDF hjust = 1)
-  tick_angle_plotly <- if (!is.null(x_tickangle) && is.finite(x_tickangle) && x_tickangle != 0) x_tickangle else 0
-  tick_label_position <- if (tick_angle_plotly == 0) "outside" else "outside right"
-
-  # Add violin traces first (they will be in the background)
-  for (i in seq_along(all_levels)) {
-    var <- all_levels[i]
-    var_data <- df_plot[df_plot$Variable == var, ]
-
-    # Skip if no data for this level
-    if (nrow(var_data) == 0) next
-
-    line_col <- if (isTRUE(violin_outline_fill)) fill_map[var] else "black"
-    fill_rgba <- to_rgba(fill_map[var], violin_alpha)
-
-    p <- p %>% add_trace(
-      x = rep(x_positions[var], nrow(var_data)),
-      y = var_data$Value,
-      type = "violin",
-      side = "both",
-      name = x_labels[i],
-      fillcolor = fill_rgba,
-      line = list(color = to_rgba(line_col, 1.0), width = 0.6),
-      spanmode = "hard",
-      bandwidth = bw_shared,
-      points = FALSE,
-      showlegend = FALSE,
-      box = list(visible = FALSE),
-      meanline = list(visible = FALSE),
-      scalemode = "width",
-      width = 0.8
-    )
-  }
-
-  # Add boxplot traces second (they will be on top)
-  for (i in seq_along(all_levels)) {
-    var <- all_levels[i]
-    var_data <- df_plot[df_plot$Variable == var, ]
-
-    # Determine box outline color
-    box_color <- if (var %in% override_outline_vars) "grey90" else box_outline_default
-    fill_rgba_box <- to_rgba(fill_map[var], box_alpha)
-
-    p <- p %>% add_trace(
-      x = rep(x_positions[var], nrow(var_data)),
-      y = var_data$Value,
-      type = "box",
-      name = paste(x_labels[i], "Box"),
-      fillcolor = fill_rgba_box,
-      line = list(color = to_rgba(box_color, 1.0), width = 0.8),
-      showlegend = FALSE,
-      boxpoints = FALSE,
-      width = box_width
-    )
-  }
-
-  # Add mean points last (on top of everything)
-  mean_data <- df_plot %>%
-    group_by(Variable) %>%
-    summarise(mean_value = mean(Value, na.rm = TRUE), .groups = "drop")
-
-  for (i in seq_along(all_levels)) {
-    var <- all_levels[i]
-    mean_row <- mean_data[mean_data$Variable == var, ]
-
-    # Skip if no data for this level
-    if (nrow(mean_row) == 0) next
-
-    p <- p %>% add_trace(
-      x = x_positions[var],
-      y = mean_row$mean_value,
-      type = "scatter",
-      mode = "markers",
-      name = paste(x_labels[i], "Mean"),
-      marker = list(
-        symbol = "x-thin-open",
-        size = 6,
-        color = "red",
-        line = list(width = 1.5, color = "red")
-      ),
-      showlegend = FALSE
-    )
-  }
-
-  # Store the data key as an attribute for PDF conversion
-  attr(p, "plot_data_key") <- plot_data_key
-
-  # Configure layout with explicit tick positions and labels
-  html_title <- paste0("<b>", gsub("\n", "<br>", title), "</b>")
-  p <- p %>% layout(
-    title = list(text = html_title, font = list(size = 22), x = 0.5, xanchor = "center"),
-    xaxis = list(
-      title = x_title,
-      tickmode = "array",
-      tickvals = x_positions,
-      ticktext = x_labels,
-      tickangle = tick_angle_plotly,
-      ticklabelposition = tick_label_position,
-      tickfont = list(size = 20),
-      showline = TRUE,
-      linecolor = "black",
-      linewidth = 1,
-      zeroline = FALSE,
-      range = c(min(x_positions) - 0.5, max(x_positions) + 0.5)
-    ),
-    yaxis = list(
-      title = y_label,
-      titlefont = list(size = 20),
-      tickfont = list(size = 18),
-      showline = TRUE,
-      linecolor = "black",
-      linewidth = 1,
-      zeroline = FALSE
-    ),
-    showlegend = legend,
-    paper_bgcolor = "rgba(0,0,0,0)",
-    plot_bgcolor = "rgba(0,0,0,0)",
-    font = list(family = "Arial", size = 18),
-    margin = list(t = 110, l = 80, r = 80, b = ifelse(x_tickangle == 0, 60, 90))
-  )
-
-  # Apply y-axis limits if specified
-  if (!is.null(ylim)) {
-    p <- p %>% layout(yaxis = list(range = ylim))
-  } else if (grepl("%", y_label)) {
-    p <- p %>% layout(yaxis = list(range = c(0, 100)))
-  } else if (grepl("count", y_label, ignore.case = TRUE)) {
-    max_y <- suppressWarnings(max(df_plot$Value, na.rm = TRUE))
-    if (!is.finite(max_y)) max_y <- 1
-    p <- p %>% layout(yaxis = list(range = c(0, max_y * 1.05)))
-  }
-
-  return(p)
-}
-
-# Helper: convert plotly object back to ggplot for PDF output
-plotly_to_ggplot <- function(plotly_obj) {
-  if (inherits(plotly_obj, "ggplot") || inherits(plotly_obj, "gg")) {
-    return(plotly_obj)
-  }
-  if (is.null(plotly_obj) || !inherits(plotly_obj, "plotly")) {
-    return(ggplot() +
-      labs(title = "Plot not available") +
-      theme_minimal())
-  }
-
-  # Check if this plotly object has stored data
-  plot_data_key <- attr(plotly_obj, "plot_data_key")
-  if (!is.null(plot_data_key) && exists(plot_data_key, envir = .GlobalEnv)) {
-    plot_data <- get(plot_data_key, envir = .GlobalEnv)
-
-    # Use the stored data to create a proper ggplot
-    return(build_violin_plot_ggplot(
-      df_long = plot_data$df_long,
-      title = plot_data$title,
-      x_labels = plot_data$x_labels,
-      fill_map = plot_data$fill_map,
-      color_map = plot_data$color_map,
-      x_title = if (!is.null(plot_data$x_title)) plot_data$x_title else "",
-      y_label = plot_data$y_label,
-      legend = plot_data$legend,
-      ylim = plot_data$ylim,
-      override_outline_vars = plot_data$override_outline_vars,
-      violin_alpha = if (!is.null(plot_data$violin_alpha)) plot_data$violin_alpha else 0.7,
-      box_alpha = if (!is.null(plot_data$box_alpha)) plot_data$box_alpha else 0.6,
-      box_width = if (!is.null(plot_data$box_width)) plot_data$box_width else 0.05,
-      x_tickangle = if (!is.null(plot_data$x_tickangle)) plot_data$x_tickangle else 45,
-      violin_outline_fill = isTRUE(plot_data$violin_outline_fill),
-      box_outline_default = if (!is.null(plot_data$box_outline_default)) plot_data$box_outline_default else "grey20",
-      bandwidth = plot_data$bandwidth
-    ))
-  }
-
-  # Check if this is a grouped plot built via build_grouped_violin_plot
-  grouped_info <- attr(plotly_obj, "grouped_data")
-  if (!is.null(grouped_info)) {
-    df <- grouped_info$df
-    # Ensure factor levels
-    df$bin <- factor(df$bin, levels = grouped_info$bin_levels)
-    df$group <- factor(df$group, levels = names(grouped_info$fill_map))
-
-    # Compute effective bandwidth for grouped PDF
-    vals <- df$value
-    vals <- vals[is.finite(vals)]
-    bw_eff <- grouped_info$bandwidth
-    if (is.null(bw_eff) || !is.numeric(bw_eff) || is.na(bw_eff) || bw_eff <= 0) {
-      if (length(vals) >= 2) {
-        bw_eff <- stats::bw.nrd0(vals)
-      } else {
-        bw_eff <- NA_real_
-      }
-    }
-    if (is.na(bw_eff) || bw_eff <= 0) bw_eff <- 0.1
-
-    p <- ggplot(df, aes(x = bin, y = value, fill = group)) +
-      # Violin outlines should match fill color
-      geom_violin(aes(color = group),
-        alpha = if (!is.null(grouped_info$violin_alpha)) grouped_info$violin_alpha else 0.7,
-        position = position_dodge(width = if (!is.null(grouped_info$dodge_width)) grouped_info$dodge_width else 0.8), scale = "width", show.legend = TRUE, bw = bw_eff, trim = TRUE
-      ) +
-      scale_color_manual(values = grouped_info$fill_map, guide = "none") +
-      geom_boxplot(
-        width = if (!is.null(grouped_info$box_width)) grouped_info$box_width else 0.05,
-        outlier.shape = NA,
-        alpha = if (!is.null(grouped_info$box_alpha)) grouped_info$box_alpha else 0.6,
-        position = position_dodge(width = if (!is.null(grouped_info$dodge_width)) grouped_info$dodge_width else 0.8),
-        color = "grey20", show.legend = FALSE, lwd = 0.3
-      ) +
-      stat_summary(
-        fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1,
-        position = position_dodge(width = if (!is.null(grouped_info$dodge_width)) grouped_info$dodge_width else 0.8), show.legend = FALSE
-      ) +
-      scale_fill_manual(values = grouped_info$fill_map, labels = grouped_info$legend_labels) +
-      labs(title = grouped_info$title, x = "", y = grouped_info$y_label) +
-      labs(title = grouped_info$title, x = "", y = grouped_info$y_label) +
-      theme_classic(base_size = 11) +
-      theme(
-        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
-        axis.title = element_text(size = 12),
-        axis.text.y = element_text(size = 11),
-        axis.text.x = element_text(
-          size = 11, angle = if (!is.null(grouped_info$x_tickangle)) grouped_info$x_tickangle else 0,
-          hjust = ifelse(!is.null(grouped_info$x_tickangle) && grouped_info$x_tickangle == 0, 0.5, 1)
-        ),
-        legend.position = "bottom",
-        legend.title = element_blank()
-      )
-
-    if (!is.null(grouped_info$ylim)) {
-      p <- p + coord_cartesian(ylim = grouped_info$ylim)
-    }
-    return(p)
-  }
-
-  # Check if this is a faceted plot built via build_violin_plot_facets
-  facet_info <- attr(plotly_obj, "facet_data")
-  if (!is.null(facet_info)) {
-    df <- facet_info$df
-    fill_map <- facet_info$fill_map
-    x_labels <- facet_info$x_labels
-    # Ensure factors and orders
-    df$Variable <- factor(df$Variable, levels = names(fill_map))
-    df$facet <- factor(df$facet, levels = facet_info$facet_levels)
-
-    p <- ggplot(df, aes(x = Variable, y = Value, fill = Variable)) +
-      geom_violin(alpha = if (!is.null(facet_info$violin_alpha)) facet_info$violin_alpha else 0.7, scale = "width", show.legend = FALSE) +
-      geom_boxplot(width = if (!is.null(facet_info$box_width)) facet_info$box_width else 0.05, outlier.shape = NA, alpha = if (!is.null(facet_info$box_alpha)) facet_info$box_alpha else 0.6, show.legend = FALSE, lwd = 0.3) +
-      stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1, show.legend = FALSE) +
-      scale_fill_manual(values = fill_map, labels = x_labels, guide = if (isTRUE(facet_info$show_legend)) guide_legend(override.aes = list(shape = NA)) else "none") +
-      scale_x_discrete(labels = x_labels) +
-      labs(title = facet_info$title, x = "", y = facet_info$y_label) +
-      theme_classic(base_size = 14) +
-      theme(
-        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-        axis.title = element_text(size = 16),
-        axis.text.y = element_text(size = 14),
-        axis.text.x = element_text(
-          size = 12, angle = if (!is.null(facet_info$x_tickangle)) facet_info$x_tickangle else 45,
-          hjust = ifelse(!is.null(facet_info$x_tickangle) && facet_info$x_tickangle == 0, 0.5, 1)
-        ),
-        legend.position = if (isTRUE(facet_info$show_legend)) "bottom" else "none",
-        strip.placement = "outside",
-        strip.text.x = element_text(size = 16),
-        strip.background = element_blank()
-      ) +
-      facet_grid(. ~ facet, scales = "free_x", space = "free", switch = "x")
-
-    if (!is.null(facet_info$ylim)) {
-      p <- p + coord_cartesian(ylim = facet_info$ylim)
-    }
-    return(p)
-  }
-
-  # Profile fallback: build ggplot from stored profile_data
-  prof_info <- attr(plotly_obj, "profile_data")
-  if (!is.null(prof_info)) {
-    df <- prof_info$df
-    # Canonical Fusion color override
-    FUSION_COLOR <- "#F1C40F"
-    detect_fusion <- function(df) {
-      tryCatch(
-        {
-          (("category" %in% names(df)) && any(grepl("fusion", df$category, ignore.case = TRUE))) ||
-            (("label" %in% names(df)) && any(grepl("fusion", df$label, ignore.case = TRUE)))
-        },
-        error = function(e) FALSE
-      )
-    }
-    lc <- if (detect_fusion(df)) FUSION_COLOR else prof_info$line_color
-
-    # Compute x-axis break count (1..K-1, ≥K)
-    k_max <- if (!is.null(prof_info$k_max) && is.finite(prof_info$k_max)) prof_info$k_max else suppressWarnings(max(df$k[is.finite(df$k)], na.rm = TRUE))
-    if (!is.finite(k_max) || is.na(k_max) || k_max < 2) k_max <- 20
-
-    # Helper to lighten HEX colors
-    lighten_hex <- function(hex, amount = 0.4) {
-      rgb <- grDevices::col2rgb(hex)
-      r <- as.integer(round(rgb[1] + (255 - rgb[1]) * amount))
-      g <- as.integer(round(rgb[2] + (255 - rgb[2]) * amount))
-      b <- as.integer(round(rgb[3] + (255 - rgb[3]) * amount))
-      grDevices::rgb(r, g, b, maxColorValue = 255)
-    }
-
-    # Prepare summary-line data and aesthetics so PDF mirrors HTML styling
-    stat_cols <- intersect(colnames(df), c("mean", "median"))
-    line_stats <- if (length(stat_cols)) {
-      df %>%
-        dplyr::select(k, dplyr::all_of(stat_cols)) %>%
-        tidyr::pivot_longer(cols = dplyr::all_of(stat_cols), names_to = "stat", values_to = "value") %>%
-        dplyr::filter(!is.na(value)) %>%
-        dplyr::mutate(stat = dplyr::recode(stat, mean = "Mean", median = "Median"))
-    } else {
-      data.frame(k = numeric(0), stat = character(0), value = numeric(0))
-    }
-
-    line_levels <- unique(line_stats$stat)
-    line_palette <- if (length(line_levels)) setNames(rep(lc, length(line_levels)), line_levels) else character(0)
-    linetype_values <- if (length(line_levels)) setNames(rep("solid", length(line_levels)), line_levels) else character(0)
-    if ("Median" %in% names(linetype_values)) linetype_values["Median"] <- "dotdash"
-    central_stat <- if ("Mean" %in% line_levels) "Mean" else if ("Median" %in% line_levels) "Median" else NULL
-    legend_linewidths <- if (length(line_levels)) setNames(ifelse(line_levels == "Median", 1.0, 1.2), line_levels) else numeric(0)
-
-    tick_breaks <- seq_len(k_max)
-    label_last <- paste0("\u2265", k_max)
-    ticktexts <- c(as.character(seq_len(k_max - 1)), label_last)
-
-    p <- ggplot(df, aes(x = k)) +
-      geom_ribbon(aes(ymin = q1, ymax = q3, fill = "IQR"), alpha = 0.25, show.legend = TRUE, key_glyph = "rect") +
-      theme(legend.position = "bottom") +
-      scale_y_continuous(limits = c(0, 100)) +
-      scale_x_continuous(
-        breaks = tick_breaks,
-        labels = ticktexts,
-        expand = expansion(mult = c(0.01, 0.01))
-      ) +
-      labs(title = prof_info$title, x = "Exons", y = "% Transcripts", fill = "") +
-      scale_fill_manual(values = c("IQR" = lighten_hex(lc, 0.6))) +
-      theme_classic(base_size = 14) +
-      theme(
-        plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-        axis.title = element_text(size = 14),
-        axis.text = element_text(size = 12),
-        legend.position = "bottom",
-        legend.box = "horizontal"
-      )
-
-    # Add lines
-    if (nrow(line_stats) > 0) {
-      p <- p + geom_line(data = line_stats, aes(y = value, color = stat, linetype = stat, linewidth = stat)) +
-        scale_color_manual(values = line_palette, name = "") +
-        scale_linetype_manual(values = linetype_values, name = "") +
-        scale_linewidth_manual(values = legend_linewidths, name = "")
-    }
-
-    return(p)
-  }
-
-  return(ggplot() +
-    labs(title = "Plot not convertible") +
-    theme_minimal())
 }
 
 generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Junctions, report_output, generate_pdf = TRUE) {
@@ -793,10 +308,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
               cat_color <- cat_colors[[cat_col]]
               cat_label <- cat_labels[[cat_col]]
 
-              # Calculate gradient end colors
-              # High percentages: darker hue of the category color (not pure black)
               dark_color <- mix_color(cat_color, "black", 0.6)
-              # Low percentages: whiter hue but not pure white
               light_color <- mix_color(cat_color, "white", 0.8)
 
               p <- ggplot(merged_umap, aes(x = UMAP_1, y = UMAP_2, color = .data[[cat_col]])) +
@@ -826,16 +338,13 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
           # Use the new column name: srjunctions_support_prop
           if ("srjunctions_support_prop" %in% colnames(merged_umap) && sum(merged_umap$srjunctions_support_prop, na.rm = TRUE) > 0) {
             gg_sr_cluster_plots <<- list()
-            
-            # Helper: Prepare data for build_violin_plot
-            # We need a long DF with columns: Variable (Cluster), Value (Prop) for the function
+
             prepare_violin_data <- function(data, y_col) {
               df <- data[!is.na(data[[y_col]]), c("Cluster", y_col)]
               colnames(df) <- c("Variable", "Value")
               df$Variable <- as.factor(df$Variable)
               return(df)
             }
-            
 
             # ----------------------------------------------------------------
             # Define Cluster Colors (Shared for both TSS and Short Read Coverage)
@@ -848,66 +357,58 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
             # TSS Ratio Validated Support by Cluster (Violin Plots)
             # ----------------------------------------------------------------
             if ("TSS_ratio_validated_prop" %in% colnames(merged_umap) && sum(merged_umap$TSS_ratio_validated_prop, na.rm = TRUE) > 0) {
-               gg_tss_cluster_plots <<- list()
+              gg_tss_cluster_plots <<- list()
 
-                # Reuse helper if available, or redefine locally
-               prepare_violin_data <- function(data, y_col) {
-                 df <- data[!is.na(data[[y_col]]), c("Cluster", y_col)]
-                 colnames(df) <- c("Variable", "Value")
-                 df$Variable <- as.factor(df$Variable)
-                 return(df)
-               }
-               
-                 # 1. All Transcripts Plot - TSS
-                # Use Cluster Colors (same as Junctions Coverage)
-               p_all_tss <- build_violin_plot(
-                 df_long = prepare_violin_data(merged_umap, "TSS_ratio_validated_prop"),
-                 title = "All Transcripts TSS Validation by Short Reads",
-                 x_labels = levels(merged_umap$Cluster),
-                 fill_map = cluster_colors, 
-                 x_title = "Cluster",
-                 y_label = "TSS Ratio Validated, %",
-                 x_tickangle = 0,
-                 violin_outline_fill = TRUE,
-                 violin_alpha = 0.7,
-                 box_alpha = 0.3
-               )
-               gg_tss_cluster_plots[["All Transcripts"]] <<- p_all_tss
+              # 1. All Transcripts Plot - TSS
+              # Use Cluster Colors (same as Junctions Coverage)
+              p_all_tss <- build_violin_plot(
+                df_long = prepare_violin_data(merged_umap, "TSS_ratio_validated_prop"),
+                title = "All Transcripts TSS Validation by Short Reads",
+                x_labels = levels(merged_umap$Cluster),
+                fill_map = cluster_colors,
+                x_title = "Cluster",
+                y_label = "TSS Ratio Validated, %",
+                x_tickangle = 0,
+                violin_outline_fill = TRUE,
+                violin_alpha = 0.7,
+                box_alpha = 0.3
+              )
+              gg_tss_cluster_plots[["All Transcripts"]] <<- p_all_tss
 
-                # 2. Per-Category Plots - TSS
-                # Use Category Color for ALL clusters
-               for (cat_col in names(cat_colors)) {
-                 tag <- cat_labels[[cat_col]]
-                 prop_col <- paste0(tag, "_TSS_ratio_validated_prop") 
-                 if (tag == "Genic Genomic") prop_col <- "Genic_TSS_ratio_validated_prop" # Handle Genic weirdness if needed
-                 if (tag == "Genic Intron") prop_col <- "Genic_intron_TSS_ratio_validated_prop"
-                 
-                 # Clean up tag to match column naming convention if straightforward
-                 simple_tag <- names(cat_labels)[which(cat_labels == tag)] 
-                 simple_tag <- gsub("_prop", "", simple_tag) 
-                 prop_col <- paste0(simple_tag, "_TSS_ratio_validated_prop")
+              # 2. Per-Category Plots - TSS
+              # Use Category Color for ALL clusters
+              for (cat_col in names(cat_colors)) {
+                tag <- cat_labels[[cat_col]]
+                prop_col <- paste0(tag, "_TSS_ratio_validated_prop")
+                if (tag == "Genic Genomic") prop_col <- "Genic_TSS_ratio_validated_prop" # Handle Genic weirdness if needed
+                if (tag == "Genic Intron") prop_col <- "Genic_intron_TSS_ratio_validated_prop"
 
-                 if (prop_col %in% colnames(merged_umap)) {
-                   # Define single color map
-                   current_cat_color <- cat_colors[[cat_col]]
-                   fixed_color_map <- rep(current_cat_color, length(unique_clusters))
-                   names(fixed_color_map) <- unique_clusters
+                # Clean up tag to match column naming convention if straightforward
+                simple_tag <- names(cat_labels)[which(cat_labels == tag)]
+                simple_tag <- gsub("_prop", "", simple_tag)
+                prop_col <- paste0(simple_tag, "_TSS_ratio_validated_prop")
 
-                   p_cat_tss <- build_violin_plot(
-                     df_long = prepare_violin_data(merged_umap, prop_col),
-                     title = paste(tag, "TSS Validation by Short Reads"),
-                     x_labels = levels(merged_umap$Cluster),
-                     fill_map = fixed_color_map,
-                     x_title = "Cluster",
-                     y_label = "TSS Ratio Validated, %",
-                      x_tickangle = 0,
-                      violin_outline_fill = TRUE,
-                      violin_alpha = 0.7,
-                      box_alpha = 0.3
-                   )
-                   gg_tss_cluster_plots[[tag]] <<- p_cat_tss
-                 }
-               }
+                if (prop_col %in% colnames(merged_umap)) {
+                  # Define single color map
+                  current_cat_color <- cat_colors[[cat_col]]
+                  fixed_color_map <- rep(current_cat_color, length(unique_clusters))
+                  names(fixed_color_map) <- unique_clusters
+
+                  p_cat_tss <- build_violin_plot(
+                    df_long = prepare_violin_data(merged_umap, prop_col),
+                    title = paste(tag, "TSS Validation by Short Reads"),
+                    x_labels = levels(merged_umap$Cluster),
+                    fill_map = fixed_color_map,
+                    x_title = "Cluster",
+                    y_label = "TSS Ratio Validated, %",
+                    x_tickangle = 0,
+                    violin_outline_fill = TRUE,
+                    violin_alpha = 0.7,
+                    box_alpha = 0.3
+                  )
+                  gg_tss_cluster_plots[[tag]] <<- p_cat_tss
+                }
+              }
             }
 
             # ----------------------------------------------------------------
@@ -915,8 +416,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
             # ----------------------------------------------------------------
             # 1. Global Plot
             global_data <- prepare_violin_data(merged_umap, "srjunctions_support_prop")
-            
-            # Use build_violin_plot (which returns a Plotly object)
+
+            # Use build_violin_plot (which returns a ggplot object)
             gg_sr_cluster_plots[["All Transcripts"]] <<- build_violin_plot(
               df_long = global_data,
               title = "All Transcripts Junction Coverage by Short Reads",
@@ -936,40 +437,38 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
             # For these, we want to maintain the specific Structural Category color Scheme?
             # The user said: "the colors used for the violins and boxes should be the same in each structural category and the color should be the corresponding to the structural category."
             # This implies that for the FSM plot, ALL clusters should be colored with the FSM color.
-            
+
             for (cat_col in names(cat_labels)) {
-               # cat_labels[[cat_col]] is e.g. "FSM", "Genic Genomic"
-               tag <- cat_labels[[cat_col]]
-               tag_clean <- gsub(" ", "_", tag)
-               # New column name format: {TAG}_srjunctions_support_prop
-               sr_col <- paste0(tag_clean, "_srjunctions_support_prop")
-               
-               if (sr_col %in% colnames(merged_umap)) {
-                    cat_data <- prepare_violin_data(merged_umap, sr_col)
-                    
-                    # Define a single color map for all clusters based on the category color
-                    # cat_colors[[cat_col]] gives the hex code for that category
-                    current_cat_color <- cat_colors[[cat_col]]
-                    fixed_color_map <- rep(current_cat_color, length(unique_clusters))
-                    names(fixed_color_map) <- unique_clusters
-                    
-                    title <- paste(tag, "Junction Coverage by Short Reads")
-                    
-                    gg_sr_cluster_plots[[tag]] <<- build_violin_plot(
-                      df_long = cat_data,
-                      title = title,
-                      x_labels = levels(cat_data$Variable),
-                      fill_map = fixed_color_map, # Per-category uses the category color for all clusters
-                      y_label = "Transcripts Supported, %",
-                      legend = FALSE,
-                      x_title = "Cluster",
-                      x_tickangle = 0,
-                      ylim = c(0, 100),
-                      violin_outline_fill = TRUE,
-                      violin_alpha = 0.7,
-                      box_alpha = 0.3
-                    )
-               }
+              # cat_labels[[cat_col]] is e.g. "FSM", "Genic Genomic"
+              tag <- cat_labels[[cat_col]]
+              tag_clean <- gsub(" ", "_", tag)
+              # New column name format: {TAG}_srjunctions_support_prop
+              sr_col <- paste0(tag_clean, "_srjunctions_support_prop")
+
+              if (sr_col %in% colnames(merged_umap)) {
+                cat_data <- prepare_violin_data(merged_umap, sr_col)
+
+                current_cat_color <- cat_colors[[cat_col]]
+                fixed_color_map <- rep(current_cat_color, length(unique_clusters))
+                names(fixed_color_map) <- unique_clusters
+
+                title <- paste(tag, "Junction Coverage by Short Reads")
+
+                gg_sr_cluster_plots[[tag]] <<- build_violin_plot(
+                  df_long = cat_data,
+                  title = title,
+                  x_labels = levels(cat_data$Variable),
+                  fill_map = fixed_color_map, # Per-category uses the category color for all clusters
+                  y_label = "Transcripts Supported, %",
+                  legend = FALSE,
+                  x_title = "Cluster",
+                  x_tickangle = 0,
+                  ylim = c(0, 100),
+                  violin_outline_fill = TRUE,
+                  violin_alpha = 0.7,
+                  box_alpha = 0.3
+                )
+              }
             }
           }
         }
@@ -984,7 +483,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # Helper: Build Continuous UMAP (for coloring by %)
   # ----------------------------------------------------------------
   build_continuous_umap <- function(data, color_col, title, color_base = "blue") {
-    # Helper to mix colors (local to function to avoid dependency issues)
     mix_color <- function(col, target, amount) {
       c_rgb <- col2rgb(col)
       t_rgb <- col2rgb(target)
@@ -992,14 +490,15 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       rgb(mix[1], mix[2], mix[3], maxColorValue = 255)
     }
 
-    # Ensure data has UMAP coords
-    if (!all(c("UMAP_1", "UMAP_2") %in% colnames(data))) return(NULL)
-    
-    # Filter NA
-    plot_data <- data[!is.na(data[[color_col]]), ]
-    if (nrow(plot_data) == 0) return(NULL)
+    if (!all(c("UMAP_1", "UMAP_2") %in% colnames(data))) {
+      return(NULL)
+    }
 
-    # Define gradient colors
+    plot_data <- data[!is.na(data[[color_col]]), ]
+    if (nrow(plot_data) == 0) {
+      return(NULL)
+    }
+
     dark_color <- mix_color(color_base, "black", 0.6)
     light_color <- mix_color(color_base, "white", 0.8)
 
@@ -1032,8 +531,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   if (exists("merged_umap") && "srjunctions_support_prop" %in% colnames(merged_umap)) {
     # Global
     gg_sr_umap_plots[["All Transcripts"]] <<- build_continuous_umap(
-      merged_umap, 
-      "srjunctions_support_prop", 
+      merged_umap,
+      "srjunctions_support_prop",
       "All Transcripts Junction Coverage by Short Reads",
       color_base = "#cd4f39"
     )
@@ -1043,11 +542,11 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       tag <- cat_labels[[cat_col]]
       tag_clean <- gsub(" ", "_", tag)
       sr_col <- paste0(tag_clean, "_srjunctions_support_prop")
-      
+
       if (sr_col %in% colnames(merged_umap)) {
         gg_sr_umap_plots[[tag]] <<- build_continuous_umap(
-          merged_umap, 
-          sr_col, 
+          merged_umap,
+          sr_col,
           paste(tag, "Junction Coverage by Short Reads"),
           color_base = cat_colors[[cat_col]]
         )
@@ -1062,8 +561,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   if (exists("merged_umap") && "TSS_ratio_validated_prop" %in% colnames(merged_umap)) {
     # Global
     gg_tss_umap_plots[["All Transcripts"]] <<- build_continuous_umap(
-      merged_umap, 
-      "TSS_ratio_validated_prop", 
+      merged_umap,
+      "TSS_ratio_validated_prop",
       "All Transcripts TSS Validation by Short Reads",
       color_base = "#ffc125"
     )
@@ -1073,14 +572,14 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       tag <- cat_labels[[cat_col]]
       tag_clean <- gsub(" ", "_", tag)
       # Handle special cases if any (e.g. Genic Genomic)
-      simple_tag <- names(cat_labels)[which(cat_labels == tag)] 
+      simple_tag <- names(cat_labels)[which(cat_labels == tag)]
       simple_tag <- gsub("_prop", "", simple_tag)
       tss_col <- paste0(simple_tag, "_TSS_ratio_validated_prop")
 
       if (tss_col %in% colnames(merged_umap)) {
         gg_tss_umap_plots[[tag]] <<- build_continuous_umap(
-          merged_umap, 
-          tss_col, 
+          merged_umap,
+          tss_col,
           paste(tag, "TSS Validation by Short Reads"),
           color_base = cat_colors[[cat_col]]
         )
@@ -1088,15 +587,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     }
   }
 
-
-
-
-
-
-
-
-
-  # Helper: grouped violins by bin with legend (Annotated/Novel) using plotly, rebuildable for PDF
+  # Helper: grouped violins by bin with legend (Annotated/Novel) using ggplot, rebuildable for PDF
   # df must contain columns: bin, group, value
   build_grouped_violin_plot <- function(df,
                                         bin_levels,
@@ -1119,184 +610,61 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     df$bin <- factor(df$bin, levels = bin_levels)
     df$group <- factor(df$group, levels = group_levels)
 
-    # Store metadata for PDF reconstruction
-    grouped_info <- list(
-      df = data.frame(bin = df$bin, group = df$group, value = df$value),
-      bin_levels = bin_levels,
-      title = title,
-      fill_map = fill_map,
-      legend_labels = legend_labels,
-      y_label = y_label,
-      ylim = ylim,
-      violin_alpha = violin_alpha,
-      box_alpha = box_alpha,
-      box_width = box_width,
-      x_tickangle = x_tickangle,
-      violin_width = violin_width,
-      dodge_width = dodge_width,
-      violangap = violangap,
-      violingroupgap = violingroupgap
-    )
+    # Clamp values to ylim range
+    df$value <- pmin(pmax(df$value, ylim[1]), ylim[2])
 
-    # Build plotly grouped violins
-    # Clamp to the provided ylim to avoid tails outside bounds
-    df_clamped <- df
-    df_clamped$value <- pmin(pmax(df_clamped$value, ylim[1]), ylim[2])
+    # Shared bandwidth
+    valid_vals <- df$value[is.finite(df$value)]
+    bw_eff <- if (length(valid_vals) >= 2) stats::bw.nrd0(valid_vals) else 0.1
+    if (is.na(bw_eff) || bw_eff <= 0) bw_eff <- 0.1
 
-    # Shared bandwidth across groups for consistent KDE
-    valid_vals <- df_clamped$value[is.finite(df_clamped$value)]
-    bw_shared <- if (length(valid_vals) >= 2) stats::bw.nrd0(valid_vals) else NULL
+    p <- ggplot(df, aes(x = bin, y = value, fill = group)) +
+      geom_violin(aes(color = group),
+        alpha = violin_alpha,
+        position = position_dodge(width = dodge_width),
+        scale = "width",
+        trim = TRUE,
+        bw = bw_eff,
+        linewidth = 0.3,
+        show.legend = TRUE
+      ) +
+      geom_boxplot(aes(group = interaction(bin, group)),
+        width = box_width,
+        outlier.shape = NA,
+        fill = NA,
+        color = "grey20",
+        alpha = box_alpha,
+        position = position_dodge(width = dodge_width),
+        show.legend = FALSE
+      ) +
+      stat_summary(aes(group = group),
+        fun = mean, geom = "point", shape = 4, size = 1,
+        colour = "red", stroke = 0.9,
+        position = position_dodge(width = dodge_width),
+        show.legend = FALSE
+      ) +
+      scale_fill_manual(values = fill_map, labels = legend_labels) +
+      scale_color_manual(values = fill_map, guide = "none") +
+      labs(title = title, x = "", y = y_label) +
+      theme_classic(base_size = 11) +
+      theme(
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 12),
+        axis.text.y = element_text(size = 11),
+        axis.text.x = element_text(
+          size = 11,
+          angle = if (!is.null(x_tickangle) && x_tickangle != 0) x_tickangle else 0,
+          hjust = ifelse(!is.null(x_tickangle) && x_tickangle == 0, 0.5, 1)
+        ),
+        legend.position = "bottom",
+        legend.title = element_blank()
+      )
 
-    p <- plot_ly()
-
-    # Create combined x-axis labels for proper spacing
-    # For each bin, we'll have two positions (one for each group)
-    x_positions <- numeric()
-    x_tick_positions <- numeric()
-    x_tick_labels <- character()
-    y_vals <- numeric()
-    group_vals <- character()
-
-    base_gap <- 0.3 # gap between groups within a bin
-    bin_gap <- 1.0 # gap between bins
-
-    current_x <- 0
-
-    for (i in seq_along(bin_levels)) {
-      bin_label <- bin_levels[i]
-
-      # Center position for this bin's tick
-      bin_center <- current_x + base_gap * (length(group_levels) - 1) / 2
-      x_tick_positions <- c(x_tick_positions, bin_center)
-      x_tick_labels <- c(x_tick_labels, bin_label)
-
-      for (j in seq_along(group_levels)) {
-        grp <- group_levels[j]
-        grp_df <- df_clamped[df_clamped$bin == bin_label & df_clamped$group == grp, , drop = FALSE]
-
-        if (nrow(grp_df) > 0) {
-          x_pos <- current_x + (j - 1) * base_gap
-          x_positions <- c(x_positions, rep(x_pos, nrow(grp_df)))
-          y_vals <- c(y_vals, grp_df$value)
-          group_vals <- c(group_vals, rep(grp, nrow(grp_df)))
-        }
-
-        current_x_for_trace <- current_x + (j - 1) * base_gap
-        fill_rgba <- to_rgba(fill_map[grp], violin_alpha)
-
-        # Only add trace if we have data
-        if (nrow(grp_df) > 0) {
-          p <- p %>% add_trace(
-            x = rep(current_x_for_trace, nrow(grp_df)),
-            y = grp_df$value,
-            type = "violin",
-            name = legend_labels[grp],
-            legendgroup = grp,
-            scalegroup = grp,
-            fillcolor = fill_rgba,
-            line = list(color = to_rgba(fill_map[grp], 1.0), width = 0.8),
-            spanmode = "hard",
-            bandwidth = bw_shared,
-            side = "both",
-            width = violin_width,
-            points = FALSE,
-            showlegend = (i == 1), # Only show legend for first bin
-            box = list(visible = FALSE),
-            meanline = list(visible = FALSE)
-          )
-        }
-      }
-
-      current_x <- current_x + length(group_levels) * base_gap + bin_gap
+    if (!is.null(ylim)) {
+      p <- p + coord_cartesian(ylim = ylim)
     }
-
-    # Reset current_x for boxplots and mean markers
-    current_x <- 0
-    for (i in seq_along(bin_levels)) {
-      bin_label <- bin_levels[i]
-
-      for (j in seq_along(group_levels)) {
-        grp <- group_levels[j]
-        grp_df <- df_clamped[df_clamped$bin == bin_label & df_clamped$group == grp, , drop = FALSE]
-
-        current_x_for_trace <- current_x + (j - 1) * base_gap
-        fill_rgba_box <- to_rgba(fill_map[grp], box_alpha)
-
-        # Boxplots
-        if (nrow(grp_df) > 0) {
-          p <- p %>% add_trace(
-            x = rep(current_x_for_trace, nrow(grp_df)),
-            y = grp_df$value,
-            type = "box",
-            name = paste0(legend_labels[grp], " Box"),
-            legendgroup = grp,
-            fillcolor = fill_rgba_box,
-            line = list(color = to_rgba("grey20", 1.0), width = 1),
-            showlegend = FALSE,
-            boxpoints = FALSE,
-            width = box_width
-          )
-
-          # Mean markers
-          mean_val <- mean(grp_df$value, na.rm = TRUE)
-          p <- p %>% add_trace(
-            x = current_x_for_trace,
-            y = mean_val,
-            type = "scatter",
-            mode = "markers",
-            name = paste0(legend_labels[grp], " Mean"),
-            legendgroup = grp,
-            marker = list(symbol = "x-thin-open", size = 6, color = "red", line = list(width = 1.5, color = "red")),
-            showlegend = FALSE
-          )
-        }
-      }
-
-      current_x <- current_x + length(group_levels) * base_gap + bin_gap
-    }
-
-    # Attach metadata for PDF
-    attr(p, "grouped_data") <- grouped_info <- c(grouped_info, list(bandwidth = bw_shared))
-
-    tick_angle_plotly <- if (!is.null(x_tickangle) && is.finite(x_tickangle) && x_tickangle != 0) x_tickangle else 0
-    tick_label_position <- if (tick_angle_plotly == 0) "outside" else "outside right"
-
-    html_title <- paste0("<b>", gsub("\n", "<br>", title), "</b>")
-    # Build legend object with optional title
-    legend_obj <- list(orientation = "h", x = 0.5, xanchor = "center", y = -0.15, yanchor = "top")
-    if (!is.null(legend_title)) legend_obj$title <- list(text = legend_title)
-
-    p <- p %>% layout(
-      title = list(text = html_title, font = list(size = 22), x = 0.5, xanchor = "center"),
-      xaxis = list(
-        title = "",
-        tickmode = "array",
-        tickvals = x_tick_positions,
-        ticktext = x_tick_labels,
-        tickangle = tick_angle_plotly,
-        ticklabelposition = tick_label_position,
-        tickfont = list(size = 20),
-        showline = TRUE,
-        linecolor = "black",
-        linewidth = 1,
-        zeroline = FALSE,
-        range = c(-0.5, max(x_tick_positions) + 1)
-      ),
-      yaxis = list(
-        title = y_label, titlefont = list(size = 20), tickfont = list(size = 18), range = ylim,
-        showline = TRUE, linecolor = "black", linewidth = 1, zeroline = FALSE
-      ),
-      violinmode = "overlay",
-      legend = legend_obj,
-      showlegend = TRUE,
-      paper_bgcolor = "rgba(0,0,0,0)",
-      plot_bgcolor = "rgba(0,0,0,0)",
-      font = list(family = "Arial", size = 18),
-      margin = list(t = 80, l = 80, r = 80, b = 120)
-    )
     return(p)
   }
-
   `%||%` <- function(x, y) if (is.null(x)) y else x
   assign_plot <- function(name, plot) assign(name, plot, envir = .GlobalEnv)
   build_violin_from_long <- function(df_long, args) {
@@ -1310,8 +678,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       title = cfg$title,
       x_labels = cfg$x_labels %||% cfg$x_label,
       fill_map = fill_map,
-      legend = cfg$legend %||% FALSE,
-      format = cfg$format %||% "plotly"
+      legend = cfg$legend %||% FALSE
     )
     if (!is.null(cfg$y_label)) base_args$y_label <- cfg$y_label
     plot_args <- c(base_args, cfg$plot_args %||% list())
@@ -1324,59 +691,43 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       title = cfg$title,
       x_labels = cfg$x_labels,
       fill_map = fill_map,
-      legend = cfg$legend %||% FALSE,
-      format = cfg$format %||% "plotly"
+      legend = cfg$legend %||% FALSE
     )
     if (!is.null(cfg$y_label)) base_args$y_label <- cfg$y_label
     plot_args <- c(base_args, cfg$plot_args %||% list())
     assign_plot(cfg$name, build_violin_from_long(df_long, plot_args))
   }
-  render_pdf_plot <- function(name, converter = plotly_to_ggplot) {
-    if (exists(name)) {
-      obj <- get(name)
-      print(if (is.null(converter)) obj else converter(obj))
-    }
+  render_pdf_plot <- function(name) {
+    if (exists(name)) print(get(name))
   }
 
-  # Center a ggplot on a page with reduced width
-  render_pdf_plot_centered <- function(name, width_frac = 0.45, converter = plotly_to_ggplot) {
+  render_pdf_plot_centered <- function(name, width_frac = 0.45) {
     if (!exists(name)) {
       return(invisible(NULL))
     }
-    obj <- get(name)
-    p <- if (is.null(converter)) obj else converter(obj)
+    p <- get(name)
     g <- if (inherits(p, "grob")) p else ggplotGrob(p)
     left_right <- (1 - width_frac) / 2
     grid.arrange(nullGrob(), g, nullGrob(), widths = c(left_right, width_frac, left_right), newpage = TRUE)
   }
 
-  # Helper: build length-distribution violins for given column prefix using native plotly
+  # Helper: build length-distribution violins for given column prefix
   # If mono=TRUE, uses *_length_mono_prop columns; otherwise *_length_prop
-  build_len_violin_for_prefix <- function(df, prefix, title, fill_color, box_fill = NULL, mono = FALSE, box_outline_color = "grey20", violin_alpha = 0.5, box_alpha = 0.3, violin_outline_fill = FALSE, format = "plotly") {
-    if (is.null(box_fill)) box_fill <- fill_color
+  build_len_violin_for_prefix <- function(df, prefix, title, fill_color, box_fill = NULL, mono = FALSE, box_outline_color = "grey20", violin_alpha = 0.5, box_alpha = 0.3, violin_outline_fill = FALSE, format = "ggplot") {
     suffix <- if (mono) "_length_mono_prop" else "_length_prop"
-    cols <- c(
-      paste0(prefix, "_250b", suffix),
-      paste0(prefix, "_500b", suffix),
-      paste0(prefix, "_short", suffix),
-      paste0(prefix, "_mid", suffix),
-      paste0(prefix, "_long", suffix)
-    )
-    df_long <- pivot_longer(df, cols = all_of(cols), names_to = "Variable", values_to = "Value") %>% select(Variable, Value)
-    df_long$Variable <- factor(df_long$Variable, levels = cols)
-    # Clamp to [0,100] because these are proportions
-    df_long$Value <- pmin(pmax(df_long$Value, 0), 100)
+    cols <- paste0(prefix, c("_250b", "_500b", "_short", "_mid", "_long"), suffix)
+    cols <- cols[cols %in% colnames(df)]
+    if (length(cols) == 0) {
+      return(NULL)
+    }
 
-    # Store data globally for PDF generation
-    plot_data_key <- paste0("plot_data_", gsub("[^A-Za-z0-9]", "_", title))
-
-    # Create fill and color maps for this plot
+    df_long <- pivot_long(df, cols)
     fill_map <- setNames(rep(fill_color, length(cols)), cols)
     color_map <- setNames(rep(fill_color, length(cols)), cols)
     x_labels <- c("0-250bp", "250-500bp", "500-1000bp", "1000-2000bp", ">2000bp")
     names(x_labels) <- cols
 
-    assign(plot_data_key, list(
+    build_violin_plot(
       df_long = df_long,
       title = title,
       x_labels = x_labels,
@@ -1384,185 +735,146 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       color_map = color_map,
       y_label = paste(entity_label_plural, ", %", sep = ""),
       legend = FALSE,
-      ylim = NULL,
-      override_outline_vars = character(0),
       violin_alpha = violin_alpha,
       box_alpha = box_alpha,
       box_width = 0.05,
       x_tickangle = 45,
       violin_outline_fill = violin_outline_fill,
       box_outline_default = box_outline_color
-    ), envir = .GlobalEnv)
+    )
+  }
 
-    if (format == "ggplot") {
-      return(build_violin_plot_ggplot(
-        df_long = df_long,
-        title = title,
-        x_labels = x_labels,
-        fill_map = fill_map,
-        color_map = color_map,
-        x_title = "",
-        y_label = paste(entity_label_plural, ", %", sep = ""),
-        legend = FALSE,
-        ylim = NULL,
-        override_outline_vars = character(0),
-        violin_alpha = violin_alpha,
-        box_alpha = box_alpha,
-        box_width = 0.05,
-        x_tickangle = 45,
-        violin_outline_fill = violin_outline_fill,
-        box_outline_default = box_outline_color
-      ))
+  # Meta-transcript body coverage profile plot
+  # Shows where reads cover their reference transcripts (0%=5' to 100%=3'),
+  # one line per reference transcript length bin.
+  build_meta_coverage_plot <- function(cls_df, n_bins = 100) {
+    required_cols <- c("diff_to_TSS", "diff_to_TTS", "ref_length", "length")
+    if (!all(required_cols %in% colnames(cls_df))) {
+      return(NULL)
     }
 
-    # Create plotly plot directly
-    p <- plot_ly()
-
-    # Add violin traces first (background)
-    for (i in seq_along(levels(df_long$Variable))) {
-      var <- levels(df_long$Variable)[i]
-      var_data <- df_long[df_long$Variable == var, ]
-
-      line_col <- if (isTRUE(violin_outline_fill)) fill_color else "black"
-      fill_rgba <- to_rgba(fill_color, violin_alpha)
-      p <- p %>% add_trace(
-        data = var_data,
-        x = ~Variable,
-        y = ~Value,
-        type = "violin",
-        side = "both",
-        name = c("0-250bp", "250-500bp", "500-1000bp", "1000-2000bp", ">2000bp")[i],
-        fillcolor = fill_rgba,
-        line = list(color = to_rgba(line_col, 1.0), width = 0.6),
-        spanmode = "hard",
-        points = FALSE,
-        showlegend = FALSE,
-        box = list(visible = FALSE),
-        meanline = list(visible = FALSE)
-      )
+    keep_cols <- c(required_cols, if ("count" %in% colnames(cls_df)) "count")
+    df <- cls_df[, keep_cols, drop = FALSE]
+    for (col in required_cols) df[[col]] <- suppressWarnings(as.numeric(df[[col]]))
+    if (!"count" %in% colnames(df)) df$count <- 1L
+    df$count <- suppressWarnings(as.numeric(df$count))
+    df$count[is.na(df$count) | df$count <= 0] <- 1
+    df <- df[complete.cases(df[, required_cols]) & df$ref_length > 0, ]
+    if (nrow(df) == 0) {
+      return(NULL)
     }
 
-    # Add boxplot traces second (on top)
-    for (i in seq_along(levels(df_long$Variable))) {
-      var <- levels(df_long$Variable)[i]
-      var_data <- df_long[df_long$Variable == var, ]
-
-      # Use the box_outline_color parameter directly for the line color
-      fill_rgba_box <- to_rgba(if (is.null(box_fill)) fill_color else box_fill, box_alpha)
-
-      p <- p %>% add_trace(
-        data = var_data,
-        x = ~Variable,
-        y = ~Value,
-        type = "box",
-        name = paste(c("0-250bp", "250-500bp", "500-1000bp", "1000-2000bp", ">2000bp")[i], "Box"),
-        fillcolor = fill_rgba_box,
-        line = list(color = to_rgba(box_outline_color, 1.0), width = 0.8),
-        showlegend = FALSE,
-        boxpoints = FALSE,
-        width = 0.05
-      )
+    # Compute coverage fractions (fraction of ref body covered by each read)
+    # diff_to_TSS: positive = read starts upstream of ref TSS, negative = downstream
+    # diff_to_TTS: positive = read ends downstream of ref TTS, negative = upstream
+    df$start_frac <- pmax(0, pmin(1, -df$diff_to_TSS / df$ref_length))
+    df$end_frac <- pmax(0, pmin(1, 1 + df$diff_to_TTS / df$ref_length))
+    df <- df[df$end_frac > df$start_frac, ]
+    if (nrow(df) == 0) {
+      return(NULL)
     }
 
-    # Add mean points last (on top of everything)
-    mean_data <- df_long %>%
-      group_by(Variable) %>%
-      summarise(mean_value = mean(Value, na.rm = TRUE), .groups = "drop")
-
-    p <- p %>% add_trace(
-      data = mean_data,
-      x = ~Variable,
-      y = ~mean_value,
-      type = "scatter",
-      mode = "markers",
-      name = "Mean",
-      marker = list(
-        symbol = "x-thin-open",
-        size = 6,
-        color = "red",
-        line = list(width = 1.5, color = "red")
-      ),
-      showlegend = FALSE
+    # Bin by reference transcript length
+    df$len_bin <- cut(df$ref_length,
+      breaks = c(0, 250, 500, 1000, 2000, 5000, Inf),
+      labels = c("0-250bp", "250-500bp", "500bp-1kb", "1-2kb", "2-5kb", ">5kb"),
+      right = FALSE
     )
 
-    # Store the data key as an attribute for PDF conversion
-    attr(p, "plot_data_key") <- plot_data_key
+    # For each bin, compute weighted % of reads covering each position
+    bin_positions <- seq(0, 1, length.out = n_bins + 1)
+    bin_mids <- (bin_positions[-length(bin_positions)] + bin_positions[-1]) / 2
 
-    # Configure layout
-    html_title <- paste0("<b>", gsub("\n", "<br>", title), "</b>")
-    tick_angle_plotly <- 45
-    tick_label_position <- "outside right"
-    p <- p %>% layout(
-      title = list(text = html_title, font = list(size = 22), x = 0.5, xanchor = "center"),
-      xaxis = list(
-        title = "",
-        categoryorder = "array",
-        categoryarray = cols,
-        tickmode = "array",
-        tickvals = cols,
-        ticktext = x_labels,
-        tickangle = tick_angle_plotly,
-        ticklabelposition = tick_label_position,
-        tickfont = list(size = 20),
-        showline = TRUE,
-        linecolor = "black",
-        linewidth = 1,
-        zeroline = FALSE
-      ),
-      yaxis = list(
-        title = paste(entity_label_plural, ", %", sep = ""),
-        titlefont = list(size = 20),
-        tickfont = list(size = 18),
-        range = c(0, 100),
-        showline = TRUE,
-        linecolor = "black",
-        linewidth = 1,
-        zeroline = FALSE
-      ),
-      showlegend = FALSE,
-      paper_bgcolor = "rgba(0,0,0,0)",
-      plot_bgcolor = "rgba(0,0,0,0)",
-      font = list(family = "Arial", size = 18),
-      margin = list(t = 110, l = 80, r = 80, b = 100)
+    profile_list <- lapply(levels(df$len_bin), function(lb) {
+      sub <- df[df$len_bin == lb, ]
+      if (nrow(sub) == 0) {
+        return(NULL)
+      }
+      total_weight <- sum(sub$count)
+      coverage <- vapply(seq_len(n_bins), function(i) {
+        pos <- bin_mids[i]
+        sum(sub$count[sub$start_frac <= pos & sub$end_frac >= pos]) / total_weight * 100
+      }, numeric(1))
+      data.frame(
+        position = bin_mids * 100,
+        coverage = coverage,
+        len_bin = lb,
+        n_reads = total_weight,
+        stringsAsFactors = FALSE
+      )
+    })
+    profile_df <- do.call(rbind, Filter(Negate(is.null), profile_list))
+    if (is.null(profile_df) || nrow(profile_df) == 0) {
+      return(NULL)
+    }
+
+    # Add count labels for the legend
+    profile_df$len_bin <- factor(profile_df$len_bin, levels = levels(df$len_bin))
+    bin_counts <- tapply(df$count, df$len_bin, sum)
+    legend_labels <- setNames(
+      paste0(levels(df$len_bin), " (n=", format(bin_counts[levels(df$len_bin)], big.mark = ","), ")"),
+      levels(df$len_bin)
     )
+    profile_df$legend_label <- legend_labels[as.character(profile_df$len_bin)]
+    profile_df$legend_label <- factor(profile_df$legend_label, levels = legend_labels)
 
+    # RColorConesa main palette (7 discrete base colors)
+    n_levels <- nlevels(df$len_bin)
+    bin_colors <- c("#00B0A5", "#E1744E", "#FAC24A", "#6DC8E5", "#E7A5CB", "#9C8AB4", "#E44067")[seq_len(n_levels)]
+
+    p <- ggplot(profile_df, aes(x = position, y = coverage, color = legend_label)) +
+      geom_line(linewidth = 0.9, alpha = 0.85) +
+      scale_color_manual(values = setNames(bin_colors, levels(profile_df$legend_label))) +
+      scale_x_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +
+      scale_y_continuous(limits = c(0, 100)) +
+      labs(
+        title = paste(entity_label, "Body Coverage Along Reference Transcript"),
+        x = "Position along reference transcript (%)\n5\u2019 \u2192 3\u2019",
+        y = paste(entity_label_plural, "covering position, %"),
+        color = "Reference length"
+      ) +
+      theme_classic(base_size = 14) +
+      theme(
+        plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12),
+        legend.position = "bottom",
+        legend.title = element_text(face = "bold", size = 11),
+        legend.text = element_text(size = 10)
+      ) +
+      guides(color = guide_legend(nrow = 2, byrow = TRUE))
     return(p)
   }
 
   # Helper: build a per-category exon count profile (median + IQR across cells)
   build_exon_profile_plot <- function(df_prof, title, line_color, k_max = 20, y_label = paste(entity_label_plural, ", %", sep = ""), n_cells = NULL) {
-    # Sanitize title and forbid subtitles
+    # Sanitize title
     title <- tryCatch(
       {
-        t <- gsub("(?i)cells included:[^|<>]*", "", title, perl = TRUE)
-        t <- gsub("(?i)<br[^>]*>.*", "", t, perl = TRUE) # drop any HTML subtitle lines
+        t <- as.character(title)
         trimws(gsub("\n.*", "", t))
       },
-      error = function(e) title
+      error = function(e) "Exon Profile"
     )
 
-    # Canonical Fusion color
+    # Canonical Fusion color override
     FUSION_COLOR <- "#F1C40F"
-    # Helper: detect Fusion profiles using title or data, case-insensitive
-    is_fusion_profile <- function(df, ttl) {
-      ttl_has <- tryCatch(!is.null(ttl) && grepl("fusion", ttl, ignore.case = TRUE), error = function(e) FALSE)
-      in_df <- tryCatch(
+    detect_fusion <- function(df) {
+      tryCatch(
         {
-          any(grepl("fusion", names(df), ignore.case = TRUE)) ||
-            (("category" %in% names(df)) && any(grepl("fusion", df$category, ignore.case = TRUE))) ||
-            (("label" %in% names(df)) && any(grepl("fusion", df$label, ignore.case = TRUE)))
+          ttl_has <- grepl("Fusion", title, ignore.case = TRUE)
+          in_df <- "category" %in% colnames(df) && any(grepl("Fusion", df$category, ignore.case = TRUE))
+          ttl_has || in_df
         },
         error = function(e) FALSE
       )
-      ttl_has || in_df
     }
+    if (detect_fusion(df_prof)) {
+      line_color <- FUSION_COLOR
+    }
+
     # Helpers: color utilities
-    hex_to_rgba <- function(hex, alpha = 0.25) {
-      rgb <- grDevices::col2rgb(hex)
-      sprintf("rgba(%d,%d,%d,%.2f)", rgb[1], rgb[2], rgb[3], alpha)
-    }
     lighten_hex <- function(hex, amount = 0.35) {
-      # amount in [0,1] toward white
       rgb <- grDevices::col2rgb(hex)
       r <- as.integer(round(rgb[1] + (255 - rgb[1]) * amount))
       g <- as.integer(round(rgb[2] + (255 - rgb[2]) * amount))
@@ -1570,113 +882,77 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       grDevices::rgb(r, g, b, maxColorValue = 255)
     }
 
-    # Override Fusion color if needed
-    if (is_fusion_profile(df_prof, title)) {
-      line_color <- FUSION_COLOR
-    }
-
-    # df_prof columns: k, median, q1, q3, (optional) mean
     if (is.null(df_prof) || nrow(df_prof) == 0 || all(!is.finite(df_prof$median))) {
-      p_empty <- plot_ly() %>% layout(
-        title = list(text = paste0("<b>", title, "</b>"), font = list(size = 18), x = 0.5, xanchor = "center"),
-        yaxis = list(title = y_label, range = c(0, 100)),
-        annotations = list(
-          list(
-            text = "No data available for this category",
-            showarrow = FALSE,
-            x = 0.5,
-            y = 0.5,
-            xref = "paper",
-            yref = "paper",
-            font = list(size = 14, color = "gray")
-          )
+      p_empty <- ggplot() +
+        labs(title = title, subtitle = "No data available for this category") +
+        theme_minimal(base_size = 14) +
+        theme(
+          plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+          plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray")
         )
-      )
       return(p_empty)
     }
-    label_last <- paste0("\u2265", k_max) # ≥K
+
+    tick_breaks <- seq_len(k_max)
+    label_last <- paste0("\u2265", k_max)
     ticktexts <- c(as.character(seq_len(k_max - 1)), label_last)
 
     # Choose center line: use mean if present, else median
     y_center <- if (!is.null(df_prof$mean)) df_prof$mean else df_prof$median
 
-    p <- plot_ly()
-    # Lower bound (q1)
-    p <- p %>% add_trace(
-      x = df_prof$k, y = df_prof$q1,
-      type = "scatter", mode = "lines",
-      line = list(color = line_color, width = 0.0001),
-      name = "Q1", showlegend = FALSE
-    )
-    # Upper bound (q3) with fill to previous trace
-    if (!is.null(df_prof$q1) && !is.null(df_prof$q3)) {
-      iqr_fill <- hex_to_rgba(lighten_hex(line_color, 0.4), 0.25)
-      p <- p %>% plotly::add_ribbons(
-        x = df_prof$k, ymin = df_prof$q1, ymax = df_prof$q3,
-        fillcolor = iqr_fill,
-        line = list(color = "rgba(0,0,0,0)"),
-        name = "IQR", showlegend = TRUE
-      )
+    # Build stat columns for the line/ribbon
+    stat_cols <- intersect(colnames(df_prof), c("mean", "median"))
+    line_stats <- if (length(stat_cols)) {
+      df_prof %>%
+        dplyr::select(k, dplyr::all_of(stat_cols)) %>%
+        tidyr::pivot_longer(cols = dplyr::all_of(stat_cols), names_to = "stat", values_to = "value") %>%
+        dplyr::filter(!is.na(value)) %>%
+        dplyr::mutate(stat = factor(stat, levels = stat_cols))
+    } else {
+      NULL
     }
-    # Central (mean or median) straight line + markers
-    p <- p %>% add_trace(
-      x = df_prof$k, y = y_center,
-      type = "scatter", mode = "lines+markers",
-      line = list(color = line_color, width = 2.5),
-      marker = list(color = line_color, size = 6),
-      name = if (!is.null(df_prof$mean)) "Mean" else "Median", showlegend = TRUE
-    )
-    # If mean exists, overlay dashed median
-    if (!is.null(df_prof$mean) && !is.null(df_prof$median)) {
-      p <- p %>% add_trace(
-        x = df_prof$k, y = df_prof$median,
-        type = "scatter", mode = "lines",
-        line = list(color = line_color, width = 1.5, dash = "dash"),
-        name = "Median", showlegend = TRUE
-      )
-    }
-    # Legend at bottom, horizontal (no extra annotations like 'Cells included')
-    p <- p %>% layout(
-      legend = list(orientation = "h", y = -0.2, x = 0.5, xanchor = "center")
-    )
-    p <- p %>% layout(
-      title = list(text = title, font = list(size = 22), x = 0.5, xanchor = "center"),
-      xaxis = list(
-        title = paste("Exons per", entity_label),
-        titlefont = list(size = 20),
-        tickfont = list(size = 18),
-        tickmode = "array", tickvals = seq_len(k_max), ticktext = ticktexts,
-        showline = TRUE, linecolor = "black", linewidth = 1, zeroline = FALSE
-      ),
-      yaxis = list(
-        title = y_label, range = c(0, 100),
-        titlefont = list(size = 20),
-        tickfont = list(size = 18),
-        showline = TRUE, linecolor = "black", linewidth = 1, zeroline = FALSE
-      ),
-      paper_bgcolor = "rgba(0,0,0,0)", plot_bgcolor = "rgba(0,0,0,0)",
-      font = list(family = "Arial", size = 18),
-      margin = list(t = 90, l = 80, r = 60, b = 80)
-    )
 
-    # Attach metadata for PDF fallback
-    attr(p, "profile_data") <- list(
-      df = df_prof, title = title, line_color = line_color, k_max = k_max, y_label = y_label
-    )
+    iqr_fill <- lighten_hex(line_color, 0.55)
+
+    p <- ggplot(df_prof, aes(x = k)) +
+      geom_ribbon(aes(ymin = q1, ymax = q3, fill = "IQR"), alpha = 0.25, show.legend = TRUE, key_glyph = "rect") +
+      scale_y_continuous(limits = c(0, 100)) +
+      scale_x_continuous(breaks = tick_breaks, labels = ticktexts) +
+      scale_fill_manual(values = c("IQR" = iqr_fill), name = "") +
+      labs(title = title, x = "Number of exons", y = y_label) +
+      theme_classic(base_size = 14) +
+      theme(
+        plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 14),
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),
+        legend.position = "bottom"
+      )
+
+    if (!is.null(line_stats) && nrow(line_stats) > 0) {
+      line_palette <- setNames(rep(line_color, length(stat_cols)), stat_cols)
+      linetype_values <- c("mean" = "solid", "median" = "dashed")
+      legend_linewidths <- c("mean" = 1.2, "median" = 1.0)
+      if (!"mean" %in% stat_cols) {
+        linetype_values <- linetype_values[names(linetype_values) != "mean"]
+        legend_linewidths <- legend_linewidths[names(legend_linewidths) != "mean"]
+      }
+      if (!"median" %in% stat_cols) {
+        linetype_values <- linetype_values[names(linetype_values) != "median"]
+        legend_linewidths <- legend_linewidths[names(legend_linewidths) != "median"]
+      }
+      p <- p +
+        geom_line(data = line_stats, aes(x = k, y = value, linetype = stat, color = stat, linewidth = stat)) +
+        scale_color_manual(values = line_palette, name = "") +
+        scale_linetype_manual(values = linetype_values, name = "") +
+        scale_linewidth_manual(values = legend_linewidths, name = "")
+    }
+
     return(p)
   }
 
-  ### Basic cell informtion ###
-  #############################
+  # Basic cell information
 
-  single_defaults <- list(
-    violin_alpha = 0.5,
-    box_alpha = 0.3,
-    box_width = 0.05,
-    x_tickangle = 45,
-    violin_outline_fill = FALSE,
-    box_outline_default = "black"
-  )
   common_plot_args <- list(
     violin_alpha = 0.5,
     box_alpha = 0.3,
@@ -1694,8 +970,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     fill = "#CC6633",
     y_label = paste(entity_label_plural, ", count", sep = ""),
     x_label = "Cells",
-    plot_args = common_plot_args,
-    format = "ggplot"
+    plot_args = common_plot_args
   )
   single_violin(SQANTI_cell_summary, cfg_reads)
 
@@ -1708,8 +983,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       fill = "#CC6633",
       y_label = "UMIs, count",
       x_label = "Cells",
-      plot_args = common_plot_args,
-      format = "ggplot"
+      plot_args = common_plot_args
     )
     single_violin(SQANTI_cell_summary, cfg_umis)
   }
@@ -1722,8 +996,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     fill = "#CC6633",
     y_label = "Genes, count",
     x_label = "Cells",
-    plot_args = common_plot_args,
-    format = "ggplot"
+    plot_args = common_plot_args
   )
   single_violin(SQANTI_cell_summary, cfg_genes)
 
@@ -1736,8 +1009,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       fill = "#CC6633",
       y_label = "UJCs, count",
       x_label = "Cells",
-      plot_args = common_plot_args,
-      format = "ggplot"
+      plot_args = common_plot_args
     )
     single_violin(SQANTI_cell_summary, cfg_ujcs)
   }
@@ -1795,21 +1067,21 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         } else {
           # Isoforms mode: Each row has comma-separated FL (counts) and CB (barcodes)
           # We need to split them and sum counts per barcode
-          
+
           # Initialize lists to store expanded data
           all_cbs <- character()
           all_counts <- numeric()
-          
+
           # Iterate through rows (this might be slow for huge files, but safe)
           # A vectorised approach would be better if possible, but strsplit returns list
           fl_list <- strsplit(as.character(df$FL), ",")
           cb_list <- strsplit(as.character(df$CB), ",")
-          
+
           # Check if lengths match (they should)
           if (length(fl_list) != length(cb_list)) {
             stop("Mismatch in row counts between FL and CB columns")
           }
-          
+
           # Use mapply to create a data frame of all counts
           # This creates a list of data frames, one per isoform
           expanded_list <- mapply(function(fl, cb) {
@@ -1819,10 +1091,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
             }
             data.frame(CB = cb, count = as.numeric(fl), stringsAsFactors = FALSE)
           }, fl_list, cb_list, SIMPLIFY = FALSE)
-          
+
           # Bind all tiny data frames
           long_df <- do.call(rbind, expanded_list)
-          
+
           # Now group by CB and sum
           return(long_df %>% group_by(CB) %>% summarise(count = sum(count, na.rm = TRUE), .groups = "drop"))
         }
@@ -1830,13 +1102,13 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
       annotated_reads_per_cell <- classification_valid %>%
         filter(!grepl("^novel", associated_gene))
-      
+
       annotated_reads_per_cell <- expand_isoform_counts(annotated_reads_per_cell, mode) %>%
         rename(Annotated_genes_reads = count)
 
       novel_reads_per_cell <- classification_valid %>%
         filter(grepl("^novel", associated_gene))
-      
+
       novel_reads_per_cell <- expand_isoform_counts(novel_reads_per_cell, mode) %>%
         rename(Novel_genes_reads = count)
 
@@ -1865,15 +1137,17 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       ))
     } else {
       message("Warning: No valid classification data found. Skipping read expression by gene annotation plot.")
-      gg_annotation_of_reads_in_cell <<- plot_ly() %>%
-        layout(
-          title = paste("Percentage of", entity_label_plural, "from Known/Novel Genes Across Cells"),
-          annotations = list(
-            text = paste(entity_label, "expression by gene annotation\nnot available"),
-            showarrow = FALSE,
-            font = list(size = 16, color = "gray")
-          )
+      gg_annotation_of_reads_in_cell <<- ggplot() +
+        labs(title = "Plot not available") +
+        theme_minimal()
+      layout(
+        title = paste("Percentage of", entity_label_plural, "from Known/Novel Genes Across Cells"),
+        annotations = list(
+          text = paste(entity_label, "expression by gene annotation\nnot available"),
+          showarrow = FALSE,
+          font = list(size = 16, color = "gray")
         )
+      )
     }
   }
 
@@ -1891,7 +1165,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       x_tickangle = 45
     )
   ))
-
 
   ### Gene Distribution by Read Count Bins (configurable gene bins) ###
   ####################################################################
@@ -2170,7 +1443,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   {
     df_long <- data.frame(Variable = "MT_perc", Value = SQANTI_cell_summary$MT_perc)
     df_long$Variable <- factor(df_long$Variable, levels = "MT_perc")
-    fill_map = c("MT_perc" = fill_color_orange)
+    fill_map <- c("MT_perc" = fill_color_orange)
     x_labels <- c("Cell")
     gg_MT_perc <<- build_violin_plot(
       df_long,
@@ -2442,9 +1715,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     )
   }
 
+  # Meta-transcript body coverage profile (bulk, not per-cell)
+  gg_meta_transcript_coverage <<- build_meta_coverage_plot(Classification_file)
 
   ### Structural categories ###
-
 
   category_fill_map <- c(
     "FSM_prop" = "#6BAED6", "ISM_prop" = "#FC8D59", "NIC_prop" = "#78C679", "NNC_prop" = "#EE6A50",
@@ -2491,8 +1765,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       fill_map = coding_fill_map,
       plot_args = list(override_outline_vars = c("genic_coding_prop"), violin_outline_fill = TRUE)
     ))
-
-
 
     # Define colors for non-coding (same as coding but will use alpha)
     noncoding_fill_map <- c(
@@ -2652,7 +1924,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     "TSS_ratio_validated_prop" = list(label = "TSS Validated by SRs", color = "#FFC125")
     # Add other good features here if needed (e.g. polyA_motif_found_prop if available)
   )
-  
+
   # Determine which good feature columns are present
   good_feature_cols_present <- intersect(names(all_good_features_map), colnames(SQANTI_cell_summary))
   good_feature_cols_present <- good_feature_cols_present[sapply(good_feature_cols_present, function(col) any(!is.na(SQANTI_cell_summary[[col]])) && sum(SQANTI_cell_summary[[col]], na.rm = TRUE) > 0)]
@@ -2678,7 +1950,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # Short Read (SJs) Support
   sr_cat_cols <- cat_cols("_srjunctions_support_prop")
   if (all(sr_cat_cols %in% colnames(SQANTI_cell_summary)) && any(colSums(SQANTI_cell_summary[, sr_cat_cols, drop = FALSE], na.rm = TRUE) > 0)) {
-     pivot_violin(SQANTI_cell_summary, list(
+    pivot_violin(SQANTI_cell_summary, list(
       name = "gg_sr_support_by_category",
       columns = sr_cat_cols,
       title = "SJs Validated by Short Reads by Structural Category",
@@ -2692,7 +1964,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # TSS Validation Support
   tss_cat_cols <- cat_cols("_TSS_ratio_validated_prop")
   if (all(tss_cat_cols %in% colnames(SQANTI_cell_summary)) && any(colSums(SQANTI_cell_summary[, tss_cat_cols, drop = FALSE], na.rm = TRUE) > 0)) {
-     pivot_violin(SQANTI_cell_summary, list(
+    pivot_violin(SQANTI_cell_summary, list(
       name = "gg_tss_validation_by_category",
       columns = tss_cat_cols,
       title = "TSS Validated by Short Reads by Structural Category",
@@ -2755,7 +2027,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   ordered_bad_feature_cols <- c("Intrapriming_prop_in_cell", "RTS_prop_in_cell", "Non_canonical_prop_in_cell", "NMD_prop_in_cell")
   bad_feature_cols_present <- intersect(ordered_bad_feature_cols, bad_feature_cols_present)
 
-
   if (length(bad_feature_cols_present) > 0) {
     current_colors <- sapply(all_bad_features_map[bad_feature_cols_present], function(x) x$color)
     current_labels <- sapply(all_bad_features_map[bad_feature_cols_present], function(x) x$label)
@@ -2773,19 +2044,20 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       plot_args = list(violin_outline_fill = TRUE)
     ))
   } else {
-    gg_bad_feature <<- plot_ly() %>%
-      layout(
-        title = "No bad quality features to display",
-        annotations = list(
-          text = "No bad quality features to display",
-          showarrow = FALSE,
-          font = list(size = 18, color = "gray")
-        )
+    gg_bad_feature <<- ggplot() +
+      labs(title = "Plot not available") +
+      theme_minimal()
+    layout(
+      title = "No bad quality features to display",
+      annotations = list(
+        text = "No bad quality features to display",
+        showarrow = FALSE,
+        font = list(size = 18, color = "gray")
       )
+    )
   }
 
-  ### Good features plots ###
-  ##########################
+  # Good features plots
 
   good_specs <- list(
     list(cols = cat_cols("_TSSAnnotationSupport"), title = "TSS Annotation Support by Structural Category", color = "#66C2A4", name = "gg_tss_annotation_support", require_all = TRUE),
@@ -3114,7 +2386,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     fill_map_cat <- cat_fill_map
 
-    # Create plotly versions for HTML
     gg_known_canon_by_category <<- build_violin_plot(
       df_long = make_df_long_html("KnownCanonicalPerc"),
       title = "",
@@ -3184,14 +2455,11 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     )
 
     # Stack the four SJ type-by-category plots into one figure
-    tick_angle_plotly <- 45
+    tick_angle_val <- 45
 
-
-    
-    # Create ggplot versions for static stacking
     p_known_canon_by_category <- build_violin_plot(
       df_long = make_df_long_html("KnownCanonicalPerc"),
-      title = "", 
+      title = "",
       x_labels = x_labels_full,
       fill_map = fill_map_cat,
       y_label = "Known Canonical Junctions, %",
@@ -3203,10 +2471,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       x_tickangle = 45,
       violin_outline_fill = TRUE,
       box_outline_default = "grey20",
-      ylim = c(0, 100),
-      format = "ggplot"
+      ylim = c(0, 100)
     )
-    
+
     p_known_noncanon_by_category <- build_violin_plot(
       df_long = make_df_long_html("KnownNonCanonicalPerc"),
       title = "",
@@ -3221,10 +2488,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       x_tickangle = 45,
       violin_outline_fill = TRUE,
       box_outline_default = "grey20",
-      ylim = c(0, 100),
-      format = "ggplot"
+      ylim = c(0, 100)
     )
-    
+
     p_novel_canon_by_category <- build_violin_plot(
       df_long = make_df_long_html("NovelCanonicalPerc"),
       title = "",
@@ -3239,10 +2505,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       x_tickangle = 45,
       violin_outline_fill = TRUE,
       box_outline_default = "grey20",
-      ylim = c(0, 100),
-      format = "ggplot"
+      ylim = c(0, 100)
     )
-    
+
     p_novel_noncanon_by_category <- build_violin_plot(
       df_long = make_df_long_html("NovelNonCanonicalPerc"),
       title = "",
@@ -3257,8 +2522,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       x_tickangle = 45,
       violin_outline_fill = TRUE,
       box_outline_default = "grey20",
-      ylim = c(0, 100),
-      format = "ggplot"
+      ylim = c(0, 100)
     )
 
     # Stack the four SJ type-by-category plots into one static figure using gridExtra
@@ -3270,12 +2534,11 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     # Create the static stack
     gg_sj_type_by_category_stack <<- gridExtra::arrangeGrob(
-      p1, p2, p3, p4, 
-      ncol = 1, 
+      p1, p2, p3, p4,
+      ncol = 1,
       top = textGrob("Splice Junctions Distribution by Structural Category Across Cells", gp = gpar(fontsize = 18, fontface = "bold"))
     )
   }
-
 
   # NEW: RT-switching by splice junction type across cells (all and unique junctions)
   if ("RTS_junction" %in% colnames(Junctions)) {
@@ -3438,8 +2701,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     all_coding_like <- grep("_coding_prop$", colnames(SQANTI_cell_summary), value = TRUE)
     non_coding_cols <- grep("_non_coding_prop$", colnames(SQANTI_cell_summary), value = TRUE)
     coding_cols <- setdiff(all_coding_like, non_coding_cols)
-
-
 
     # NMD
     if ("NMD_prop_in_cell" %in% colnames(SQANTI_cell_summary)) {
@@ -3879,9 +3140,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # Read Length Characterization section
     section_page(paste(entity_label, "Length Characterization"))
     # Bulk Length Distribution
-    render_pdf_plot("gg_bulk_all_reads", converter = NULL)
-    render_pdf_plot("gg_bulk_length_by_category", converter = NULL)
-    render_pdf_plot("gg_bulk_length_by_exon_type", converter = NULL)
+    render_pdf_plot("gg_bulk_all_reads")
+    render_pdf_plot("gg_bulk_length_by_category")
+    render_pdf_plot("gg_bulk_length_by_exon_type")
     # Overall cell-level distributions: All then Mono on next page
     render_pdf_plot("gg_read_distr")
     render_pdf_plot("gg_read_distr_mono")
@@ -3894,6 +3155,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     }
     # Reference Transcript Coverage
     render_pdf_plot("gg_ref_coverage_across_category")
+    render_pdf_plot("gg_meta_transcript_coverage")
 
     # Structural Read Characterization section
     section_page(paste("Structural", entity_label, "Characterization"))
@@ -3913,7 +3175,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       prof_order <- c("FSM", "ISM", "NIC", "NNC", "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron")
       for (nm in prof_order) {
         if (!is.null(gg_exon_profile_by_category[[nm]])) {
-          print(plotly_to_ggplot(gg_exon_profile_by_category[[nm]]))
+          print(gg_exon_profile_by_category[[nm]])
         }
       }
     }
@@ -3989,7 +3251,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       data.frame(Variable = factor(junc_summ$cat_key, levels = all_cats), Value = junc_summ[[col_name]])
     }
 
-    p_known_can <- build_violin_plot_ggplot(
+    p_known_can <- build_violin_plot(
       df_long = make_df_long("KnownCanonicalPerc"),
       title = "Known Canonical Splice Junctions Distribution by Structural Category Across Cells",
       x_labels = x_labels_full,
@@ -4005,7 +3267,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       box_outline_default = "grey20",
       ylim = c(0, 100)
     )
-    p_known_noncan <- build_violin_plot_ggplot(
+    p_known_noncan <- build_violin_plot(
       df_long = make_df_long("KnownNonCanonicalPerc"),
       title = "Known Non-canonical Splice Junctions Distribution by Structural Category Across Cells",
       x_labels = x_labels_full,
@@ -4021,7 +3283,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       box_outline_default = "grey20",
       ylim = c(0, 100)
     )
-    p_novel_can <- build_violin_plot_ggplot(
+    p_novel_can <- build_violin_plot(
       df_long = make_df_long("NovelCanonicalPerc"),
       title = "Novel Canonical Splice Junctions Distribution by Structural Category Across Cells",
       x_labels = x_labels_full,
@@ -4037,7 +3299,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       box_outline_default = "grey20",
       ylim = c(0, 100)
     )
-    p_novel_noncan <- build_violin_plot_ggplot(
+    p_novel_noncan <- build_violin_plot(
       df_long = make_df_long("NovelNonCanonicalPerc"),
       title = "Novel Non-canonical Splice Junctions Distribution by Structural Category Across Cells",
       x_labels = x_labels_full,
@@ -4097,41 +3359,37 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
       # Print Short Read Support by Cluster (Violin + UMAPs)
       if (exists("gg_sr_cluster_plots") && !is.null(gg_sr_cluster_plots)) {
-        
         # UMAPs first (Global then Category-specific if available)
         if (exists("gg_sr_umap_plots") && !is.null(gg_sr_umap_plots)) {
-           if (!is.null(gg_sr_umap_plots[["All Transcripts"]])) print(gg_sr_umap_plots[["All Transcripts"]])
-           for (label in setdiff(names(gg_sr_umap_plots), "All Transcripts")) {
-             print(gg_sr_umap_plots[[label]])
-           }
+          if (!is.null(gg_sr_umap_plots[["All Transcripts"]])) print(gg_sr_umap_plots[["All Transcripts"]])
+          for (label in setdiff(names(gg_sr_umap_plots), "All Transcripts")) {
+            print(gg_sr_umap_plots[[label]])
+          }
         }
-        
+
         # Violin plots
         for (label in names(gg_sr_cluster_plots)) {
-           # Convert from plotly to ggplot for PDF
-           p_plotly <- gg_sr_cluster_plots[[label]]
-           p_ggplot <- plotly_to_ggplot(p_plotly)
-           print(p_ggplot)
+          # Print ggplot for PDF
+          p_ggplot <- gg_sr_cluster_plots[[label]]
+          print(p_ggplot)
         }
       }
 
       # Print TSS Validation Support by Cluster (Violin + UMAPs)
       if (exists("gg_tss_cluster_plots") && !is.null(gg_tss_cluster_plots)) {
-        
         # UMAPs first
         if (exists("gg_tss_umap_plots") && !is.null(gg_tss_umap_plots)) {
-           if (!is.null(gg_tss_umap_plots[["All Transcripts"]])) print(gg_tss_umap_plots[["All Transcripts"]])
-           for (label in setdiff(names(gg_tss_umap_plots), "All Transcripts")) {
-             print(gg_tss_umap_plots[[label]])
-           }
+          if (!is.null(gg_tss_umap_plots[["All Transcripts"]])) print(gg_tss_umap_plots[["All Transcripts"]])
+          for (label in setdiff(names(gg_tss_umap_plots), "All Transcripts")) {
+            print(gg_tss_umap_plots[[label]])
+          }
         }
 
         # Violin plots
         for (label in names(gg_tss_cluster_plots)) {
-           # Convert from plotly to ggplot for PDF
-           p_plotly <- gg_tss_cluster_plots[[label]]
-           p_ggplot <- plotly_to_ggplot(p_plotly)
-           print(p_ggplot)
+          # Print ggplot for PDF
+          p_ggplot <- gg_tss_cluster_plots[[label]]
+          print(p_ggplot)
         }
       }
     }
@@ -4162,7 +3420,6 @@ if (mode == "isoforms") {
 
   if (!is.null(join_key)) {
     # Assign isoform count to each junction row
-
 
     # Use match to be faster than merge/join for simple lookup
     Junctions$count <- Classification$count[match(Junctions[[join_key]], Classification[[join_key]])]
@@ -4226,7 +3483,6 @@ if (report.format == "html" || report.format == "both") {
   }
 
   # Copy CSS file to output directory if it exists
-  # Copy CSS file to output directory if it exists
   if (file.exists(css_file)) {
     css_output <- file.path(dirname(report_output), "style.css")
     file.copy(css_file, css_output, overwrite = TRUE)
@@ -4236,8 +3492,6 @@ if (report.format == "html" || report.format == "both") {
   html_output_file <- paste0(report_output, ".html")
 
   message("Generating HTML report...")
-
-
 
   rmarkdown::render(
     input = rmd_file,

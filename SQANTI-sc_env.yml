@@ -48,7 +48,6 @@ dependencies:
   - r-htmltools=0.5.8.1
   - r-jsonlite=1.8.9
   - r-optparse=1.7.5
-  - r-plotly=4.10.4
   - r-plyr=1.8.9
   - r-purrr=1.0.2
   - r-randomForest=4.7

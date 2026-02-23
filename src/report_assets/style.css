@@ -205,7 +205,6 @@ table tbody tr:hover {
   display: none !important;
 }
 
-/* Generic wrapper to narrow wide plotly widgets (applied only where used) */
 .narrow-plot .html-widget {
   width: 600px !important;
   max-width: 100% !important;
@@ -215,36 +214,9 @@ table tbody tr:hover {
   border: none !important;
 }
 
-/* Remove borders/shadows/backgrounds around ALL Plotly widgets */
 .html-widget,
-.js-plotly-plot,
-.plot-container,
-.svg-container {
-  background: transparent !important;
-  border: 0 !important;
-  box-shadow: none !important;
-  outline: none !important;
-}
-
-/* Fix Plotly modebar background (Plotly >=5 default is semi-transparent grey) */
-.js-plotly-plot .modebar,
-.js-plotly-plot .modebar-group,
-.js-plotly-plot .modebar-btn {
-  background: transparent !important;
-  box-shadow: none !important;
-}
 
 /* Optional: neutral grey icons for readability */
-.js-plotly-plot .modebar-btn svg,
-.js-plotly-plot .modebar-btn path {
-  fill: #6c757d !important;
-  color: #6c757d !important;
-}
-
-/* Ensure Plotly x-axis tick labels match the rest of the plots' x-axis text size */
-.js-plotly-plot .xaxislayer-above text {
-  font-size: 16px !important;
-}
 
 /* Pills positioning for right alignment */
 .nav-pills {

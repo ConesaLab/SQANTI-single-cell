@@ -17,70 +17,10 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
-library(plotly)
 library(dplyr)
 library(htmltools)
 
-prepare_plot <- function(p, width = 1000, height = 600, responsive = FALSE,
-                         title_pad = NULL, margin = NULL) {
-  if (is.null(p) || !inherits(p, "htmlwidget")) {
-    return(p)
-  }
-
-  `%||%` <- function(a, b) if (is.null(a)) b else a
-
-  standard_margin <- list(t = 80, b = 120, l = 100, r = 80)
-  legend_defaults <- list(
-    orientation = "h",
-    x = 0.5,
-    xanchor = "center",
-    y = -0.25,
-    yanchor = "top",
-    bgcolor = "rgba(0,0,0,0)",
-    bordercolor = "rgba(0,0,0,0)"
-  )
-  title_pad_defaults <- list(l = 0, r = 0, t = 12, b = 12)
-  axis_tickfont_defaults <- list(size = 14)
-  axis_title_defaults <- list(standoff = 12)
-  axis_title_font_defaults <- list(size = 16)
-
-  final_margin <- standard_margin
-  if (!is.null(margin)) {
-    final_margin <- utils::modifyList(final_margin, margin)
-  }
-  p <- plotly::layout(p, width = width, height = height)
-  p$x$layout$margin <- final_margin
-
-  title_entry <- p$x$layout$title %||% list()
-  title_entry$pad <- utils::modifyList(title_pad_defaults, title_entry$pad %||% list())
-  if (!is.null(title_pad)) {
-    title_entry$pad <- utils::modifyList(title_entry$pad, title_pad)
-  }
-  p$x$layout$title <- title_entry
-
-  existing_legend <- p$x$layout$legend %||% list()
-  legend_entry <- utils::modifyList(existing_legend, legend_defaults)
-  if (is.null(existing_legend$title) || is.null(existing_legend$title$text)) {
-    legend_entry$title <- utils::modifyList(legend_entry$title %||% list(), list(text = ""))
-  }
-  legend_entry$font <- utils::modifyList(legend_entry$font %||% list(), list(size = 14))
-  p$x$layout$legend <- legend_entry
-
-  axis_names <- names(p$x$layout)
-  axis_names <- axis_names[grepl("^[xy]axis(\\d+)?$", axis_names)]
-  for (axis_name in axis_names) {
-    axis_entry <- p$x$layout[[axis_name]] %||% list()
-    axis_entry$automargin <- TRUE
-    axis_entry$tickfont <- utils::modifyList(axis_entry$tickfont %||% list(), axis_tickfont_defaults)
-    axis_entry$title <- utils::modifyList(axis_entry$title %||% list(), axis_title_defaults)
-    axis_entry$title$font <- utils::modifyList(axis_entry$title$font %||% list(), axis_title_font_defaults)
-    p$x$layout[[axis_name]] <- axis_entry
-  }
-
-  plotly::config(p, displaylogo = FALSE, responsive = responsive)
-}
 ```
-
 
 # Samples Per-Cell Summary
 
@@ -134,22 +74,11 @@ if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
 <div id="pca-scores" class="pca-pane">
 
 ```{r pca-scores}
-if (exists("multi_pca_scores_plot_html", envir = .GlobalEnv)) {
-  prepare_plot(
-    get("multi_pca_scores_plot_html", envir = .GlobalEnv),
-    width = 800, height = 660,
-    margin = list(t = 100),
+if (exists("multi_pca_scores_plot", envir = .GlobalEnv)) {
+  print(get("multi_pca_scores_plot", envir = .GlobalEnv)),
     title_pad = list(b = 16)
   )
-} else if (exists("multi_pca_scores_plot", envir = .GlobalEnv)) {
-  plt <- get("multi_pca_scores_plot", envir = .GlobalEnv)
-  prepare_plot(
-    plotly::ggplotly(plt, tooltip = c("x", "y", "colour", "label")),
-    width = 800, height = 660,
-    margin = list(t = 100),
-    title_pad = list(b = 16)
-  )
-} else {
+ else {
   cat("PCA score plot is not available.")
 }
 ```
@@ -161,20 +90,11 @@ if (exists("multi_pca_scores_plot_html", envir = .GlobalEnv)) {
 <div id="pca-scree" class="pca-pane">
 
 ```{r pca-scree}
-if (exists("multi_pca_scree_plot_html", envir = .GlobalEnv)) {
-  prepare_plot(
-    get("multi_pca_scree_plot_html", envir = .GlobalEnv),
-    margin = list(t = 100),
+if (exists("multi_pca_scree_plot", envir = .GlobalEnv)) {
+  print(get("multi_pca_scree_plot", envir = .GlobalEnv)),
     title_pad = list(b = 6)
   )
-} else if (exists("multi_pca_scree_plot", envir = .GlobalEnv)) {
-  plt <- get("multi_pca_scree_plot", envir = .GlobalEnv)
-  prepare_plot(
-    plotly::ggplotly(plt, tooltip = c("x", "y")),
-    margin = list(t = 100),
-    title_pad = list(b = 6)
-  )
-} else {
+ else {
   cat("PCA scree plot is not available.")
 }
 ```

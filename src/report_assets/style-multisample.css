@@ -299,19 +299,6 @@ p.date {
 
 /* Plot sizing */
 .section .html-widget,
-.section .js-plotly-plot,
-.toggle-pane .html-widget,
-.toggle-pane .js-plotly-plot,
-.plotly.html-widget,
-.plotly.html-widget > div,
-.js-plotly-plot .plot-container,
-.js-plotly-plot .svg-container,
-.html-widget-static-bound {
-  width: auto !important;
-  max-width: 100% !important;
-  margin-left: auto;
-  margin-right: auto;
-}
 
 .plot-block-with-dropdown {
   position: relative;
@@ -330,14 +317,6 @@ p.date {
 }
 
 .plot-block-with-dropdown .html-widget,
-.plot-block-with-dropdown .js-plotly-plot,
-.plot-block-with-dropdown .plotly.html-widget > div {
-  width: auto !important;
-  max-width: 100% !important;
-  margin-left: auto;
-  margin-right: auto;
-  margin-top: 18px;
-}
 
 .plot-block-with-dropdown--structural {
   margin-bottom: clamp(48px, calc(4vw + 1.5rem), 88px);
@@ -348,46 +327,12 @@ p.date {
   padding-top: 20px;
 }
 
-/* Plotly tweaks */
 .html-widget,
-.js-plotly-plot,
-.plot-container,
-.svg-container {
-  background: transparent !important;
-  border: 0 !important;
-  box-shadow: none !important;
-  outline: none !important;
-}
-
-.js-plotly-plot .modebar,
-.js-plotly-plot .modebar-group,
-.js-plotly-plot .modebar-btn {
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-.js-plotly-plot .modebar {
-  top: -18px !important;
-}
-
-.js-plotly-plot .modebar-btn svg,
-.js-plotly-plot .modebar-btn path {
-  fill: #6c757d !important;
-  color: #6c757d !important;
-}
 
 .pca-pane {
   margin-top: 36px;
 }
 
-.pca-pane .plotly.html-widget,
-.pca-pane .plotly.html-widget > div,
-.pca-pane .js-plotly-plot {
-  margin-top: 22px;
-}
-
-/* Utility colors */
-.sqanti-primary { color: #3498db; }
 .sqanti-secondary { color: #e74c3c; }
 .sqanti-success { color: #27ae60; }
 .sqanti-warning { color: #f39c12; }
