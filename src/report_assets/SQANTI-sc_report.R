@@ -2871,6 +2871,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       # Ensure all levels are present
       read_class_temp <- data.frame(Category = read_cat_levels)
       read_class_table <- merge(read_class_temp, read_class_table, by = "Category", all.x = TRUE)
+      read_class_table <- read_class_table[match(read_cat_levels, read_class_table$Category), ]
       read_class_table[is.na(read_class_table)] <- 0
     } else {
       read_class_table <- as.data.frame(table(factor(Classification_file$structural_category, levels = read_cat_levels)))
@@ -2906,13 +2907,13 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     rownames(SJ_class_table) <- NULL
 
     big_table_theme <- ttheme_default(
-      core = list(fg_params = list(cex = 1.5)),
-      colhead = list(fg_params = list(cex = 1.5, fontface = "bold"))
+      core = list(fg_params = list(cex = 1.1)),
+      colhead = list(fg_params = list(cex = 1.1, fontface = "bold"))
     )
 
-    title_genes <- textGrob("Gene Classification", gp = gpar(fontface = "italic", fontsize = 24), vjust = -3)
-    title_reads <- textGrob(paste(entity_label, "Classification"), gp = gpar(fontface = "italic", fontsize = 24), vjust = -7.7)
-    title_sj <- textGrob("Splice Junction Classification", gp = gpar(fontface = "italic", fontsize = 24), vjust = -4.3)
+    title_genes <- textGrob("Gene Classification", gp = gpar(fontface = "italic", fontsize = 20), vjust = -3)
+    title_reads <- textGrob(paste(entity_label, "Classification"), gp = gpar(fontface = "italic", fontsize = 20), vjust = -7.7)
+    title_sj <- textGrob("Splice Junction Classification", gp = gpar(fontface = "italic", fontsize = 20), vjust = -4.3)
 
     table_genes <- tableGrob(gene_class_table, rows = NULL, theme = big_table_theme)
     table_reads <- tableGrob(read_class_table, rows = NULL, theme = big_table_theme)
@@ -2991,6 +2992,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       Median = median(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
       Min = min(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
       Max = max(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
+      IQR = IQR(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
       SD = sd(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE)
     )
     unique_junctions_stats <- c(
@@ -2998,6 +3000,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       Median = median(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
       Min = min(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
       Max = max(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
+      IQR = IQR(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
       SD = sd(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE)
     )
     reads_stats <- c(
@@ -3005,6 +3008,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       Median = median(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
       Min = min(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
       Max = max(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
+      IQR = IQR(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
       SD = sd(SQANTI_cell_summary[[count_col]], na.rm = TRUE)
     )
     umis_stats <- c(
@@ -3012,6 +3016,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       Median = median(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
       Min = min(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
       Max = max(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
+      IQR = IQR(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
       SD = sd(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE)
     )
     summary_table1 <- data.frame(
@@ -3020,13 +3025,14 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       Median = c(reads_stats["Median"], umis_stats["Median"], unique_genes_stats["Median"], unique_junctions_stats["Median"]),
       Min = c(reads_stats["Min"], umis_stats["Min"], unique_genes_stats["Min"], unique_junctions_stats["Min"]),
       Max = c(reads_stats["Max"], umis_stats["Max"], unique_genes_stats["Max"], unique_junctions_stats["Max"]),
+      IQR = c(reads_stats["IQR"], umis_stats["IQR"], unique_genes_stats["IQR"], unique_junctions_stats["IQR"]),
       SD = c(reads_stats["SD"], umis_stats["SD"], unique_genes_stats["SD"], unique_junctions_stats["SD"])
     )
     # If isoforms mode, drop Unique Junction Chains from summary table
     if (mode == "isoforms" || !("UJCs_in_cell" %in% names(SQANTI_cell_summary)) || all(is.na(SQANTI_cell_summary$UJCs_in_cell)) || max(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE) == 0) {
       summary_table1 <- summary_table1[!(summary_table1$Feature %in% c("Unique Junction Chains", "UMIs in cell")), , drop = FALSE]
     }
-    summary_table1[, 2:6] <- round(summary_table1[, 2:6], 3)
+    summary_table1[, 2:7] <- round(summary_table1[, 2:7], 3)
     table_summary1 <- tableGrob(summary_table1, rows = NULL, theme = big_table_theme)
     gt_summary1 <- gTree(children = gList(table_summary1))
 
