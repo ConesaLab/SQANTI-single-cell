@@ -2818,15 +2818,15 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
   if (generate_pdf) {
     pdf(file.path(paste0(report_output, ".pdf")), paper = "a4r", width = 14, height = 11, useDingbats = FALSE)
-    # Add cover page
+    # Cover page
     grid.newpage()
     title_text <- if (mode == "isoforms") "SQANTI-single cell\nisoforms report" else "SQANTI-single cell\nreads report"
     cover <- textGrob(title_text,
       gp = gpar(fontface = "italic", fontsize = 40, col = "orangered")
     )
     grid.draw(cover)
-    # Bulk tables
-    s <- textGrob("Bulk summary", gp = gpar(fontface = "italic", fontsize = 30), vjust = 0)
+    # Overview tables
+    s <- textGrob("Overview", gp = gpar(fontface = "italic", fontsize = 30), vjust = 0)
     grid.arrange(s)
 
     # Calculate bulk-level stats
@@ -2843,12 +2843,14 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       unique_junctions <- length(unique(Classification_file$jxn_string))
     }
 
-    # Gene Classification table
+    annotated_genes <- length(unique(Classification_file$associated_gene[!grepl("^novel", Classification_file$associated_gene)]))
+    novel_genes <- length(unique(Classification_file$associated_gene[grepl("^novel", Classification_file$associated_gene)]))
     gene_class_table <- data.frame(
       Category = c("Annotated Genes", "Novel Genes"),
-      "Genes, count" = c(
-        length(unique(Classification_file$associated_gene[!grepl("^novel", Classification_file$associated_gene)])),
-        length(unique(Classification_file$associated_gene[grepl("^novel", Classification_file$associated_gene)]))
+      `Genes, count` = c(annotated_genes, novel_genes),
+      `Genes, percent` = c(
+        round(100 * annotated_genes / unique_genes, 1),
+        round(100 * novel_genes / unique_genes, 1)
       ),
       check.names = FALSE
     )
@@ -2865,17 +2867,17 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     if (mode == "isoforms") {
       read_class_table <- aggregate(Classification_file$count, by = list(Category = factor(Classification_file$structural_category, levels = read_cat_levels)), FUN = sum, na.rm = TRUE)
-      colnames(read_class_table) <- c("Category", paste0(entity_label_plural, ", count"))
-      # Ensure all levels are present (aggregate might drop empty ones if not careful, but factor levels help)
-      # Actually aggregate returns only present levels. Let's use complete.
-      read_class_table <- data.frame(Category = read_cat_levels) %>%
-        left_join(read_class_table, by = "Category")
+      colnames(read_class_table) <- c("Category", "Transcripts, count")
+      # Ensure all levels are present
+      read_class_temp <- data.frame(Category = read_cat_levels)
+      read_class_table <- merge(read_class_temp, read_class_table, by = "Category", all.x = TRUE)
       read_class_table[is.na(read_class_table)] <- 0
     } else {
       read_class_table <- as.data.frame(table(factor(Classification_file$structural_category, levels = read_cat_levels)))
-      colnames(read_class_table) <- c("Category", paste0(entity_label_plural, ", count"))
+      colnames(read_class_table) <- c("Category", "Transcripts, count")
     }
     read_class_table$Category <- read_cat_names
+    read_class_table[["Transcripts, percent"]] <- round(100 * read_class_table[["Transcripts, count"]] / sum(read_class_table[["Transcripts, count"]]), 1)
 
     # Splice Junction Classification table
     Junctions$junction_type <- paste(Junctions$junction_category, Junctions$canonical, sep = "_")
@@ -2898,7 +2900,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     SJ_class_table <- data.frame(
       Category = c("Known canonical", "Known Non-canonical", "Novel canonical", "Novel Non-canonical"),
       `SJs, count` = sj_counts,
-      Percent = sj_perc,
+      `SJs, percent` = sj_perc,
       check.names = FALSE
     )
     rownames(SJ_class_table) <- NULL
@@ -3131,6 +3133,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         Median = median(vals, na.rm = TRUE),
         Min = min(vals, na.rm = TRUE),
         Max = max(vals, na.rm = TRUE),
+        IQR = IQR(vals, na.rm = TRUE),
         SD = sd(vals, na.rm = TRUE)
       )
     })
@@ -3138,8 +3141,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       Category = struct_cat_names,
       t(count_stats)
     )
-    colnames(count_stats_df)[2:6] <- c("Mean", "Median", "Min", "Max", "SD")
-    count_stats_df[, 2:6] <- round(count_stats_df[, 2:6], 3)
+    colnames(count_stats_df)[2:7] <- c("Mean", "Median", "Min", "Max", "IQR", "SD")
+    count_stats_df[, 2:7] <- round(count_stats_df[, 2:7], 3)
     table_count_stats <- tableGrob(count_stats_df, rows = NULL, theme = small_table_theme)
 
     # 2. Proportions summary table
@@ -3151,6 +3154,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         Median = median(vals, na.rm = TRUE),
         Min = min(vals, na.rm = TRUE),
         Max = max(vals, na.rm = TRUE),
+        IQR = IQR(vals, na.rm = TRUE),
         SD = sd(vals, na.rm = TRUE)
       )
     })
@@ -3158,8 +3162,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       Category = struct_cat_names,
       t(prop_stats)
     )
-    colnames(prop_stats_df)[2:6] <- c("Mean", "Median", "Min", "Max", "SD")
-    prop_stats_df[, 2:6] <- round(prop_stats_df[, 2:6], 3)
+    colnames(prop_stats_df)[2:7] <- c("Mean", "Median", "Min", "Max", "IQR", "SD")
+    prop_stats_df[, 2:7] <- round(prop_stats_df[, 2:7], 3)
     table_prop_stats <- tableGrob(prop_stats_df, rows = NULL, theme = small_table_theme)
 
     grid.arrange(

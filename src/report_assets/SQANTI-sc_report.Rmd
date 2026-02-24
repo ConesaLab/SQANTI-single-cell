@@ -87,11 +87,11 @@ render_sqanti_table <- function(df, digits = 3, page_len = 10) {
 }
 ```
 
-# Bulk Summary
+# Overview
 
-```{r bulk-summary-text}
+```{r overview-text}
 if (exists("Classification") && has_data(Classification)) {
-  # Calculate bulk-level stats
+  # Calculate bulk-like stats
   total_reads_count <- sum(Classification$count)
   unique_genes <- length(unique(Classification$associated_gene))
   if ("jxn_string" %in% colnames(Classification)) {
@@ -116,7 +116,7 @@ if (exists("Classification") && has_data(Classification)) {
 
 ### Gene Classification
 
-```{r bulk-gene-classification}
+```{r overview-gene-classification}
 if (exists("Classification") && has_data(Classification)) {
   # Gene Classification table
   unique_genes <- length(unique(Classification$associated_gene))
@@ -125,11 +125,12 @@ if (exists("Classification") && has_data(Classification)) {
 
   gene_class_table <- data.frame(
     Category = c("Annotated Genes", "Novel Genes"),
-    Count = c(annotated_genes, novel_genes),
-    Percentage = c(
+    `Genes, count` = c(annotated_genes, novel_genes),
+    `Genes, percent` = c(
       round(100 * annotated_genes / unique_genes, 1),
       round(100 * novel_genes / unique_genes, 1)
-    )
+    ),
+    check.names = FALSE
   )
 
   rownames(gene_class_table) <- NULL
@@ -139,7 +140,7 @@ if (exists("Classification") && has_data(Classification)) {
 
 ### `r paste(entity_label, "Classification")`
 
-```{r bulk-read-classification}
+```{r overview-read-classification}
 if (exists("Classification") && has_data(Classification)) {
   # Read Classification table (counts per structural category)
   read_cat_levels <- c(
@@ -159,12 +160,13 @@ if (exists("Classification") && has_data(Classification)) {
 
   # Reorder
   read_class_table <- read_class_table[match(read_cat_levels, read_class_table$structural_category), ]
-  colnames(read_class_table) <- c("Category", "Count")
+  colnames(read_class_table) <- c("Category", "Transcripts, count")
   read_class_table$Category <- read_cat_names
-  read_class_table$Percentage <- round(100 * read_class_table$Count / sum(read_class_table$Count), 1)
+  read_class_table[["Transcripts, percent"]] <- round(100 * read_class_table[["Transcripts, count"]] / sum(read_class_table[["Transcripts, count"]]), 1)
 
   # Remove categories with 0 counts
-  read_class_table <- read_class_table[read_class_table$Count > 0, ]
+  count_col_name <- "Transcripts, count"
+  read_class_table <- read_class_table[read_class_table[[count_col_name]] > 0, ]
 
   rownames(read_class_table) <- NULL
   render_sqanti_table(read_class_table, digits = 2, page_len = 10)
@@ -173,7 +175,7 @@ if (exists("Classification") && has_data(Classification)) {
 
 ### Splice Junction Classification
 
-```{r bulk-splice-junction-classification}
+```{r overview-splice-junction-classification}
 if (exists("Junctions") && has_data(Junctions)) {
   # Splice Junction Classification table
   Junctions$junction_type <- paste(Junctions$junction_category, Junctions$canonical, sep = "_")
@@ -190,8 +192,9 @@ if (exists("Junctions") && has_data(Junctions)) {
 
   SJ_class_table <- data.frame(
     Category = c("Known canonical", "Known Non-canonical", "Novel canonical", "Novel Non-canonical"),
-    Count = sj_counts,
-    Percentage = sj_perc
+    `SJs, count` = sj_counts,
+    `SJs, percent` = sj_perc,
+    check.names = FALSE
   )
 
   # Remove row names and clean up
