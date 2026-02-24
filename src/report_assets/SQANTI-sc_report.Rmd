@@ -225,6 +225,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
     Median = median(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
     Min = min(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
     Max = max(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
+    IQR = IQR(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
     SD = sd(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE)
   )
   unique_junctions_stats <- c(
@@ -232,6 +233,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
     Median = median(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
     Min = min(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
     Max = max(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
+    IQR = IQR(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
     SD = sd(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE)
   )
   reads_stats <- c(
@@ -239,6 +241,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
     Median = median(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
     Min = min(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
     Max = max(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
+    IQR = IQR(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
     SD = sd(SQANTI_cell_summary[[count_col]], na.rm = TRUE)
   )
   umis_stats <- c(
@@ -246,6 +249,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
     Median = median(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
     Min = min(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
     Max = max(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
+    IQR = IQR(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
     SD = sd(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE)
   )
   summary_table1 <- data.frame(
@@ -254,6 +258,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
     Median = c(reads_stats["Median"], umis_stats["Median"], unique_genes_stats["Median"], unique_junctions_stats["Median"]),
     Min = c(reads_stats["Min"], umis_stats["Min"], unique_genes_stats["Min"], unique_junctions_stats["Min"]),
     Max = c(reads_stats["Max"], umis_stats["Max"], unique_genes_stats["Max"], unique_junctions_stats["Max"]),
+    IQR = c(reads_stats["IQR"], umis_stats["IQR"], unique_genes_stats["IQR"], unique_junctions_stats["IQR"]),
     SD = c(reads_stats["SD"], umis_stats["SD"], unique_genes_stats["SD"], unique_junctions_stats["SD"])
   )
 
@@ -263,7 +268,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
     summary_table1 <- summary_table1[!summary_table1$Feature == "Unique Junction Chains", ]
   }
 
-  summary_table1[, 2:6] <- round(summary_table1[, 2:6], 3)
+  summary_table1[, 2:7] <- round(summary_table1[, 2:7], 3)
 
   rownames(summary_table1) <- NULL
   render_sqanti_table(summary_table1, digits = 3, page_len = 10)
@@ -1797,6 +1802,16 @@ $(document).ready(function() {
       if (filter) { $(selector).filter('.toggle-pane').addClass('hidden-pane').hide(); }
       else { $(selector).not(dropdownId).addClass('hidden-pane').hide(); }
       $(target).removeClass('hidden-pane').show();
+      
+      // Force DataTables to recalculate widths when unhidden
+      var $tblBtn = $(this);
+      setTimeout(function() {
+        $(window).trigger('resize');
+        $tblBtn.trigger('shown.bs.tab');
+        if (typeof $.fn.dataTable !== 'undefined') {
+          try { $.fn.dataTable.tables({ visible: true, api: true }).columns.adjust(); } catch(e) {}
+        }
+      }, 50);
     });
   }
 
@@ -1806,6 +1821,8 @@ $(document).ready(function() {
   initDropdown('#sr-umap-dropdown', 'sr-umap-');
   initDropdown('#tss-umap-dropdown', 'tss-umap-');
   initDropdown('#refcov-dropdown', 'refcov-', true);
+  initDropdown('#sj-dropdown', 'sj-');
+  initDropdown('#rcsc-dropdown', 'rcsc-');
 
   // Trigger initial resize to ensure first tab plots are rendered correctly
   setTimeout(function() {
