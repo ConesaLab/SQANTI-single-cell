@@ -862,21 +862,13 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       return(NULL)
     }
 
-    # Add count labels for the legend
     profile_df$len_bin <- factor(profile_df$len_bin, levels = levels(df$len_bin))
-    bin_counts <- tapply(df$count, df$len_bin, sum)
-    legend_labels <- setNames(
-      paste0(levels(df$len_bin), " (n=", format(bin_counts[levels(df$len_bin)], big.mark = ","), ")"),
-      levels(df$len_bin)
-    )
-    profile_df$legend_label <- legend_labels[as.character(profile_df$len_bin)]
-    profile_df$legend_label <- factor(profile_df$legend_label, levels = legend_labels)
 
     # RColorConesa main palette (7 discrete base colors)
     n_levels <- nlevels(df$len_bin)
     bin_colors <- c("#00B0A5", "#E1744E", "#FAC24A", "#6DC8E5", "#E7A5CB", "#9C8AB4", "#E44067")[seq_len(n_levels)]
 
-    p <- ggplot(profile_df, aes(x = position, y = coverage, color = legend_label)) +
+    p <- ggplot(profile_df, aes(x = position, y = coverage, color = len_bin)) +
       geom_line(linewidth = 0.9, alpha = 0.85) +
       scale_color_manual(values = setNames(bin_colors, levels(profile_df$legend_label))) +
       scale_x_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +
