@@ -20,6 +20,9 @@ suppressWarnings(suppressPackageStartupMessages({
   library(data.table)
 }))
 
+# Prevent Rplots.pdf generation
+pdf(NULL)
+
 #********************** Taking arguments from python script
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -35,6 +38,7 @@ skipORF <- FALSE
 CAGE_peak <- FALSE
 polyA_motif_list <- FALSE
 cell_summary_path <- NULL
+ref_gtf_path <- NULL
 
 # Check for optional arguments
 if (length(args) > 5) {
@@ -77,6 +81,15 @@ if (length(args) > 5) {
         next
       } else {
         stop("--clustering requires a path argument")
+      }
+    }
+    if (arg == "--refGTF") {
+      if ((i + 1) <= length(args)) {
+        ref_gtf_path <- args[i + 1]
+        i <- i + 2
+        next
+      } else {
+        stop("--refGTF requires a path argument")
       }
     }
     i <- i + 1
@@ -870,12 +883,12 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     p <- ggplot(profile_df, aes(x = position, y = coverage, color = len_bin)) +
       geom_line(linewidth = 0.9, alpha = 0.85) +
-      scale_color_manual(values = setNames(bin_colors, levels(profile_df$legend_label))) +
+      scale_color_manual(values = setNames(bin_colors, levels(profile_df$len_bin))) +
       scale_x_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +
       scale_y_continuous(limits = c(0, 100)) +
       labs(
         title = paste(entity_label, "Body Coverage Along Reference Transcript"),
-        x = "Position along reference transcript (%)\n5\u2019 \u2192 3\u2019",
+        x = "Position along reference transcript (%)\n5' -> 3'",
         y = paste(entity_label_plural, "covering position, %"),
         color = "Reference length"
       ) +
@@ -889,6 +902,116 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         legend.text = element_text(size = 10)
       ) +
       guides(color = guide_legend(nrow = 2, byrow = TRUE))
+    return(p)
+  }
+
+  # Build GTF reference length violin/boxplot comparison for 'isoforms' mode ONLY
+  build_isoforms_ref_vs_sample_lengths <- function(cls_df, ref_gtf) {
+    if (is.null(ref_gtf)) {
+      return(NULL)
+    }
+
+    # Strip quotes if passed by the shell
+    ref_gtf <- gsub('^"|"$', "", ref_gtf)
+
+    if (!file.exists(ref_gtf)) {
+      return(NULL)
+    }
+
+    # 1. Sample Transcripts
+    if (!"length" %in% colnames(cls_df)) {
+      return(NULL)
+    }
+    sample_lengths <- suppressWarnings(as.numeric(cls_df$length))
+    sample_lengths <- sample_lengths[!is.na(sample_lengths) & sample_lengths > 0]
+
+    if (length(sample_lengths) == 0) {
+      return(NULL)
+    }
+
+    sample_df <- data.frame(
+      length = sample_lengths,
+      Dataset = "Sample Transcriptome",
+      stringsAsFactors = FALSE
+    )
+
+    # 2. Reference Transcripts via data.table rapid GTF parsing
+    # Skip comment lines explicitly to prevent fread from guessing incorrect column number
+    skip_lines <- 0
+    con <- try(file(ref_gtf, "r"), silent = TRUE)
+    if (!inherits(con, "try-error")) {
+      while (TRUE) {
+        line <- suppressWarnings(readLines(con, n = 1))
+        if (length(line) == 0) break
+        if (startsWith(line, "#")) {
+          skip_lines <- skip_lines + 1
+        } else {
+          break
+        }
+      }
+      close(con)
+    }
+
+    gtf <- tryCatch(
+      data.table::fread(ref_gtf, sep = "\t", skip = skip_lines, header = FALSE, fill = TRUE, quote = ""),
+      error = function(e) NULL
+    )
+    if (is.null(gtf) || nrow(gtf) == 0 || ncol(gtf) < 9) {
+      return(NULL)
+    }
+
+    # V3 = feature, V4 = start, V5 = end, V9 = attributes
+    exons <- gtf[V3 == "exon"]
+    if (nrow(exons) == 0) {
+      return(NULL)
+    }
+
+    exons[, start_pos := suppressWarnings(as.numeric(V4))]
+    exons[, end_pos := suppressWarnings(as.numeric(V5))]
+    exons <- exons[!is.na(start_pos) & !is.na(end_pos)]
+    exons[, exon_length := end_pos - start_pos + 1]
+
+    # Extract transcript_id via regex
+    exons[, transcript_id := sub(".*transcript_id \"([^\"]+)\".*", "\\1", V9)]
+
+    # Aggregate by transcript
+    ref_lengths_dt <- exons[, .(length = sum(exon_length, na.rm = TRUE)), by = transcript_id]
+    ref_lengths <- ref_lengths_dt$length[ref_lengths_dt$length > 0]
+
+    if (length(ref_lengths) == 0) {
+      return(NULL)
+    }
+
+    ref_df <- data.frame(
+      length = ref_lengths,
+      Dataset = "Reference Transcriptome",
+      stringsAsFactors = FALSE
+    )
+
+    # 3. Combine and Plot
+    plot_df <- rbind(sample_df, ref_df)
+    plot_df$Dataset <- factor(plot_df$Dataset, levels = c("Reference Transcriptome", "Sample Transcriptome"))
+
+    p <- ggplot(plot_df, aes(x = Dataset, y = length, fill = Dataset)) +
+      geom_violin(aes(color = Dataset), alpha = 0.7, scale = "width", adjust = 1.5, trim = TRUE, show.legend = FALSE) +
+      scale_color_manual(values = c("Reference Transcriptome" = "#1fa291", "Sample Transcriptome" = "#f5c05d"), guide = "none") +
+      geom_boxplot(width = 0.05, alpha = 0.6, outlier.shape = NA, color = "grey20", show.legend = FALSE) +
+      stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1, show.legend = FALSE) +
+      scale_y_log10(labels = scales::comma) +
+      scale_fill_manual(values = c("Reference Transcriptome" = "#1fa291", "Sample Transcriptome" = "#f5c05d")) +
+      labs(
+        title = "Transcript Length Distribution:\nReference annotation vs. Novel annotation",
+        x = "",
+        y = paste(entity_label_plural, "Length (bp, log10)")
+      ) +
+      theme_classic(base_size = 11) +
+      theme(
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 12),
+        axis.text.y = element_text(size = 11),
+        axis.text.x = element_text(size = 11, angle = 45, hjust = 1)
+      )
+
     return(p)
   }
 
@@ -1763,6 +1886,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
   # Meta-transcript body coverage profile (bulk, not per-cell)
   gg_meta_transcript_coverage <<- build_meta_coverage_plot(Classification_file)
+
+  # Isoforms only: Reference Transcriptome vs Sample Transcript Models length distribution
+  gg_isoforms_ref_vs_sample_lengths <<- if (mode == "isoforms") build_isoforms_ref_vs_sample_lengths(Classification_file, ref_gtf_path) else NULL
 
   ### Structural categories ###
 
@@ -3226,6 +3352,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # Reference Transcript Coverage
     render_pdf_plot("gg_ref_coverage_across_category")
     render_pdf_plot("gg_meta_transcript_coverage")
+    if (mode == "isoforms" && exists("gg_isoforms_ref_vs_sample_lengths")) {
+      render_pdf_plot("gg_isoforms_ref_vs_sample_lengths")
+    }
 
     # Structural Read Characterization section
     section_page(paste("Structural", entity_label, "Characterization"))

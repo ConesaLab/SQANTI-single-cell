@@ -19,7 +19,6 @@ output:
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 library(dplyr)
 library(htmltools)
-
 ```
 
 # Samples Per-Cell Summary
@@ -40,7 +39,7 @@ if (exists("multi_summary_tbl_html", envir = .GlobalEnv)) {
 ```{r structural-per-category, results='asis'}
 if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
   plot_list <- get("multi_structural_category_violin_plots", envir = .GlobalEnv)
-  
+
   if (length(plot_list) > 0) {
     # Define category order
     category_order <- c("FSM", "ISM", "NIC", "NNC", "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron")
@@ -48,12 +47,12 @@ if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
     matched <- match(category_order, names(plot_list))
     # Filter and reorder, keep only those that exist
     plot_list <- plot_list[na.omit(matched)]
-    
+
     # Create tabs for each category
     for (name in names(plot_list)) {
-      cat('\n### ', name, '\n')
+      cat("\n### ", name, "\n")
       print(plot_list[[name]])
-      cat('\n')
+      cat("\n")
     }
   } else {
     cat("No per-category structural plots available.")
@@ -75,10 +74,8 @@ if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
 
 ```{r pca-scores}
 if (exists("multi_pca_scores_plot", envir = .GlobalEnv)) {
-  print(get("multi_pca_scores_plot", envir = .GlobalEnv)),
-    title_pad = list(b = 16)
-  )
- else {
+  print(get("multi_pca_scores_plot", envir = .GlobalEnv))
+} else {
   cat("PCA score plot is not available.")
 }
 ```
@@ -91,10 +88,8 @@ if (exists("multi_pca_scores_plot", envir = .GlobalEnv)) {
 
 ```{r pca-scree}
 if (exists("multi_pca_scree_plot", envir = .GlobalEnv)) {
-  print(get("multi_pca_scree_plot", envir = .GlobalEnv)),
-    title_pad = list(b = 6)
-  )
- else {
+  print(get("multi_pca_scree_plot", envir = .GlobalEnv))
+} else {
   cat("PCA scree plot is not available.")
 }
 ```
@@ -110,9 +105,9 @@ if (exists("multi_pca_scree_plot", envir = .GlobalEnv)) {
 if (exists("multi_pca_top_loadings_plots", envir = .GlobalEnv)) {
   loadings_plots <- get("multi_pca_top_loadings_plots", envir = .GlobalEnv)
   for (name in names(loadings_plots)) {
-    cat('\n### ', name, ' Loadings\n')
+    cat("\n### ", name, " Loadings\n")
     print(loadings_plots[[name]])
-    cat('\n')
+    cat("\n")
   }
 }
 
@@ -121,9 +116,9 @@ if (exists("multi_pca_loading_distribution_plots", envir = .GlobalEnv)) {
   feature_plots <- get("multi_pca_loading_distribution_plots", envir = .GlobalEnv)
   if (length(feature_plots) > 0) {
     for (name in names(feature_plots)) {
-      cat('\n### ', name, '\n')
+      cat("\n### ", name, "\n")
       print(feature_plots[[name]])
-      cat('\n')
+      cat("\n")
     }
   }
 }

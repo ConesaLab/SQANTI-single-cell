@@ -295,6 +295,89 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
 }
 ```
 
+### `r paste(entity_label, "Classification")`
+
+```{=html}
+<div id="rcsc-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">Counts</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#rcsc-counts">Counts</a></li>
+      <li><a href="#" data-target="#rcsc-perc">Percentages</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="rcsc-counts" class="toggle-pane" style="display:block;">
+
+```{r cells-read-counts}
+if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
+  struct_cat_cols <- c(
+    "FSM", "ISM", "NIC", "NNC", "Genic_Genomic", "Antisense", "Fusion", "Intergenic", "Genic_intron"
+  )
+  struct_cat_names <- c(
+    "FSM", "ISM", "NIC", "NNC", "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron"
+  )
+  count_stats <- sapply(struct_cat_cols, function(col) {
+    vals <- SQANTI_cell_summary[[col]]
+    c(
+      Mean = mean(vals, na.rm = TRUE),
+      Median = median(vals, na.rm = TRUE),
+      Min = min(vals, na.rm = TRUE),
+      Max = max(vals, na.rm = TRUE),
+      SD = sd(vals, na.rm = TRUE)
+    )
+  })
+  count_stats_df <- data.frame(
+    Category = struct_cat_names,
+    t(count_stats)
+  )
+  colnames(count_stats_df)[2:6] <- c("Mean", "Median", "Min", "Max", "SD")
+  count_stats_df[, 2:6] <- round(count_stats_df[, 2:6], 3)
+  rownames(count_stats_df) <- NULL
+  render_sqanti_table(count_stats_df, digits = 3, page_len = 10)
+}
+```
+
+</div>
+
+<div id="rcsc-perc" class="toggle-pane hidden-pane" style="display:block;">
+
+```{r cells-read-percentages}
+if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
+  struct_cat_cols <- c(
+    "FSM", "ISM", "NIC", "NNC", "Genic_Genomic", "Antisense", "Fusion", "Intergenic", "Genic_intron"
+  )
+  struct_cat_names <- c(
+    "FSM", "ISM", "NIC", "NNC", "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron"
+  )
+  prop_cat_cols <- paste0(struct_cat_cols, "_prop")
+  prop_stats <- sapply(prop_cat_cols, function(col) {
+    vals <- SQANTI_cell_summary[[col]]
+    c(
+      Mean = mean(vals, na.rm = TRUE),
+      Median = median(vals, na.rm = TRUE),
+      Min = min(vals, na.rm = TRUE),
+      Max = max(vals, na.rm = TRUE),
+      SD = sd(vals, na.rm = TRUE)
+    )
+  })
+  prop_stats_df <- data.frame(
+    Category = struct_cat_names,
+    t(prop_stats)
+  )
+  colnames(prop_stats_df)[2:6] <- c("Mean", "Median", "Min", "Max", "SD")
+  prop_stats_df[, 2:6] <- round(prop_stats_df[, 2:6], 3)
+  rownames(prop_stats_df) <- NULL
+  render_sqanti_table(prop_stats_df, digits = 3, page_len = 10)
+}
+```
+
+</div>
+
 ### Splice Junction Classification
 
 ```{=html}
@@ -405,89 +488,6 @@ if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") 
   }
   rownames(sj_prop_stats_df) <- NULL
   render_sqanti_table(sj_prop_stats_df, digits = 3, page_len = 10)
-}
-```
-
-</div>
-
-### `r paste(entity_label, "Classification")`
-
-```{=html}
-<div id="rcsc-dropdown" class="dropdown-toolbar">
-  <div class="btn-group">
-    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-      <span class="label">Counts</span> <span class="caret"></span>
-    </button>
-    <ul class="dropdown-menu dropdown-menu-right" role="menu">
-      <li><a href="#" data-target="#rcsc-counts">Counts</a></li>
-      <li><a href="#" data-target="#rcsc-perc">Percentages</a></li>
-    </ul>
-  </div>
-</div>
-```
-
-<div id="rcsc-counts" class="toggle-pane" style="display:block;">
-
-```{r cells-read-counts}
-if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
-  struct_cat_cols <- c(
-    "FSM", "ISM", "NIC", "NNC", "Genic_Genomic", "Antisense", "Fusion", "Intergenic", "Genic_intron"
-  )
-  struct_cat_names <- c(
-    "FSM", "ISM", "NIC", "NNC", "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron"
-  )
-  count_stats <- sapply(struct_cat_cols, function(col) {
-    vals <- SQANTI_cell_summary[[col]]
-    c(
-      Mean = mean(vals, na.rm = TRUE),
-      Median = median(vals, na.rm = TRUE),
-      Min = min(vals, na.rm = TRUE),
-      Max = max(vals, na.rm = TRUE),
-      SD = sd(vals, na.rm = TRUE)
-    )
-  })
-  count_stats_df <- data.frame(
-    Category = struct_cat_names,
-    t(count_stats)
-  )
-  colnames(count_stats_df)[2:6] <- c("Mean", "Median", "Min", "Max", "SD")
-  count_stats_df[, 2:6] <- round(count_stats_df[, 2:6], 3)
-  rownames(count_stats_df) <- NULL
-  render_sqanti_table(count_stats_df, digits = 3, page_len = 10)
-}
-```
-
-</div>
-
-<div id="rcsc-perc" class="toggle-pane hidden-pane" style="display:block;">
-
-```{r cells-read-percentages}
-if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
-  struct_cat_cols <- c(
-    "FSM", "ISM", "NIC", "NNC", "Genic_Genomic", "Antisense", "Fusion", "Intergenic", "Genic_intron"
-  )
-  struct_cat_names <- c(
-    "FSM", "ISM", "NIC", "NNC", "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron"
-  )
-  prop_cat_cols <- paste0(struct_cat_cols, "_prop")
-  prop_stats <- sapply(prop_cat_cols, function(col) {
-    vals <- SQANTI_cell_summary[[col]]
-    c(
-      Mean = mean(vals, na.rm = TRUE),
-      Median = median(vals, na.rm = TRUE),
-      Min = min(vals, na.rm = TRUE),
-      Max = max(vals, na.rm = TRUE),
-      SD = sd(vals, na.rm = TRUE)
-    )
-  })
-  prop_stats_df <- data.frame(
-    Category = struct_cat_names,
-    t(prop_stats)
-  )
-  colnames(prop_stats_df)[2:6] <- c("Mean", "Median", "Min", "Max", "SD")
-  prop_stats_df[, 2:6] <- round(prop_stats_df[, 2:6], 3)
-  rownames(prop_stats_df) <- NULL
-  render_sqanti_table(prop_stats_df, digits = 3, page_len = 10)
 }
 ```
 
@@ -1128,7 +1128,16 @@ if (exists("gg_meta_transcript_coverage") && !is.null(gg_meta_transcript_coverag
 
 </div>
 
+`r if (mode == "isoforms") {"## Reference Transcriptome"}`
+
+```{r isoforms-ref-lengths-plot, fig.height=8, fig.width=10}
+if (mode == "isoforms" && exists("gg_isoforms_ref_vs_sample_lengths") && !is.null(gg_isoforms_ref_vs_sample_lengths)) {
+  print(gg_isoforms_ref_vs_sample_lengths)
+}
+```
+
 # `r paste(entity_label, "Structural Characterization")` {.tabset .tabset-fade}
+
 
 ## Distribution by Structural Categories
 
