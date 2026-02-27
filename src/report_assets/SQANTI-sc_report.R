@@ -346,25 +346,56 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
           }
 
           # ----------------------------------------------------------------
+          # Common Helpers for Cluster Violin Plots
+          # ----------------------------------------------------------------
+          prepare_violin_data <- function(data, y_col) {
+            df <- data[!is.na(data[[y_col]]), c("Cluster", y_col)]
+            colnames(df) <- c("Variable", "Value")
+            df$Variable <- as.factor(df$Variable)
+            return(df)
+          }
+
+          unique_clusters <- levels(merged_umap$Cluster)
+          cluster_colors <- scales::hue_pal()(length(unique_clusters))
+          names(cluster_colors) <- unique_clusters
+
+          # ----------------------------------------------------------------
+          # Structural Categories Support by Cluster (Violin Plots)
+          # ----------------------------------------------------------------
+          gg_cat_cluster_plots <<- list()
+          for (cat_col in names(cat_colors)) {
+            if (cat_col %in% colnames(merged_umap)) {
+              cat_color <- cat_colors[[cat_col]]
+              cat_label <- cat_labels[[cat_col]]
+
+              fixed_color_map <- rep(cat_color, length(unique_clusters))
+              names(fixed_color_map) <- unique_clusters
+
+              cat_data <- prepare_violin_data(merged_umap, cat_col)
+
+              gg_cat_cluster_plots[[cat_label]] <<- build_violin_plot(
+                df_long = cat_data,
+                title = paste(cat_label, "Distribution"),
+                x_labels = levels(cat_data$Variable),
+                fill_map = fixed_color_map,
+                y_label = paste(entity_label_plural, ", %", sep = ""),
+                legend = FALSE,
+                x_title = "Cluster",
+                x_tickangle = 0,
+                ylim = c(0, 100),
+                violin_outline_fill = TRUE,
+                violin_alpha = 0.7,
+                box_alpha = 0.3
+              )
+            }
+          }
+
+          # ----------------------------------------------------------------
           # Short Read Support by Cluster (Violin Plots)
           # ----------------------------------------------------------------
           # Use the new column name: srjunctions_support_prop
           if ("srjunctions_support_prop" %in% colnames(merged_umap) && sum(merged_umap$srjunctions_support_prop, na.rm = TRUE) > 0) {
             gg_sr_cluster_plots <<- list()
-
-            prepare_violin_data <- function(data, y_col) {
-              df <- data[!is.na(data[[y_col]]), c("Cluster", y_col)]
-              colnames(df) <- c("Variable", "Value")
-              df$Variable <- as.factor(df$Variable)
-              return(df)
-            }
-
-            # ----------------------------------------------------------------
-            # Define Cluster Colors (Shared for both TSS and Short Read Coverage)
-            # ----------------------------------------------------------------
-            unique_clusters <- levels(merged_umap$Cluster)
-            cluster_colors <- scales::hue_pal()(length(unique_clusters))
-            names(cluster_colors) <- unique_clusters
 
             # ----------------------------------------------------------------
             # TSS Ratio Validated Support by Cluster (Violin Plots)
@@ -3552,7 +3583,15 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       # Print UMAP by structural category if available (one per page)
       if (exists("gg_umap_by_category") && !is.null(gg_umap_by_category)) {
         for (cat_label in names(gg_umap_by_category)) {
+          # Print the UMAP
           print(gg_umap_by_category[[cat_label]])
+        }
+        
+        # Then print out ALL the corresponding Structural Categories Violin Plots
+        if (exists("gg_cat_cluster_plots") && !is.null(gg_cat_cluster_plots)) {
+           for (cat_label in names(gg_cat_cluster_plots)) {
+              print(gg_cat_cluster_plots[[cat_label]])
+           }
         }
       }
 

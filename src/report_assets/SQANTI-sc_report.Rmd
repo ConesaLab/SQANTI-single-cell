@@ -1769,13 +1769,114 @@ if (show_umap) cat("</div>\n")
 ```
 
 ```{r clustering-cat-header, results='asis'}
-if (show_umap && exists("gg_umap_by_category")) {
-  cat("## Structural Categories\n")
+show_umap_cat <- (exists("show_umap") && show_umap && exists("gg_umap_by_category"))
+show_cat_cluster <- (exists("gg_cat_cluster_plots") && length(gg_cat_cluster_plots) > 0)
+
+if (show_umap_cat || show_cat_cluster) {
+  cat("## Structural Categories {.tabset}\n")
 }
 ```
 
 ```{r clustering-cat-check, include=FALSE}
-show_umap_cat <- (show_umap && exists("gg_umap_by_category"))
+# Variables already defined above, kept for backwards compatibility if needed elsewhere
+```
+
+```{r cat-dist-tab, results='asis'}
+if (show_cat_cluster) {
+  cat("\n### Distributions\n")
+}
+```
+
+```{=html}
+<div id="cat-cluster-dropdown" class="dropdown-toolbar" style="`r if(!show_cat_cluster) 'display:none;'`">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">FSM</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#cat-cluster-FSM">FSM</a></li>
+      <li><a href="#" data-target="#cat-cluster-ISM">ISM</a></li>
+      <li><a href="#" data-target="#cat-cluster-NIC">NIC</a></li>
+      <li><a href="#" data-target="#cat-cluster-NNC">NNC</a></li>
+      <li><a href="#" data-target="#cat-cluster-GenicGenomic">Genic Genomic</a></li>
+      <li><a href="#" data-target="#cat-cluster-Antisense">Antisense</a></li>
+      <li><a href="#" data-target="#cat-cluster-Fusion">Fusion</a></li>
+      <li><a href="#" data-target="#cat-cluster-Intergenic">Intergenic</a></li>
+      <li><a href="#" data-target="#cat-cluster-GenicIntron">Genic Intron</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<!-- Distribution panes for each category -->
+<div id="cat-cluster-FSM" class="toggle-pane" style="display:block;">
+```{r cat-cluster-FSM, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["FSM"]])) {
+  print(gg_cat_cluster_plots[["FSM"]])
+}
+```
+</div>
+<div id="cat-cluster-ISM" class="toggle-pane hidden-pane" style="display:block;">
+```{r cat-cluster-ISM, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["ISM"]])) {
+  print(gg_cat_cluster_plots[["ISM"]])
+}
+```
+</div>
+<div id="cat-cluster-NIC" class="toggle-pane hidden-pane" style="display:block;">
+```{r cat-cluster-NIC, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["NIC"]])) {
+  print(gg_cat_cluster_plots[["NIC"]])
+}
+```
+</div>
+<div id="cat-cluster-NNC" class="toggle-pane hidden-pane" style="display:block;">
+```{r cat-cluster-NNC, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["NNC"]])) {
+  print(gg_cat_cluster_plots[["NNC"]])
+}
+```
+</div>
+<div id="cat-cluster-GenicGenomic" class="toggle-pane hidden-pane" style="display:block;">
+```{r cat-cluster-Genic_Genomic_cat, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["Genic Genomic"]])) {
+  print(gg_cat_cluster_plots[["Genic Genomic"]])
+}
+```
+</div>
+<div id="cat-cluster-Antisense" class="toggle-pane hidden-pane" style="display:block;">
+```{r cat-cluster-Antisense, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["Antisense"]])) {
+  print(gg_cat_cluster_plots[["Antisense"]])
+}
+```
+</div>
+<div id="cat-cluster-Fusion" class="toggle-pane hidden-pane" style="display:block;">
+```{r cat-cluster-Fusion, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["Fusion"]])) {
+  print(gg_cat_cluster_plots[["Fusion"]])
+}
+```
+</div>
+<div id="cat-cluster-Intergenic" class="toggle-pane hidden-pane" style="display:block;">
+```{r cat-cluster-Intergenic, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["Intergenic"]])) {
+  print(gg_cat_cluster_plots[["Intergenic"]])
+}
+```
+</div>
+<div id="cat-cluster-GenicIntron" class="toggle-pane hidden-pane" style="display:block;">
+```{r cat-cluster-Genic_Intron_cat, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["Genic Intron"]])) {
+  print(gg_cat_cluster_plots[["Genic Intron"]])
+}
+```
+</div>
+
+```{r umap-cat-tab, results='asis'}
+if (show_umap_cat) {
+  cat("\n### UMAPs\n")
+}
 ```
 
 ```{=html}
@@ -1824,6 +1925,7 @@ $(document).ready(function() {
     });
   }
 
+  initDropdown('#cat-cluster-dropdown', 'cat-cluster-');
   initDropdown('#umap-cat-dropdown', 'umap-cat-');
   initDropdown('#sr-cluster-dropdown', 'sr-cluster-');
   initDropdown('#goodq-across-dropdown', 'goodq-', true);
