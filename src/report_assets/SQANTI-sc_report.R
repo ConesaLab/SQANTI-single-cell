@@ -1468,12 +1468,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     x_labels = c("Cell"),
     y_label = paste(entity_label_plural, ", %", sep = ""),
     fill = "#CC6633",
-    plot_args = list(
-      violin_alpha = 0.5,
-      box_alpha = 3,
-      box_width = 0.05,
-      x_tickangle = 45
-    )
+    plot_args = common_plot_args
   ))
 
   ### Gene Distribution by Read Count Bins (configurable gene bins) ###
