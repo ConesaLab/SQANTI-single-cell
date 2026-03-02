@@ -391,6 +391,111 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
           }
 
           # ----------------------------------------------------------------
+          # Length Distribution by Cluster (Violin/Box Plots)
+          # ----------------------------------------------------------------
+          tryCatch({
+            cb_cluster_map <- umap_data[, c("Barcode", "Cluster"), drop = FALSE]
+            cb_cluster_map <- cb_cluster_map[!is.na(cb_cluster_map$Barcode) & cb_cluster_map$Barcode != "", , drop = FALSE]
+
+            cls_for_len <- Classification_file
+            cls_for_len$length_num <- suppressWarnings(as.numeric(cls_for_len$length))
+
+            if (mode == "isoforms" && "FL" %in% colnames(cls_for_len) && "CB" %in% colnames(cls_for_len)) {
+              cls_for_len$CB_raw <- as.character(cls_for_len$CB)
+              cls_for_len$FL_raw <- as.character(cls_for_len$FL)
+              cls_for_len <- tidyr::separate_rows(cls_for_len, CB_raw, FL_raw, sep = ",")
+              cls_for_len$FL_num   <- suppressWarnings(as.numeric(trimws(cls_for_len$FL_raw)))
+              cls_for_len$FL_num[is.na(cls_for_len$FL_num) | cls_for_len$FL_num < 1] <- 1
+              cls_for_len$CB_clean <- trimws(cls_for_len$CB_raw)
+            } else if ("CB" %in% colnames(cls_for_len)) {
+              cls_for_len$CB_clean <- as.character(cls_for_len$CB)
+              cls_for_len$FL_num   <- 1
+            } else {
+              cls_for_len <- data.frame()
+            }
+
+            if (nrow(cls_for_len) > 0) {
+              cls_for_len <- merge(cls_for_len, cb_cluster_map,
+                                   by.x = "CB_clean", by.y = "Barcode", all.x = FALSE)
+              cls_for_len <- cls_for_len[
+                !is.na(cls_for_len$length_num) & cls_for_len$length_num > 0 &
+                !is.na(cls_for_len$Cluster), , drop = FALSE]
+
+              if (nrow(cls_for_len) > 0 && any(cls_for_len$FL_num > 1)) {
+                rep_idx <- rep(seq_len(nrow(cls_for_len)), times = as.integer(cls_for_len$FL_num))
+                cls_for_len <- cls_for_len[rep_idx, , drop = FALSE]
+              }
+
+              build_len_cluster_plot <- function(df_sub, title_str, colors = cluster_colors) {
+                if (nrow(df_sub) == 0) return(NULL)
+                df_sub$Cluster <- factor(df_sub$Cluster, levels = unique_clusters)
+                ggplot(df_sub, aes(x = Cluster, y = length_num, fill = Cluster)) +
+                  geom_violin(aes(color = Cluster), alpha = 0.7, scale = "width",
+                              adjust = 1.2, trim = TRUE, show.legend = FALSE) +
+                  scale_color_manual(values = colors, guide = "none") +
+                  geom_boxplot(width = 0.05, alpha = 0.5, outlier.shape = NA,
+                               color = "grey20", show.legend = FALSE) +
+                  stat_summary(fun = mean, geom = "point", shape = 4,
+                               size = 1, color = "red", stroke = 1, show.legend = FALSE) +
+                  scale_fill_manual(values = colors) +
+                  scale_y_log10(labels = scales::comma) +
+                  labs(
+                    title = title_str,
+                    x     = "Cluster",
+                    y     = if (mode == "isoforms") paste(entity_label_plural, "Length (bp, log10)")
+                             else "Feature Length (bp, log10)"
+                  ) +
+                  theme_classic(base_size = 11) +
+                  theme(
+                    plot.title      = element_text(size = 12, face = "bold", hjust = 0.5),
+                    axis.title      = element_text(size = 12),
+                    axis.text.y     = element_text(size = 11),
+                    axis.text.x     = element_text(size = 11),
+                    legend.position = "none"
+                  )
+              }
+
+              all_label <- if (mode == "isoforms") "All Transcripts" else "All Reads"
+              gg_len_cluster_plots <<- list()
+              gg_len_cluster_plots[[all_label]] <<- build_len_cluster_plot(
+                cls_for_len, paste(all_label, "Length Distribution by Cluster")
+              )
+
+              cat_sc_map <- c(
+                "FSM"           = "full-splice_match",
+                "ISM"           = "incomplete-splice_match",
+                "NIC"           = "novel_in_catalog",
+                "NNC"           = "novel_not_in_catalog",
+                "Genic Genomic" = "genic",
+                "Antisense"     = "antisense",
+                "Fusion"        = "fusion",
+                "Intergenic"    = "intergenic",
+                "Genic Intron"  = "genic_intron"
+              )
+              for (lbl in names(cat_sc_map)) {
+                # Find the matching cat_colors key (e.g. "FSM_prop" for lbl "FSM")
+                cat_col_key <- names(cat_colors)[match(lbl, cat_labels)]
+                cat_hex <- if (!is.na(cat_col_key) && cat_col_key %in% names(cat_colors))
+                  cat_colors[[cat_col_key]] else "#888888"
+                fixed_cat_colors <- rep(cat_hex, length(unique_clusters))
+                names(fixed_cat_colors) <- unique_clusters
+
+                sub_df <- cls_for_len[
+                  !is.na(cls_for_len$structural_category) &
+                    cls_for_len$structural_category == cat_sc_map[[lbl]], , drop = FALSE]
+                if (nrow(sub_df) > 0) {
+                  gg_len_cluster_plots[[lbl]] <<- build_len_cluster_plot(
+                    sub_df, paste(lbl, "Length Distribution by Cluster"),
+                    colors = fixed_cat_colors
+                  )
+                }
+              }
+            }
+          }, error = function(e) {
+            message("Could not build length-by-cluster plots: ", e$message)
+          })
+
+          # ----------------------------------------------------------------
           # Short Read Support by Cluster (Violin Plots)
           # ----------------------------------------------------------------
           # Use the new column name: srjunctions_support_prop
@@ -3593,6 +3698,15 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
            for (cat_label in names(gg_cat_cluster_plots)) {
               print(gg_cat_cluster_plots[[cat_label]])
            }
+        }
+
+        # Length Distribution by Cluster (PDF)
+        if (exists("gg_len_cluster_plots") && !is.null(gg_len_cluster_plots)) {
+          for (len_lbl in names(gg_len_cluster_plots)) {
+            if (!is.null(gg_len_cluster_plots[[len_lbl]])) {
+              print(gg_len_cluster_plots[[len_lbl]])
+            }
+          }
         }
       }
 

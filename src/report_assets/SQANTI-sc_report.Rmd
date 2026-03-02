@@ -1926,6 +1926,7 @@ $(document).ready(function() {
   }
 
   initDropdown('#cat-cluster-dropdown', 'cat-cluster-');
+  initDropdown('#len-cluster-dropdown', 'len-cluster-');
   initDropdown('#umap-cat-dropdown', 'umap-cat-');
   initDropdown('#sr-cluster-dropdown', 'sr-cluster-');
   initDropdown('#goodq-across-dropdown', 'goodq-', true);
@@ -2023,6 +2024,107 @@ if (show_umap_cat && !is.null(gg_umap_by_category[["Genic Intron"]])) {
 ```{r umap-cat-plots-end, results='asis', echo=FALSE}
 if (show_umap_cat) cat("</div>\n")
 ```
+
+```{r len-cluster-header, results='asis'}
+show_len_cluster <- (exists("gg_len_cluster_plots") && length(gg_len_cluster_plots) > 0)
+if (show_len_cluster) {
+  cat("\n## Lengths\n")
+}
+```
+
+```{=html}
+<div id="len-cluster-dropdown" class="dropdown-toolbar" style="`r if(!show_len_cluster) 'display:none;'`">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">`r if(mode == "isoforms") "All Transcripts" else "All Reads"`</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#len-cluster-All">`r if(mode == "isoforms") "All Transcripts" else "All Reads"`</a></li>
+      <li><a href="#" data-target="#len-cluster-FSM">FSM</a></li>
+      <li><a href="#" data-target="#len-cluster-ISM">ISM</a></li>
+      <li><a href="#" data-target="#len-cluster-NIC">NIC</a></li>
+      <li><a href="#" data-target="#len-cluster-NNC">NNC</a></li>
+      <li><a href="#" data-target="#len-cluster-GenicGenomic">Genic Genomic</a></li>
+      <li><a href="#" data-target="#len-cluster-Antisense">Antisense</a></li>
+      <li><a href="#" data-target="#len-cluster-Fusion">Fusion</a></li>
+      <li><a href="#" data-target="#len-cluster-Intergenic">Intergenic</a></li>
+      <li><a href="#" data-target="#len-cluster-GenicIntron">Genic Intron</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="len-cluster-All" class="toggle-pane" style="display:block;">
+```{r len-cluster-All, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+all_lbl <- if (mode == "isoforms") "All Transcripts" else "All Reads"
+if (show_len_cluster && !is.null(gg_len_cluster_plots[[all_lbl]])) {
+  print(gg_len_cluster_plots[[all_lbl]])
+}
+```
+</div>
+<div id="len-cluster-FSM" class="toggle-pane hidden-pane" style="display:block;">
+```{r len-cluster-FSM, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+if (show_len_cluster && !is.null(gg_len_cluster_plots[["FSM"]])) {
+  print(gg_len_cluster_plots[["FSM"]])
+}
+```
+</div>
+<div id="len-cluster-ISM" class="toggle-pane hidden-pane" style="display:block;">
+```{r len-cluster-ISM, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+if (show_len_cluster && !is.null(gg_len_cluster_plots[["ISM"]])) {
+  print(gg_len_cluster_plots[["ISM"]])
+}
+```
+</div>
+<div id="len-cluster-NIC" class="toggle-pane hidden-pane" style="display:block;">
+```{r len-cluster-NIC, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+if (show_len_cluster && !is.null(gg_len_cluster_plots[["NIC"]])) {
+  print(gg_len_cluster_plots[["NIC"]])
+}
+```
+</div>
+<div id="len-cluster-NNC" class="toggle-pane hidden-pane" style="display:block;">
+```{r len-cluster-NNC, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+if (show_len_cluster && !is.null(gg_len_cluster_plots[["NNC"]])) {
+  print(gg_len_cluster_plots[["NNC"]])
+}
+```
+</div>
+<div id="len-cluster-GenicGenomic" class="toggle-pane hidden-pane" style="display:block;">
+```{r len-cluster-GenicGenomic, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+if (show_len_cluster && !is.null(gg_len_cluster_plots[["Genic Genomic"]])) {
+  print(gg_len_cluster_plots[["Genic Genomic"]])
+}
+```
+</div>
+<div id="len-cluster-Antisense" class="toggle-pane hidden-pane" style="display:block;">
+```{r len-cluster-Antisense, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+if (show_len_cluster && !is.null(gg_len_cluster_plots[["Antisense"]])) {
+  print(gg_len_cluster_plots[["Antisense"]])
+}
+```
+</div>
+<div id="len-cluster-Fusion" class="toggle-pane hidden-pane" style="display:block;">
+```{r len-cluster-Fusion, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+if (show_len_cluster && !is.null(gg_len_cluster_plots[["Fusion"]])) {
+  print(gg_len_cluster_plots[["Fusion"]])
+}
+```
+</div>
+<div id="len-cluster-Intergenic" class="toggle-pane hidden-pane" style="display:block;">
+```{r len-cluster-Intergenic, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+if (show_len_cluster && !is.null(gg_len_cluster_plots[["Intergenic"]])) {
+  print(gg_len_cluster_plots[["Intergenic"]])
+}
+```
+</div>
+<div id="len-cluster-GenicIntron" class="toggle-pane hidden-pane" style="display:block;">
+```{r len-cluster-GenicIntron, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+if (show_len_cluster && !is.null(gg_len_cluster_plots[["Genic Intron"]])) {
+  print(gg_len_cluster_plots[["Genic Intron"]])
+}
+```
+</div>
 
 ```{r clustering-umap-missing, results='asis'}
 if (!show_umap) {
