@@ -936,8 +936,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     return(p)
   }
 
-  # Build GTF reference length violin/boxplot comparison for 'isoforms' mode ONLY
-  build_isoforms_ref_vs_sample_lengths <- function(cls_df, ref_gtf) {
+  # Build GTF reference length violin/boxplot comparison (works for both 'isoforms' and 'reads' modes)
+  build_ref_vs_sample_lengths <- function(cls_df, ref_gtf, mode = "isoforms") {
     if (is.null(ref_gtf)) {
       return(NULL)
     }
@@ -960,9 +960,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       return(NULL)
     }
 
+    sample_label <- if (mode == "isoforms") "Sample Transcriptome" else "Sample Reads"
     sample_df <- data.frame(
       length = sample_lengths,
-      Dataset = "Sample Transcriptome",
+      Dataset = sample_label,
       stringsAsFactors = FALSE
     )
 
@@ -1021,19 +1022,23 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     # 3. Combine and Plot
     plot_df <- rbind(sample_df, ref_df)
-    plot_df$Dataset <- factor(plot_df$Dataset, levels = c("Reference Transcriptome", "Sample Transcriptome"))
+    dataset_levels <- c("Reference Transcriptome", sample_label)
+    plot_df$Dataset <- factor(plot_df$Dataset, levels = dataset_levels)
+    pal <- setNames(c("#1fa291", "#f5c05d"), dataset_levels)
+    y_axis_label <- if (mode == "isoforms") paste(entity_label_plural, "Length (bp, log10)") else "Feature Length (bp, log10)"
+    plot_subtitle <- if (mode == "isoforms") "Reference transcriptome vs. Sample transcriptome" else "Reference transcriptome vs. Sample reads"
 
     p <- ggplot(plot_df, aes(x = Dataset, y = length, fill = Dataset)) +
       geom_violin(aes(color = Dataset), alpha = 0.7, scale = "width", adjust = 1.5, trim = TRUE, show.legend = FALSE) +
-      scale_color_manual(values = c("Reference Transcriptome" = "#1fa291", "Sample Transcriptome" = "#f5c05d"), guide = "none") +
+      scale_color_manual(values = pal, guide = "none") +
       geom_boxplot(width = 0.05, alpha = 0.6, outlier.shape = NA, color = "grey20", show.legend = FALSE) +
       stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1, show.legend = FALSE) +
       scale_y_log10(labels = scales::comma) +
-      scale_fill_manual(values = c("Reference Transcriptome" = "#1fa291", "Sample Transcriptome" = "#f5c05d")) +
+      scale_fill_manual(values = pal) +
       labs(
-        title = "Transcript Length Distribution:\nReference annotation vs. Novel annotation",
+        title = paste0("Transcript Length Distribution:\n", plot_subtitle),
         x = "",
-        y = paste(entity_label_plural, "Length (bp, log10)")
+        y = y_axis_label
       ) +
       theme_classic(base_size = 11) +
       theme(
@@ -1914,8 +1919,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # Meta-transcript body coverage profile (bulk, not per-cell)
   gg_meta_transcript_coverage <<- build_meta_coverage_plot(Classification_file)
 
-  # Isoforms only: Reference Transcriptome vs Sample Transcript Models length distribution
-  gg_isoforms_ref_vs_sample_lengths <<- if (mode == "isoforms") build_isoforms_ref_vs_sample_lengths(Classification_file, ref_gtf_path) else NULL
+  # Reference Transcriptome vs Sample length distribution (both isoforms and reads modes)
+  gg_isoforms_ref_vs_sample_lengths <<- build_ref_vs_sample_lengths(Classification_file, ref_gtf_path, mode)
 
   ### Structural categories ###
 
@@ -3379,7 +3384,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # Reference Transcript Coverage
     render_pdf_plot("gg_ref_coverage_across_category")
     render_pdf_plot("gg_meta_transcript_coverage")
-    if (mode == "isoforms" && exists("gg_isoforms_ref_vs_sample_lengths")) {
+    if (exists("gg_isoforms_ref_vs_sample_lengths") && !is.null(gg_isoforms_ref_vs_sample_lengths)) {
       render_pdf_plot("gg_isoforms_ref_vs_sample_lengths")
     }
 

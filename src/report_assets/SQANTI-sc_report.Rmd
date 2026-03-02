@@ -1128,10 +1128,10 @@ if (exists("gg_meta_transcript_coverage") && !is.null(gg_meta_transcript_coverag
 
 </div>
 
-`r if (mode == "isoforms") {"## Reference Transcriptome"}`
+## Reference Transcriptome
 
 ```{r isoforms-ref-lengths-plot, fig.height=8, fig.width=10}
-if (mode == "isoforms" && exists("gg_isoforms_ref_vs_sample_lengths") && !is.null(gg_isoforms_ref_vs_sample_lengths)) {
+if (exists("gg_isoforms_ref_vs_sample_lengths") && !is.null(gg_isoforms_ref_vs_sample_lengths)) {
   print(gg_isoforms_ref_vs_sample_lengths)
 }
 ```
