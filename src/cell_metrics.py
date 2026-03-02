@@ -282,7 +282,10 @@ def calculate_metrics_per_cell(args, df):
         # Reference body coverage: parameterized threshold and export cutoff for plotting
         ref_cov_min = float(getattr(args, 'ref_cov_min_pct', 45.0))
         cls_valid['ref_body_cov_flag'] = (cls_valid['length'] / cls_valid['ref_length'] * 100.0) >= ref_cov_min
-        for cat in structural_categories:
+        # Only FSM and ISM have a meaningful associated reference transcript and ref_length;
+        # other categories (NIC, NNC, Genic, etc.) should not have ref_coverage reported.
+        ref_cov_categories = ['full-splice_match', 'incomplete-splice_match']
+        for cat in ref_cov_categories:
             tag = cat_to_tag[cat]
             sub = cls_valid[cls_valid['structural_category'] == cat]
             denom = summary[final_count_name(cat)]

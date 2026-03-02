@@ -1878,14 +1878,11 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   ############################################
 
   {
-    cols <- c(
-      "FSM_ref_coverage_prop", "ISM_ref_coverage_prop", "NIC_ref_coverage_prop", "NNC_ref_coverage_prop",
-      "Genic_ref_coverage_prop", "Antisense_ref_coverage_prop", "Fusion_ref_coverage_prop", "Intergenic_ref_coverage_prop",
-      "Genic_intron_ref_coverage_prop"
-    )
+    # Only FSM and ISM have a meaningful ref_length association; other categories are excluded.
+    cols <- c("FSM_ref_coverage_prop", "ISM_ref_coverage_prop")
     gg_SQANTI_pivot <- pivot_long(SQANTI_cell_summary, cols)
-    fill_map <- setNames(unname(cat_fill_map), cols)
-    x_labels <- cat_labels_pretty
+    fill_map <- c("FSM_ref_coverage_prop" = "#6BAED6", "ISM_ref_coverage_prop" = "#FC8D59")
+    x_labels <- c("FSM", "ISM")
     # Build dynamic title using cutoff from cell summary
     ref_cov_min_pct <- if ("ref_cov_min_pct" %in% colnames(SQANTI_cell_summary)) {
       vals <- unique(stats::na.omit(SQANTI_cell_summary$ref_cov_min_pct))
@@ -1910,7 +1907,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       fill_map = fill_map,
       y_label = paste(entity_label_plural, ", %", sep = ""),
       legend = FALSE,
-      override_outline_vars = c("Genic_ref_coverage_prop", "Genic_intron_ref_coverage_prop"),
       violin_outline_fill = TRUE
     )
   }
