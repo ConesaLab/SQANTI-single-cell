@@ -134,36 +134,62 @@ def calculate_metrics_per_cell(args, df):
         summary['Novel_genes'] = cls_valid[~anno].groupby('CB')['associated_gene'].nunique().reindex(summary.index, fill_value=0)
 
         if not junc.empty:
-            if 'CB' not in junc.columns or (junc['CB'].fillna('') == '').all():
-                iso_to_cb = cls_valid[['isoform','CB']].dropna().drop_duplicates()
-                junc = pd.merge(junc, iso_to_cb, on='isoform', how='left')
-            jv = junc[(junc['CB'].notna()) & (junc['CB'] != '')].copy()
-            if not jv.empty:
-                jv['junction_type'] = jv['junction_category'].astype(str) + '_' + jv['canonical'].astype(str)
-                counts = jv.groupby(['CB','junction_type']).size().unstack(fill_value=0)
-                for tp in ['known_canonical','known_non_canonical','novel_canonical','novel_non_canonical']:
+            junc_types = ['known_canonical', 'known_non_canonical', 'novel_canonical', 'novel_non_canonical']
+            junc_rename = {
+                'known_canonical': 'Known_canonical_junctions',
+                'known_non_canonical': 'Known_non_canonical_junctions',
+                'novel_canonical': 'Novel_canonical_junctions',
+                'novel_non_canonical': 'Novel_non_canonical_junctions'
+            }
+
+            if args.mode == 'isoforms':
+                # In isoforms mode the junction file's CB column is a comma-separated
+                # list (same as the classification file). cls_valid is already exploded
+                # to one row per (isoform, CB) with _count = FL for that cell.
+                # Join junctions to cls_valid by isoform ID so each junction gets
+                # replicated once per cell, weighted by that cell's FL count.
+                iso_col = next((c for c in ['isoform', 'readID', 'read_id', 'ID', 'read_name', 'read']
+                                if c in junc.columns and c in cls_valid.columns), None)
+                if iso_col is not None and 'junction_category' in junc.columns and 'canonical' in junc.columns:
+                    jv = pd.merge(
+                        junc[[iso_col, 'junction_category', 'canonical']],
+                        cls_valid[[iso_col, 'CB', '_count']].drop_duplicates(),
+                        on=iso_col, how='inner'
+                    )
+                    jv['junction_type'] = jv['junction_category'].astype(str) + '_' + jv['canonical'].astype(str)
+                    counts = jv.groupby(['CB', 'junction_type'])['_count'].sum().unstack(fill_value=0)
+                else:
+                    counts = pd.DataFrame(index=summary.index)
+            else:
+                # Reads mode: each junction row has a single CB; count rows.
+                if 'CB' not in junc.columns or (junc['CB'].fillna('') == '').all():
+                    iso_to_cb = cls_valid[['isoform', 'CB']].dropna().drop_duplicates() if 'isoform' in cls_valid.columns else pd.DataFrame()
+                    if not iso_to_cb.empty and 'isoform' in junc.columns:
+                        junc = pd.merge(junc, iso_to_cb, on='isoform', how='left')
+                jv = junc[(junc['CB'].notna()) & (junc['CB'] != '')].copy()
+                if not jv.empty:
+                    jv['junction_type'] = jv['junction_category'].astype(str) + '_' + jv['canonical'].astype(str)
+                    counts = jv.groupby(['CB', 'junction_type']).size().unstack(fill_value=0)
+                else:
+                    counts = pd.DataFrame(index=summary.index)
+
+            if not counts.empty:
+                for tp in junc_types:
                     if tp not in counts.columns:
                         counts[tp] = 0
-                counts['total_junctions'] = counts.sum(axis=1)
-                counts = counts.rename(columns={
-                    'known_canonical':'Known_canonical_junctions',
-                    'known_non_canonical':'Known_non_canonical_junctions',
-                    'novel_canonical':'Novel_canonical_junctions',
-                    'novel_non_canonical':'Novel_non_canonical_junctions'
-                })
-                for src, dst in [
-                    ('Known_canonical_junctions','Known_canonical_junctions_prop'),
-                    ('Known_non_canonical_junctions','Known_non_canonical_junctions_prop'),
-                    ('Novel_canonical_junctions','Novel_canonical_junctions_prop'),
-                    ('Novel_non_canonical_junctions','Novel_non_canonical_junctions_prop')]:
+                counts['total_junctions'] = counts[junc_types].sum(axis=1)
+                counts = counts.rename(columns=junc_rename)
+                for src, dst in [(v, f"{v}_prop") for v in junc_rename.values()]:
                     counts[dst] = safe_prop(counts[src].reindex(counts.index, fill_value=0), counts['total_junctions'])
                 summary = summary.join(counts, how='left').fillna(0)
             else:
-                summary[['Known_canonical_junctions','Known_non_canonical_junctions','Novel_canonical_junctions','Novel_non_canonical_junctions','total_junctions',
-                         'Known_canonical_junctions_prop','Known_non_canonical_junctions_prop','Novel_canonical_junctions_prop','Novel_non_canonical_junctions_prop']] = 0
+                for col in list(junc_rename.values()) + [f"{v}_prop" for v in junc_rename.values()] + ['total_junctions']:
+                    summary[col] = 0
         else:
-            summary[['Known_canonical_junctions','Known_non_canonical_junctions','Novel_canonical_junctions','Novel_non_canonical_junctions','total_junctions',
-                     'Known_canonical_junctions_prop','Known_non_canonical_junctions_prop','Novel_canonical_junctions_prop','Novel_non_canonical_junctions_prop']] = 0
+            summary[['Known_canonical_junctions', 'Known_non_canonical_junctions',
+                      'Novel_canonical_junctions', 'Novel_non_canonical_junctions', 'total_junctions',
+                      'Known_canonical_junctions_prop', 'Known_non_canonical_junctions_prop',
+                      'Novel_canonical_junctions_prop', 'Novel_non_canonical_junctions_prop']] = 0
 
         sublevels = {
             'full-splice_match': ['alternative_3end','alternative_3end5end','alternative_5end','reference_match','mono-exon'],
