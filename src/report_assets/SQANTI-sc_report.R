@@ -1492,16 +1492,42 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   }
   gene_bin_levels <- c("1", "2-5", "6-9", ">=10")
 
-  # Build per-cell per-gene read counts from classification
-  genes_by_cb <- Classification_file %>%
-    filter(!is.na(CB), CB != "unassigned", !is.na(associated_gene)) %>%
-    group_by(CB, associated_gene) %>%
-    summarise(reads_per_gene = n(), .groups = "drop") %>%
-    mutate(
-      gene_type = ifelse(grepl("^novel", associated_gene), "Novel", "Annotated"),
-      bin = vapply(reads_per_gene, gene_bin_label, character(1))
-    ) %>%
-    filter(!is.na(bin))
+  # Build per-cell per-gene read counts from classification.
+  # In isoforms mode, must explode the comma-separated CB/FL columns so each
+  # (cell, isoform) pair is weighted by its FL count, then sum per (CB, gene).
+  # In reads mode, each row is one read so n() is correct.
+  if (mode == "isoforms" && "FL" %in% colnames(Classification_file) && "CB" %in% colnames(Classification_file)) {
+    genes_by_cb_base <- Classification_file %>%
+      filter(!is.na(CB), CB != "unassigned", !is.na(associated_gene)) %>%
+      select(CB, FL, associated_gene)
+
+    genes_by_cb_base$CB_raw <- as.character(genes_by_cb_base$CB)
+    genes_by_cb_base$FL_raw <- as.character(genes_by_cb_base$FL)
+    genes_by_cb_base <- tidyr::separate_rows(genes_by_cb_base, CB_raw, FL_raw, sep = ",")
+    genes_by_cb_base$FL_num <- suppressWarnings(as.numeric(trimws(genes_by_cb_base$FL_raw)))
+    genes_by_cb_base$FL_num[is.na(genes_by_cb_base$FL_num) | genes_by_cb_base$FL_num < 0] <- 0
+    genes_by_cb_base$CB_clean <- trimws(genes_by_cb_base$CB_raw)
+
+    genes_by_cb <- genes_by_cb_base %>%
+      filter(CB_clean != "" & CB_clean != "unassigned" & FL_num > 0) %>%
+      group_by(CB = CB_clean, associated_gene) %>%
+      summarise(reads_per_gene = sum(FL_num), .groups = "drop") %>%
+      mutate(
+        gene_type = ifelse(grepl("^novel", associated_gene), "Novel", "Annotated"),
+        bin = vapply(reads_per_gene, gene_bin_label, character(1))
+      ) %>%
+      filter(!is.na(bin))
+  } else {
+    genes_by_cb <- Classification_file %>%
+      filter(!is.na(CB), CB != "unassigned", !is.na(associated_gene)) %>%
+      group_by(CB, associated_gene) %>%
+      summarise(reads_per_gene = n(), .groups = "drop") %>%
+      mutate(
+        gene_type = ifelse(grepl("^novel", associated_gene), "Novel", "Annotated"),
+        bin = vapply(reads_per_gene, gene_bin_label, character(1))
+      ) %>%
+      filter(!is.na(bin))
+  }
 
   # Percent of genes per bin within each CB and gene type
   read_bins_data <- genes_by_cb %>%
@@ -1758,8 +1784,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       y_label = paste(entity_label_plural, ", %", sep = ""),
       legend = FALSE,
       violin_alpha = 0.5,
-      box_alpha = 3,
+      box_alpha = 0.3,
       box_width = 0.05,
+      box_outline_default = "black",
+      violin_outline_fill = FALSE,
       x_tickangle = 45
     )
   }
@@ -2445,24 +2473,45 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     fill_map_cat <- cat_fill_map
 
-    # 1) Median exons per read per cell and category
-    cls_valid <- Classification_file %>%
-      dplyr::filter(CB != "unassigned") %>%
-      mutate(cat_key = unname(cat_key_map[structural_category])) %>%
-      filter(!is.na(cat_key))
+    # Build per-cell classification with FL-weighted count for ALL exon structure plots.
+    # In isoforms mode: explode comma-separated CB/FL so each row = (isoform, cell, count=FL).
+    # This means all exon metrics reflect actual expression levels, not just unique isoform counts.
+    if (mode == "isoforms" && "FL" %in% colnames(Classification_file) &&
+        "CB" %in% colnames(Classification_file)) {
+      cls_valid <- Classification_file %>%
+        filter(!is.na(CB), CB != "", CB != "unassigned") %>%
+        mutate(CB_raw = as.character(CB), FL_raw = as.character(FL)) %>%
+        tidyr::separate_rows(CB_raw, FL_raw, sep = ",") %>%
+        mutate(CB    = trimws(CB_raw),
+               count = suppressWarnings(as.numeric(trimws(FL_raw)))) %>%
+        filter(CB != "", CB != "unassigned", !is.na(count), count > 0) %>%
+        mutate(cat_key = unname(cat_key_map[structural_category])) %>%
+        filter(!is.na(cat_key))
+    } else {
+      cls_valid <- Classification_file %>%
+        dplyr::filter(!is.na(CB) & CB != "" & CB != "unassigned") %>%
+        mutate(cat_key = unname(cat_key_map[structural_category]),
+               count   = 1) %>%
+        filter(!is.na(cat_key))
+    }
+
+    # 1) FL-weighted mean exons per cell per category
     exons_mean_by_cell <- cls_valid %>%
       group_by(CB, cat_key) %>%
-      summarise(median_exons = median(as.numeric(exons), na.rm = TRUE), .groups = "drop") %>%
-      tidyr::complete(CB, cat_key = all_cats, fill = list(median_exons = NA_real_))
+      summarise(
+        mean_exons = sum(as.numeric(exons) * count, na.rm = TRUE) / sum(count, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      tidyr::complete(CB, cat_key = all_cats, fill = list(mean_exons = NA_real_))
 
     df_exon_mean_long <- data.frame(
       Variable = factor(exons_mean_by_cell$cat_key, levels = all_cats),
-      Value = exons_mean_by_cell$median_exons
+      Value = exons_mean_by_cell$mean_exons
     )
 
     gg_exon_mean_by_category <<- build_violin_plot(
       df_long = df_exon_mean_long,
-      title = paste("Median Exons per", entity_label, "by Structural Category Across Cells"),
+      title = paste("Mean Exons per", entity_label, "by Structural Category Across Cells"),
       x_labels = x_labels_pretty,
       fill_map = fill_map_cat,
       y_label = paste("Exons per", entity_label),
@@ -2477,13 +2526,14 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       adjust = 3
     )
 
-    # 2) Percent mono-exonic reads per cell and category
+    # 2) Percent mono-exonic reads per cell and category (FL-weighted in isoforms mode)
     exons_bin_by_cell <- cls_valid %>%
       mutate(is_mono = as.numeric(exons) == 1) %>%
       group_by(CB, cat_key) %>%
-      summarise(total = dplyr::n(), mono = sum(is_mono, na.rm = TRUE), .groups = "drop") %>%
-      tidyr::complete(CB, cat_key = all_cats, fill = list(total = 0, mono = 0)) %>%
-      mutate(perc_mono = ifelse(total > 0, 100 * mono / total, 0))
+      summarise(total = sum(count, na.rm = TRUE),
+                mono  = sum(count[is_mono], na.rm = TRUE), .groups = "drop") %>%
+      mutate(perc_mono = ifelse(total > 0, 100 * mono / total, NA_real_)) %>%
+      tidyr::complete(CB, cat_key = all_cats)
 
     df_exon_mono_long <- data.frame(
       Variable = factor(exons_bin_by_cell$cat_key, levels = all_cats),
@@ -2527,11 +2577,11 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
           )
         ) %>%
         group_by(CB, bin) %>%
-        summarise(n = dplyr::n(), .groups = "drop") %>%
+        summarise(n = sum(count, na.rm = TRUE), .groups = "drop") %>%
         group_by(CB) %>%
-        mutate(perc = 100 * n / sum(n)) %>%
+        mutate(perc = ifelse(sum(n) > 0, 100 * n / sum(n), NA_real_)) %>%
         ungroup() %>%
-        tidyr::complete(CB, bin = exon_bin_levels, fill = list(n = 0, perc = 0))
+        tidyr::complete(CB, bin = exon_bin_levels)
 
       df_long_bins <- data.frame(
         Variable = factor(bins_by_cell$bin, levels = exon_bin_levels),
@@ -2577,10 +2627,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         mutate(cat_key = unname(cat_key_map[structural_category])) %>%
         dplyr::filter(cat_key == ck)
       if (nrow(cat_df) == 0) next
-      # Cells with at least min_reads in this category; if none, fallback to all cells with any reads
+      # Cells with at least min_reads (FL-weighted) in this category
       cells_ok <- cat_df %>%
         group_by(CB) %>%
-        summarise(total = dplyr::n(), .groups = "drop") %>%
+        summarise(total = sum(count, na.rm = TRUE), .groups = "drop") %>%
         filter(total >= min_reads) %>%
         pull(CB)
       if (length(cells_ok) == 0) {
@@ -2589,12 +2639,12 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       cat_df2 <- cat_df %>%
         filter(CB %in% cells_ok) %>%
         mutate(exons_n = pmin(as.numeric(exons), K))
-      # Per-cell PMF
+      # Per-cell PMF (FL-weighted: sum of FL counts in each exon bin)
       pmf <- cat_df2 %>%
         group_by(CB, exons_n) %>%
-        summarise(n = dplyr::n(), .groups = "drop") %>%
+        summarise(n = sum(count, na.rm = TRUE), .groups = "drop") %>%
         group_by(CB) %>%
-        mutate(perc = 100 * n / sum(n)) %>%
+        mutate(perc = ifelse(sum(n) > 0, 100 * n / sum(n), 0)) %>%
         ungroup() %>%
         tidyr::complete(CB, exons_n = seq_len(K), fill = list(n = 0, perc = 0))
       # Aggregate across cells
@@ -2636,25 +2686,36 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # Build SJ per-type/per-category plots and the all-canonical grouped plot for HTML (and reuse for PDF)
   # This block creates plot objects regardless of generate_pdf so the Rmd can render them.
   {
-    # Junction type percentages by structural category across cells
-    junc_aug_html <- Junctions %>%
-      dplyr::filter(CB != "unassigned") %>%
-      mutate(junction_type = paste(junction_category, canonical, sep = "_"))
-    if (!("structural_category" %in% colnames(junc_aug_html))) {
-      join_key <- NULL
-      for (k in c("isoform", "readID", "read_id", "ID", "read_name", "read")) {
-        if (k %in% colnames(Junctions) && k %in% colnames(Classification_file)) {
-          join_key <- k
-          break
-        }
-      }
-      if (!is.null(join_key)) {
-        by_vec <- c(CB = "CB")
-        by_vec[[join_key]] <- join_key
+    # Build junc_aug_html: in isoforms mode, Junctions$CB is comma-separated — must explode.
+    if (mode == "isoforms" && !is.null(junc_iso_key) &&
+        "FL" %in% colnames(Classification_file) && "CB" %in% colnames(Classification_file) &&
+        junc_iso_key %in% colnames(Junctions)) {
+
+      cls_exp_html <- Classification_file %>%
+        filter(!is.na(CB), !is.na(structural_category)) %>%
+        select(all_of(c(junc_iso_key, "CB", "FL", "structural_category"))) %>%
+        mutate(CB_raw = as.character(CB), FL_raw = as.character(FL)) %>%
+        tidyr::separate_rows(CB_raw, FL_raw, sep = ",") %>%
+        mutate(CB_clean = trimws(CB_raw),
+               FL_num   = suppressWarnings(as.numeric(trimws(FL_raw)))) %>%
+        filter(CB_clean != "", CB_clean != "unassigned", !is.na(FL_num), FL_num > 0) %>%
+        select(all_of(c(junc_iso_key, "CB_clean", "FL_num", "structural_category")))
+
+      junc_aug_html <- Junctions %>%
+        select(all_of(c(junc_iso_key, "junction_category", "canonical"))) %>%
+        mutate(junction_type = paste(junction_category, canonical, sep = "_")) %>%
+        inner_join(cls_exp_html, by = junc_iso_key) %>%
+        rename(CB = CB_clean, count = FL_num)
+
+    } else {
+      junc_aug_html <- Junctions %>%
+        dplyr::filter(!is.na(CB) & CB != "" & CB != "unassigned") %>%
+        mutate(junction_type = paste(junction_category, canonical, sep = "_"),
+               count = 1)
+      if (!("structural_category" %in% colnames(junc_aug_html)) && !is.null(junc_iso_key)) {
         junc_aug_html <- junc_aug_html %>%
-          left_join(Classification_file %>% select(all_of(c(join_key, "CB", "structural_category"))), by = by_vec)
-      } else {
-        junc_aug_html$structural_category <- NA_character_
+          left_join(Classification_file %>% select(all_of(c(junc_iso_key, "structural_category"))),
+                    by = junc_iso_key)
       }
     }
 
@@ -2668,20 +2729,20 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       filter(!is.na(cat_key)) %>%
       group_by(CB, cat_key) %>%
       summarise(
-        total = n(),
-        known_canonical = sum(junction_type == "known_canonical", na.rm = TRUE),
-        known_non_canonical = sum(junction_type == "known_non_canonical", na.rm = TRUE),
-        novel_canonical = sum(junction_type == "novel_canonical", na.rm = TRUE),
-        novel_non_canonical = sum(junction_type == "novel_non_canonical", na.rm = TRUE),
+        total               = sum(count, na.rm = TRUE),
+        known_canonical     = sum(count[junction_type == "known_canonical"], na.rm = TRUE),
+        known_non_canonical = sum(count[junction_type == "known_non_canonical"], na.rm = TRUE),
+        novel_canonical     = sum(count[junction_type == "novel_canonical"], na.rm = TRUE),
+        novel_non_canonical = sum(count[junction_type == "novel_non_canonical"], na.rm = TRUE),
         .groups = "drop"
       ) %>%
-      tidyr::complete(CB, cat_key = all_cats, fill = list(total = 0, known_canonical = 0, known_non_canonical = 0, novel_canonical = 0, novel_non_canonical = 0)) %>%
       mutate(
-        KnownCanonicalPerc = ifelse(total > 0, 100 * known_canonical / total, 0),
-        KnownNonCanonicalPerc = ifelse(total > 0, 100 * known_non_canonical / total, 0),
-        NovelCanonicalPerc = ifelse(total > 0, 100 * novel_canonical / total, 0),
-        NovelNonCanonicalPerc = ifelse(total > 0, 100 * novel_non_canonical / total, 0)
+        KnownCanonicalPerc    = ifelse(total > 0, 100 * known_canonical    / total, NA_real_),
+        KnownNonCanonicalPerc = ifelse(total > 0, 100 * known_non_canonical / total, NA_real_),
+        NovelCanonicalPerc    = ifelse(total > 0, 100 * novel_canonical     / total, NA_real_),
+        NovelNonCanonicalPerc = ifelse(total > 0, 100 * novel_non_canonical / total, NA_real_)
       ) %>%
+      tidyr::complete(CB, cat_key = all_cats) %>%
       ungroup()
 
     make_df_long_html <- function(col_name) {
@@ -2847,13 +2908,40 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # NEW: RT-switching by splice junction type across cells (all and unique junctions)
   if ("RTS_junction" %in% colnames(Junctions)) {
     # Normalize boolean
-    rts_bool <- tolower(as.character(Junctions$RTS_junction)) %in% c("true", "t", "1", "yes")
-    junc_rt <- Junctions %>%
-      dplyr::filter(CB != "unassigned") %>%
-      mutate(
-        SJ_type = paste(junction_category, canonical, sep = "_"),
-        RTS_bool = rts_bool
-      )
+    rts_bool_vec <- tolower(as.character(Junctions$RTS_junction)) %in% c("true", "t", "1", "yes")
+
+    # In isoforms mode, Junctions$CB is a comma-separated list — must explode via classification
+    if (mode == "isoforms" && !is.null(junc_iso_key) &&
+        "FL" %in% colnames(Classification_file) && "CB" %in% colnames(Classification_file) &&
+        junc_iso_key %in% colnames(Junctions)) {
+
+      # Explode Classification_file CB/FL to per-(isoform, cell, FL_count)
+      cls_exp_rts <- Classification_file %>%
+        filter(!is.na(CB)) %>%
+        select(all_of(c(junc_iso_key, "CB", "FL"))) %>%
+        mutate(CB_raw = as.character(CB), FL_raw = as.character(FL)) %>%
+        tidyr::separate_rows(CB_raw, FL_raw, sep = ",") %>%
+        mutate(CB_clean = trimws(CB_raw),
+               FL_num   = suppressWarnings(as.numeric(trimws(FL_raw)))) %>%
+        filter(CB_clean != "", CB_clean != "unassigned", !is.na(FL_num), FL_num > 0) %>%
+        select(all_of(c(junc_iso_key, "CB_clean", "FL_num")))
+
+      # Join junctions (isoform, junction type, RTS flag) to exploded classification
+      junc_rt <- Junctions %>%
+        select(all_of(c(junc_iso_key, "junction_category", "canonical", "RTS_junction"))) %>%
+        mutate(SJ_type  = paste(junction_category, canonical, sep = "_"),
+               RTS_bool = tolower(as.character(RTS_junction)) %in% c("true", "t", "1", "yes")) %>%
+        inner_join(cls_exp_rts, by = junc_iso_key) %>%
+        rename(CB = CB_clean, count = FL_num)
+
+    } else {
+      # Reads mode: each junction already has one CB, count = 1
+      junc_rt <- Junctions %>%
+        dplyr::filter(!is.na(CB) & CB != "" & CB != "unassigned") %>%
+        mutate(SJ_type  = paste(junction_category, canonical, sep = "_"),
+               RTS_bool = rts_bool_vec,
+               count    = 1)
+    }
 
     # Ensure consistent SJ type levels and labels
     sj_levels <- c("known_canonical", "known_non_canonical", "novel_canonical", "novel_non_canonical")
@@ -2868,12 +2956,14 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       novel_non_canonical = "#FC8D59"
     )
 
-    # Per-cell percentages for ALL junctions
+    # Per-cell percentages for ALL junctions (FL-weighted in isoforms mode)
     all_junc_by_cell <- junc_rt %>%
       group_by(CB, SJ_type) %>%
-      summarise(total = dplyr::n(), rts = sum(RTS_bool, na.rm = TRUE), .groups = "drop") %>%
-      tidyr::complete(CB, SJ_type = sj_levels, fill = list(total = 0, rts = 0)) %>%
-      mutate(perc = ifelse(total > 0, 100 * rts / total, 0))
+      summarise(total = sum(count, na.rm = TRUE),
+                rts   = sum(count[RTS_bool], na.rm = TRUE), .groups = "drop") %>%
+      # Only include (CB, SJ_type) that actually have data; NA for absent pairs
+      mutate(perc = ifelse(total > 0, 100 * rts / total, NA_real_)) %>%
+      tidyr::complete(CB, SJ_type = sj_levels)
 
     df_long_all <- data.frame(
       Variable = factor(all_junc_by_cell$SJ_type, levels = sj_levels),
@@ -2910,14 +3000,16 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       }
     }
 
-    # Per-cell percentages for UNIQUE junctions (deduplicate by genomic coordinates per cell & SJ type)
+    # Per-cell percentages for UNIQUE junctions (deduplicate by genomic coordinates per cell & SJ type).
+    # "Unique" means: count each distinct junction site once per cell, regardless of FL count.
+    # The FL-weighted explode already gave us per-cell rows, so junctionLabel dedup collapses duplicates.
     uniq_junc_by_cell <- junc_rt %>%
       group_by(CB, SJ_type, junctionLabel) %>%
       summarise(rts_any = any(RTS_bool, na.rm = TRUE), .groups = "drop") %>%
       group_by(CB, SJ_type) %>%
       summarise(total = dplyr::n(), rts = sum(rts_any), .groups = "drop") %>%
-      tidyr::complete(CB, SJ_type = sj_levels, fill = list(total = 0, rts = 0)) %>%
-      mutate(perc = ifelse(total > 0, 100 * rts / total, 0))
+      mutate(perc = ifelse(total > 0, 100 * rts / total, NA_real_)) %>%
+      tidyr::complete(CB, SJ_type = sj_levels)
 
     df_long_uniq <- data.frame(
       Variable = factor(uniq_junc_by_cell$SJ_type, levels = sj_levels),
@@ -3519,34 +3611,54 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     # Splice Junction Characterization section
     # Compute per-structural-category SJ distributions for PDF pages
-    junc_aug <- Junctions %>%
-      dplyr::filter(CB != "unassigned") %>%
-      mutate(junction_type = paste(junction_category, canonical, sep = "_"))
 
-    # Add count column for weighted quantification
-    if (mode == "isoforms" && "FL" %in% colnames(Classification_file)) {
-      Classification_file$count <- Classification_file$FL
-    } else {
-      Classification_file$count <- 1
+    # Find the common isoform ID column between Junctions and Classification_file
+    junc_iso_key <- NULL
+    for (k in c("isoform", "readID", "read_id", "ID", "read_name", "read")) {
+      if (k %in% colnames(Junctions) && k %in% colnames(Classification_file)) {
+        junc_iso_key <- k
+        break
+      }
     }
 
-    if (!("structural_category" %in% colnames(junc_aug))) {
-      # Try to bring structural_category from Classification_file by common key + CB
-      join_key <- NULL
-      for (k in c("isoform", "readID", "read_id", "ID", "read_name", "read")) {
-        if (k %in% colnames(Junctions) && k %in% colnames(Classification_file)) {
-          join_key <- k
-          break
-        }
-      }
-      if (!is.null(join_key)) {
-        by_vec <- c(CB = "CB")
-        by_vec[[join_key]] <- join_key
+    if (mode == "isoforms" && !is.null(junc_iso_key) &&
+        "FL" %in% colnames(Classification_file) && "CB" %in% colnames(Classification_file)) {
+      # Explode Classification_file CB/FL to get one row per (isoform, cell, FL_count)
+      cls_exploded <- Classification_file %>%
+        filter(!is.na(CB), !is.na(structural_category)) %>%
+        select(all_of(c(junc_iso_key, "CB", "FL", "structural_category"))) %>%
+        mutate(CB_raw = as.character(CB), FL_raw = as.character(FL)) %>%
+        tidyr::separate_rows(CB_raw, FL_raw, sep = ",") %>%
+        mutate(
+          CB_clean = trimws(CB_raw),
+          FL_num   = suppressWarnings(as.numeric(trimws(FL_raw)))
+        ) %>%
+        filter(CB_clean != "", CB_clean != "unassigned", !is.na(FL_num), FL_num > 0) %>%
+        select(all_of(c(junc_iso_key, "CB_clean", "FL_num", "structural_category")))
+
+      # Join junctions to exploded classification by isoform key only.
+      # Select only junction-type columns from Junctions first to avoid
+      # column name collisions with the CB/count columns in cls_exploded.
+      junc_aug <- Junctions %>%
+        select(all_of(c(junc_iso_key, "junction_category", "canonical"))) %>%
+        mutate(junction_type = paste(junction_category, canonical, sep = "_")) %>%
+        inner_join(cls_exploded, by = junc_iso_key) %>%
+        rename(CB = CB_clean, count = FL_num)
+
+    } else {
+      # Reads mode: each junction row already has a single CB; count = 1
+      junc_aug <- Junctions %>%
+        dplyr::filter(!is.na(CB) & CB != "" & CB != "unassigned") %>%
+        mutate(junction_type = paste(junction_category, canonical, sep = "_"),
+               count = 1)
+
+      # Bring in structural_category if not already present
+      if (!("structural_category" %in% colnames(junc_aug)) && !is.null(junc_iso_key)) {
         junc_aug <- junc_aug %>%
-          left_join(Classification_file %>% select(all_of(c(join_key, "CB", "structural_category"))), by = by_vec)
-      } else {
-        junc_aug$structural_category <- NA_character_
-        junc_aug$count <- 1
+          left_join(
+            Classification_file %>% select(all_of(c(junc_iso_key, "structural_category"))),
+            by = junc_iso_key
+          )
       }
     }
 
@@ -3566,13 +3678,17 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         novel_non_canonical = sum(count[junction_type == "novel_non_canonical"], na.rm = TRUE),
         .groups = "drop"
       ) %>%
-      tidyr::complete(CB, cat_key = all_cats, fill = list(total = 0, known_canonical = 0, known_non_canonical = 0, novel_canonical = 0, novel_non_canonical = 0)) %>%
+      # Do NOT fill absent (CB, cat_key) pairs with 0 — cells with no transcripts
+      # of a given category should be NA (excluded from violin), not 0%.
       mutate(
-        KnownCanonicalPerc = ifelse(total > 0, 100 * known_canonical / total, 0),
-        KnownNonCanonicalPerc = ifelse(total > 0, 100 * known_non_canonical / total, 0),
-        NovelCanonicalPerc = ifelse(total > 0, 100 * novel_canonical / total, 0),
-        NovelNonCanonicalPerc = ifelse(total > 0, 100 * novel_non_canonical / total, 0)
+        KnownCanonicalPerc    = ifelse(total > 0, 100 * known_canonical    / total, NA_real_),
+        KnownNonCanonicalPerc = ifelse(total > 0, 100 * known_non_canonical / total, NA_real_),
+        NovelCanonicalPerc    = ifelse(total > 0, 100 * novel_canonical     / total, NA_real_),
+        NovelNonCanonicalPerc = ifelse(total > 0, 100 * novel_non_canonical / total, NA_real_)
       ) %>%
+      # Expand to all categories so every category column exists for plotting,
+      # but keep NA for cells absent from that category
+      tidyr::complete(CB, cat_key = all_cats) %>%
       ungroup()
 
     # Prepare plotting helpers
