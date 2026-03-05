@@ -1499,21 +1499,27 @@ if (exists("gg_allcanon_by_category")) {
 
 ## RT-switching
 
-```{=html}
-<div id="sjchar-rts-dropdown" class="dropdown-toolbar">
-  <div class="btn-group">
-    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-      <span class="label">RT-Switching All Junctions</span> <span class="caret"></span>
-    </button>
-    <ul class="dropdown-menu dropdown-menu-right" role="menu">
-      <li><a href="#" data-target="#sj-rts-all">RT-Switching All Junctions</a></li>
-      <li><a href="#" data-target="#sj-rts-uniq">RT-Switching Unique Junctions</a></li>
-    </ul>
-  </div>
-</div>
+```{r sjchar-rts-section, results='asis'}
+if (exists("mode") && mode == "isoforms") {
+  # Isoforms mode: only one figure, show directly without dropdown
+  cat("\n")
+} else {
+  # Reads mode: show full two-option dropdown
+  htmltools::HTML(paste0(
+    '<div id="sjchar-rts-dropdown" class="dropdown-toolbar">\n',
+    '  <div class="btn-group">\n',
+    '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
+    '      <span class="label">RT-Switching All Junctions</span> <span class="caret"></span>\n',
+    '    </button>\n',
+    '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
+    '      <li><a href="#" data-target="#sj-rts-all">RT-Switching All Junctions</a></li>\n',
+    '      <li><a href="#" data-target="#sj-rts-uniq">RT-Switching Unique Junctions</a></li>\n',
+    '    </ul>\n',
+    '  </div>\n',
+    '</div>\n'
+  ))
+}
 ```
-
-<div id="sj-rts-all" class="toggle-pane" style="display:block;">
 
 ```{r sj-rts-all, fig.height=8, fig.width=12}
 if (exists("gg_rts_all_by_sjtype")) {
@@ -1521,17 +1527,11 @@ if (exists("gg_rts_all_by_sjtype")) {
 }
 ```
 
-</div>
-
-<div id="sj-rts-uniq" class="toggle-pane hidden-pane" style="display:block;">
-
-```{r sj-rts-uniq, fig.height=8, fig.width=12}
+```{r sj-rts-uniq, fig.height=8, fig.width=12, eval=(!exists('mode') || mode != 'isoforms')}
 if (exists("gg_rts_unique_by_sjtype")) {
   print(gg_rts_unique_by_sjtype)
 }
 ```
-
-</div>
 
 # Features of Bad Quality {.tabset .tabset-fade}
 

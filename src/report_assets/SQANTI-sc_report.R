@@ -2683,6 +2683,16 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # t1 <- ttheme_default(core=list(core = list(fg_params = list(cex = 0.6)),
   #                                colhead = list(fg_params = list(cex = 0.7))))
 
+  # Resolve common isoform ID key between Junctions and Classification_file once,
+  # shared by all junction blocks below (HTML junc_aug_html, junc_rt, and PDF junc_aug).
+  junc_iso_key <- NULL
+  for (.k in c("isoform", "readID", "read_id", "ID", "read_name", "read")) {
+    if (.k %in% colnames(Junctions) && .k %in% colnames(Classification_file)) {
+      junc_iso_key <- .k
+      break
+    }
+  }
+
   # Build SJ per-type/per-category plots and the all-canonical grouped plot for HTML (and reuse for PDF)
   # This block creates plot objects regardless of generate_pdf so the Rmd can render them.
   {
@@ -2986,51 +2996,56 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       box_outline_default = "grey20"
     )
 
-    # Build a robust unique junction label if possible
-    if (!("junctionLabel" %in% colnames(junc_rt))) {
-      if (all(c("chrom", "strand", "genomic_start_coord", "genomic_end_coord") %in% colnames(junc_rt))) {
-        junc_rt$junctionLabel <- with(junc_rt, paste(chrom, strand, genomic_start_coord, genomic_end_coord, sep = "_"))
-      } else if (all(c("chrom", "strand", "genomic_start", "genomic_end") %in% colnames(junc_rt))) {
-        junc_rt$junctionLabel <- with(junc_rt, paste(chrom, strand, genomic_start, genomic_end, sep = "_"))
-      } else if ("junction_id" %in% colnames(junc_rt)) {
-        junc_rt$junctionLabel <- junc_rt$junction_id
-      } else {
-        # Fallback to row index within CB as unique proxy
-        junc_rt$junctionLabel <- paste0("jl_", seq_len(nrow(junc_rt)))
+    # Unique-junction RTS plot: only meaningful in reads mode.
+    # In isoforms mode with FL weighting, grouping by junction position and summing FL
+    # gives the same total as "All Junctions", making this figure redundant.
+    if (mode != "isoforms") {
+      # Build a robust unique junction label if possible
+      if (!("junctionLabel" %in% colnames(junc_rt))) {
+        if (all(c("chrom", "strand", "genomic_start_coord", "genomic_end_coord") %in% colnames(junc_rt))) {
+          junc_rt$junctionLabel <- with(junc_rt, paste(chrom, strand, genomic_start_coord, genomic_end_coord, sep = "_"))
+        } else if (all(c("chrom", "strand", "genomic_start", "genomic_end") %in% colnames(junc_rt))) {
+          junc_rt$junctionLabel <- with(junc_rt, paste(chrom, strand, genomic_start, genomic_end, sep = "_"))
+        } else if ("junction_id" %in% colnames(junc_rt)) {
+          junc_rt$junctionLabel <- junc_rt$junction_id
+        } else {
+          # Fallback to row index within CB as unique proxy
+          junc_rt$junctionLabel <- paste0("jl_", seq_len(nrow(junc_rt)))
+        }
       }
+
+      # Per-cell percentages for UNIQUE junctions (deduplicate by genomic coordinates per cell & SJ type).
+      # "Unique" means: count each distinct junction site once per cell, regardless of FL count.
+      # The FL-weighted explode already gave us per-cell rows, so junctionLabel dedup collapses duplicates.
+      uniq_junc_by_cell <- junc_rt %>%
+        group_by(CB, SJ_type, junctionLabel) %>%
+        summarise(rts_any = any(RTS_bool, na.rm = TRUE), .groups = "drop") %>%
+        group_by(CB, SJ_type) %>%
+        summarise(total = dplyr::n(), rts = sum(rts_any), .groups = "drop") %>%
+        mutate(perc = ifelse(total > 0, 100 * rts / total, NA_real_)) %>%
+        tidyr::complete(CB, SJ_type = sj_levels)
+
+      df_long_uniq <- data.frame(
+        Variable = factor(uniq_junc_by_cell$SJ_type, levels = sj_levels),
+        Value = uniq_junc_by_cell$perc
+      )
+
+      gg_rts_unique_by_sjtype <<- build_violin_plot(
+        df_long = df_long_uniq,
+        title = "RT-switching Unique Junctions by Splice Junction Type Across Cells",
+        x_labels = sj_labels,
+        fill_map = sj_fill_map,
+        y_label = "Junctions, %",
+        legend = FALSE,
+        ylim = c(0, 100),
+        violin_alpha = 0.7,
+        box_alpha = 0.3,
+        box_width = 0.05,
+        x_tickangle = 45,
+        violin_outline_fill = TRUE,
+        box_outline_default = "grey20"
+      )
     }
-
-    # Per-cell percentages for UNIQUE junctions (deduplicate by genomic coordinates per cell & SJ type).
-    # "Unique" means: count each distinct junction site once per cell, regardless of FL count.
-    # The FL-weighted explode already gave us per-cell rows, so junctionLabel dedup collapses duplicates.
-    uniq_junc_by_cell <- junc_rt %>%
-      group_by(CB, SJ_type, junctionLabel) %>%
-      summarise(rts_any = any(RTS_bool, na.rm = TRUE), .groups = "drop") %>%
-      group_by(CB, SJ_type) %>%
-      summarise(total = dplyr::n(), rts = sum(rts_any), .groups = "drop") %>%
-      mutate(perc = ifelse(total > 0, 100 * rts / total, NA_real_)) %>%
-      tidyr::complete(CB, SJ_type = sj_levels)
-
-    df_long_uniq <- data.frame(
-      Variable = factor(uniq_junc_by_cell$SJ_type, levels = sj_levels),
-      Value = uniq_junc_by_cell$perc
-    )
-
-    gg_rts_unique_by_sjtype <<- build_violin_plot(
-      df_long = df_long_uniq,
-      title = "RT-switching Unique Junctions by Splice Junction Type Across Cells",
-      x_labels = sj_labels,
-      fill_map = sj_fill_map,
-      y_label = "Junctions, %",
-      legend = FALSE,
-      ylim = c(0, 100),
-      violin_alpha = 0.7,
-      box_alpha = 0.3,
-      box_width = 0.05,
-      x_tickangle = 45,
-      violin_outline_fill = TRUE,
-      box_outline_default = "grey20"
-    )
   } else {
     message("RTS_junction column not found in Junctions. Skipping RT-switching by SJ type plots.")
   }
