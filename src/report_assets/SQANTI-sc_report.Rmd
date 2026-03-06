@@ -328,6 +328,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
       Median = median(vals, na.rm = TRUE),
       Min = min(vals, na.rm = TRUE),
       Max = max(vals, na.rm = TRUE),
+      IQR = IQR(vals, na.rm = TRUE),
       SD = sd(vals, na.rm = TRUE)
     )
   })
@@ -335,8 +336,8 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
     Category = struct_cat_names,
     t(count_stats)
   )
-  colnames(count_stats_df)[2:6] <- c("Mean", "Median", "Min", "Max", "SD")
-  count_stats_df[, 2:6] <- round(count_stats_df[, 2:6], 3)
+  colnames(count_stats_df)[2:7] <- c("Mean", "Median", "Min", "Max", "IQR", "SD")
+  count_stats_df[, 2:7] <- round(count_stats_df[, 2:7], 3)
   rownames(count_stats_df) <- NULL
   render_sqanti_table(count_stats_df, digits = 3, page_len = 10)
 }
@@ -362,6 +363,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
       Median = median(vals, na.rm = TRUE),
       Min = min(vals, na.rm = TRUE),
       Max = max(vals, na.rm = TRUE),
+      IQR = IQR(vals, na.rm = TRUE),
       SD = sd(vals, na.rm = TRUE)
     )
   })
@@ -369,8 +371,8 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
     Category = struct_cat_names,
     t(prop_stats)
   )
-  colnames(prop_stats_df)[2:6] <- c("Mean", "Median", "Min", "Max", "SD")
-  prop_stats_df[, 2:6] <- round(prop_stats_df[, 2:6], 3)
+  colnames(prop_stats_df)[2:7] <- c("Mean", "Median", "Min", "Max", "IQR", "SD")
+  prop_stats_df[, 2:7] <- round(prop_stats_df[, 2:7], 3)
   rownames(prop_stats_df) <- NULL
   render_sqanti_table(prop_stats_df, digits = 3, page_len = 10)
 }
@@ -569,6 +571,25 @@ if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") 
     setupDropdown("coding-dropdown");
     setupDropdown("sr-cluster-dropdown");
     setupDropdown("tss-cluster-dropdown");
+
+    // When the user switches back to a bootstrap section tab, ensure the
+    // first toggle-pane in that tab is visible (fixes blank-on-initial-load).
+    if (window.jQuery) {
+      jQuery(document).on('shown.bs.tab', 'a[data-toggle="tab"]', function() {
+        var tabId = jQuery(this).attr('href');
+        if (!tabId) return;
+        var tabPane = jQuery(tabId);
+        var panes = tabPane.find('.toggle-pane');
+        if (panes.length === 0) return;
+        // If all panes are hidden (hidden-pane), show the first one
+        var anyVisible = panes.filter(function() {
+          return !jQuery(this).hasClass('hidden-pane');
+        }).length > 0;
+        if (!anyVisible) {
+          panes.first().removeClass('hidden-pane').css('display', 'block');
+        }
+      });
+    }
   });
 })();
 </script>
