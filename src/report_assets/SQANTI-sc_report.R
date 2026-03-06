@@ -2523,7 +2523,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       violin_outline_fill = TRUE,
       box_outline_default = "grey20",
       override_outline_vars = c("Genic"),
-      adjust = 3
+      adjust = 1
     )
 
     # 2) Percent mono-exonic reads per cell and category (FL-weighted in isoforms mode)
@@ -3052,7 +3052,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
   # Create grouped violins for % reads with all canonical junctions by structural category (HTML)
   if (!exists("gg_allcanon_by_category")) {
-    cls2 <- Classification_file %>% dplyr::filter(CB != "unassigned")
+    # Build cls2: FL-exploded in isoforms mode so sum(count) = transcript counts
     status_map <- function(x) {
       xch <- tolower(as.character(x))
       ifelse(xch %in% c("true", "canonical", "yes"), "True",
@@ -3063,18 +3063,42 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         )
       )
     }
+    if (mode == "isoforms" && "FL" %in% colnames(Classification_file) &&
+        "CB" %in% colnames(Classification_file)) {
+      cls2 <- Classification_file %>%
+        dplyr::filter(!is.na(CB) & CB != "" & CB != "unassigned") %>%
+        mutate(
+          CB = strsplit(as.character(CB), ","),
+          FL = strsplit(as.character(FL), ",")
+        ) %>%
+        tidyr::unnest(c(CB, FL)) %>%
+        mutate(
+          CB    = trimws(CB),
+          count = suppressWarnings(as.numeric(trimws(FL)))
+        ) %>%
+        mutate(count = ifelse(is.na(count) | !is.finite(count), 1, count)) %>%
+        dplyr::filter(!is.na(CB) & CB != "")
+    } else {
+      cls2 <- Classification_file %>%
+        dplyr::filter(!is.na(CB) & CB != "" & CB != "unassigned") %>%
+        mutate(count = 1)
+    }
     cls2 <- cls2 %>% mutate(allcanon_status = status_map(all_canonical))
 
-    cat_key_map <- structural_category_map
-    all_cats <- structural_category_levels
-    bin_pretty_map <- c(FSM = "FSM", ISM = "ISM", NIC = "NIC", NNC = "NNC", Genic = "Genic Genomic", Antisense = "Antisense", Fusion = "Fusion", Intergenic = "Intergenic", Genic_intron = "Genic Intron")
-    pretty_levels <- c("FSM", "ISM", "NIC", "NNC", "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron")
+    cat_key_map    <- structural_category_map
+    all_cats       <- structural_category_levels
+    bin_pretty_map <- c(FSM = "FSM", ISM = "ISM", NIC = "NIC", NNC = "NNC",
+                        Genic = "Genic Genomic", Antisense = "Antisense",
+                        Fusion = "Fusion", Intergenic = "Intergenic",
+                        Genic_intron = "Genic Intron")
+    pretty_levels  <- c("FSM", "ISM", "NIC", "NNC", "Genic Genomic",
+                        "Antisense", "Fusion", "Intergenic", "Genic Intron")
 
     df_allcanon <- cls2 %>%
       mutate(cat_key = unname(cat_key_map[structural_category])) %>%
       filter(!is.na(cat_key), !is.na(allcanon_status)) %>%
       group_by(CB, cat_key, allcanon_status) %>%
-      summarise(n = dplyr::n(), .groups = "drop") %>%
+      summarise(n = sum(count, na.rm = TRUE), .groups = "drop") %>%
       group_by(CB, cat_key) %>%
       mutate(perc = 100 * n / sum(n)) %>%
       ungroup() %>%
