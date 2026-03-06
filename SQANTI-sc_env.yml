@@ -2,7 +2,6 @@ name: SQANTI-sc_env
 channels:
   - conda-forge
   - bioconda
-  - defaults
 dependencies:
   - argcomplete=3.4.0
   - bcbio-gff=0.7.1
@@ -48,7 +47,6 @@ dependencies:
   - r-htmltools=0.5.8.1
   - r-jsonlite=1.8.9
   - r-optparse=1.7.5
-  - r-plotly=4.10.4
   - r-plyr=1.8.9
   - r-purrr=1.0.2
   - r-randomForest=4.7

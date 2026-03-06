@@ -53,12 +53,12 @@ h4 {
   text-align: left;
 }
 
-.dropdown-menu > li > a {
+.dropdown-menu>li>a {
   cursor: pointer;
 }
 
 /* Constrain width of single-plot tabs in Sequencing Depth to improve readability */
-.section.level1:has(> h1:contains("Sequencing Depth")) .tab-content .tab-pane > div.html-widget {
+.section.level1:has(> h1:contains("Sequencing Depth")) .tab-content .tab-pane>div.html-widget {
   max-width: 900px;
   margin-left: auto;
   margin-right: auto;
@@ -118,7 +118,7 @@ table tbody tr:hover {
   margin-bottom: 20px;
 }
 
-.nav-tabs > li > a {
+.nav-tabs>li>a {
   color: #495057;
   border: none;
   border-radius: 8px 8px 0 0;
@@ -128,18 +128,18 @@ table tbody tr:hover {
   font-weight: 500;
   font-size: 14px;
   transition: all 0.3s ease;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   line-height: 1.4;
 }
 
-.nav-tabs > li > a:hover {
+.nav-tabs>li>a:hover {
   background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
   color: #2c3e50;
 }
 
-.nav-tabs > li.active > a,
-.nav-tabs > li.active > a:hover,
-.nav-tabs > li.active > a:focus {
+.nav-tabs>li.active>a,
+.nav-tabs>li.active>a:hover,
+.nav-tabs>li.active>a:focus {
   color: white;
   background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
   font-weight: bold;
@@ -154,7 +154,7 @@ table tbody tr:hover {
   justify-content: flex-end;
 }
 
-.nav-pills > li > a {
+.nav-pills>li>a {
   color: #34495e;
   border: 1px solid #3498db;
   border-radius: 20px;
@@ -164,25 +164,25 @@ table tbody tr:hover {
   transition: all 0.3s ease;
 }
 
-.nav-pills > li > a:hover {
+.nav-pills>li>a:hover {
   background-color: #3498db;
   color: #ffffff;
   border-color: #3498db;
 }
 
-.nav-pills > li.active > a,
-.nav-pills > li.active > a:hover,
-.nav-pills > li.active > a:focus {
+.nav-pills>li.active>a,
+.nav-pills>li.active>a:hover,
+.nav-pills>li.active>a:focus {
   color: #ffffff;
   background-color: #3498db;
   border-color: #3498db;
 }
 
-.nav-pills > li {
+.nav-pills>li {
   margin-left: 5px;
 }
 
-.nav-pills > li:first-child {
+.nav-pills>li:first-child {
   margin-left: 0;
 }
 
@@ -205,7 +205,6 @@ table tbody tr:hover {
   display: none !important;
 }
 
-/* Generic wrapper to narrow wide plotly widgets (applied only where used) */
 .narrow-plot .html-widget {
   width: 600px !important;
   max-width: 100% !important;
@@ -215,36 +214,9 @@ table tbody tr:hover {
   border: none !important;
 }
 
-/* Remove borders/shadows/backgrounds around ALL Plotly widgets */
 .html-widget,
-.js-plotly-plot,
-.plot-container,
-.svg-container {
-  background: transparent !important;
-  border: 0 !important;
-  box-shadow: none !important;
-  outline: none !important;
-}
-
-/* Fix Plotly modebar background (Plotly >=5 default is semi-transparent grey) */
-.js-plotly-plot .modebar,
-.js-plotly-plot .modebar-group,
-.js-plotly-plot .modebar-btn {
-  background: transparent !important;
-  box-shadow: none !important;
-}
 
 /* Optional: neutral grey icons for readability */
-.js-plotly-plot .modebar-btn svg,
-.js-plotly-plot .modebar-btn path {
-  fill: #6c757d !important;
-  color: #6c757d !important;
-}
-
-/* Ensure Plotly x-axis tick labels match the rest of the plots' x-axis text size */
-.js-plotly-plot .xaxislayer-above text {
-  font-size: 16px !important;
-}
 
 /* Pills positioning for right alignment */
 .nav-pills {
@@ -253,11 +225,11 @@ table tbody tr:hover {
   margin-bottom: 20px;
 }
 
-.nav-pills > li {
+.nav-pills>li {
   margin-left: 5px;
 }
 
-.nav-pills > li:first-child {
+.nav-pills>li:first-child {
   margin-left: 0;
 }
 
@@ -290,7 +262,7 @@ table tbody tr:hover {
   margin-bottom: 0;
 }
 
-.pills-nav .nav-pills > li > a {
+.pills-nav .nav-pills>li>a {
   font-size: 14px;
   padding: 6px 12px;
   margin-right: 3px;
@@ -337,7 +309,7 @@ code {
   padding-left: 0;
 }
 
-#TOC > ul {
+#TOC>ul {
   padding-left: 0;
 }
 
@@ -359,28 +331,71 @@ code {
 
 /* Responsive design */
 @media (max-width: 768px) {
-  body { font-size: 12px; }
-  h1 { font-size: 24px; }
-  h2 { font-size: 20px; }
-  h3 { font-size: 18px; }
-  table { font-size: 12px; }
+  body {
+    font-size: 12px;
+  }
+
+  h1 {
+    font-size: 24px;
+  }
+
+  h2 {
+    font-size: 20px;
+  }
+
+  h3 {
+    font-size: 18px;
+  }
+
+  table {
+    font-size: 12px;
+  }
+
   table th,
-  table td { padding: 8px 10px; }
+  table td {
+    padding: 8px 10px;
+  }
 }
 
 /* Print styles */
 @media print {
-  body { font-size: 12px; line-height: 1.4; }
-  h1, h2, h3, h4 { page-break-after: avoid; }
-  table { page-break-inside: avoid; }
-  .nav-tabs { display: none; }
+  body {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    page-break-after: avoid;
+  }
+
+  table {
+    page-break-inside: avoid;
+  }
+
+  .nav-tabs {
+    display: none;
+  }
 }
 
 /* Custom colors for consistency with SQANTI theme */
-.sqanti-primary { color: #3498db; }
-.sqanti-secondary { color: #e74c3c; }
-.sqanti-success { color: #27ae60; }
-.sqanti-warning { color: #f39c12; }
+.sqanti-primary {
+  color: #3498db;
+}
+
+.sqanti-secondary {
+  color: #e74c3c;
+}
+
+.sqanti-success {
+  color: #27ae60;
+}
+
+.sqanti-warning {
+  color: #f39c12;
+}
 
 /* Alert boxes */
 .alert {
@@ -415,7 +430,7 @@ code {
 }
 
 /* Reduce extra space before tabsets created by R Markdown {.tabset} sections */
-.section.tabset > h2 {
+.section.tabset>h2 {
   /* Tighten heading that precedes tabs */
   padding-top: 8px;
   padding-bottom: 0;
@@ -424,7 +439,18 @@ code {
   border-bottom: none;
 }
 
-.section.tabset > .nav-tabs {
+.section.tabset>.nav-tabs {
   /* Minimize gap between heading and tabs */
   margin-top: 0;
+}
+
+/* Force DataTables to left-align when autoWidth=FALSE prevents them from filling the container */
+.dataTables_wrapper {
+  width: 100% !important;
+}
+
+table.dataTable {
+  margin-left: 0 !important;
+  margin-right: auto !important;
+  width: 100% !important;
 }

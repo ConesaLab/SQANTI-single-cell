@@ -43,10 +43,13 @@ def generate_report(args, df):
                 clustering_file = os.path.join(os.path.dirname(outputPathPrefix), "clustering", "umap_results.csv")
                 if os.path.isfile(clustering_file):
                     flags.extend(["--clustering", clustering_file])
+                
+                if hasattr(args, 'refGTF') and args.refGTF:
+                    flags.extend(["--refGTF", f'"{args.refGTF}"'])
 
                 cmd = (
                     f"Rscript {reportAssetsPath}/SQANTI-sc_report.R "
-                    f"{class_file} {junc_file} {args.report} {outputPathPrefix} "
+                    f"\"{class_file}\" \"{junc_file}\" {args.report} \"{outputPathPrefix}\" "
                     f"{args.mode} {' '.join(flags)}"
                 )
                 subprocess.run(cmd, shell=True, check=True)

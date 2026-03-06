@@ -1,10 +1,6 @@
 #!/usr/env/bin Rscript
 
-############################################################
-##### SQANTI single-cell multisample report generation #####
-############################################################
-
-
+  # ##### SQANTI single-cell multisample report generation #####
 
 ### Author: Carlos Blanco
 
@@ -19,7 +15,6 @@ suppressPackageStartupMessages({
   library(gridExtra)
   library(grid)
   library(ggdist)
-  library(plotly)
   library(stringr)
   library(rmarkdown)
 })
@@ -32,7 +27,6 @@ if (!requireNamespace("RColorConesa", quietly = TRUE)) {
   devtools::install_github("ConesaLab/RColorConesa")
 }
 library(RColorConesa)
-
 
 parse_args <- function() {
   args <- commandArgs(trailingOnly = TRUE)
@@ -235,14 +229,6 @@ infer_feature_metadata <- function(feature, values) {
   )
 }
 
-to_rgba <- function(col, alpha = 1) {
-  if (is.null(col) || is.na(col) || !nzchar(col)) {
-    return(sprintf("rgba(0,0,0,%.3f)", alpha))
-  }
-  rgb <- grDevices::col2rgb(col)
-  sprintf("rgba(%d,%d,%d,%.3f)", rgb[1], rgb[2], rgb[3], alpha)
-}
-
 infer_junction_display_label <- function(feature_name, current_label) {
   lower_name <- tolower(feature_name)
   junction_keywords <- c("junction", "junctions", "splice", "sj", "canonical", "noncanonical", "ujc", "ujcs")
@@ -384,123 +370,7 @@ build_loading_feature_plot <- function(multi, feature_info, sample_levels) {
       axis.text.x = element_text(size = 14, angle = 35, hjust = 1),
       axis.text.y = element_text(size = 14)
     )
-  plot_df_html <- plot_df
-  plot_df_html$sampleID <- as.character(plot_df_html$sampleID)
-  hover_tmpl <- sprintf("Sample: %%{x}<br>%s: %%{y:.3f}<extra></extra>", info$value_label)
-
-  sample_levels_html <- if (!is.null(sample_levels) && length(sample_levels) > 0) sample_levels else unique(plot_df_html$sampleID)
-  palette_cols <- get_conesa_palette_colors(length(sample_levels_html), palette = "complete")
-  sample_color_map <- setNames(palette_cols, sample_levels_html)
-
-  plt_html <- plotly::plot_ly()
-  for (idx in seq_along(sample_levels_html)) {
-    sample_nm <- sample_levels_html[[idx]]
-    sample_df <- plot_df_html %>% filter(sampleID == sample_nm)
-    if (nrow(sample_df) == 0) next
-    col_val <- sample_color_map[[sample_nm]]
-    violin_fill <- to_rgba(col_val, 0.7)
-    box_fill <- to_rgba(col_val, 0.3)
-    line_col <- to_rgba(col_val, 1)
-    plt_html <- plt_html %>%
-      plotly::add_trace(
-        data = sample_df,
-        x = ~sampleID,
-        y = ~value,
-        type = "violin",
-        name = sample_nm,
-        legendgroup = sample_nm,
-        showlegend = TRUE,
-        hovertemplate = hover_tmpl,
-        fillcolor = violin_fill,
-        line = list(color = line_col, width = 1.1),
-        spanmode = "hard",
-        scalemode = "width",
-        width = 0.85,
-        points = "none",
-        box = list(visible = FALSE),
-        meanline = list(visible = FALSE)
-      ) %>%
-      plotly::add_trace(
-        data = sample_df,
-        x = ~sampleID,
-        y = ~value,
-        type = "box",
-        name = paste0(sample_nm, " (IQR)"),
-        legendgroup = sample_nm,
-        showlegend = FALSE,
-        hoverinfo = "skip",
-        fillcolor = box_fill,
-        line = list(color = to_rgba("#333333", 1), width = 1),
-        boxpoints = FALSE,
-        width = 0.05
-      )
-  }
-
-  mean_df <- plot_df_html %>%
-    group_by(sampleID) %>%
-    summarise(mean_value = mean(value, na.rm = TRUE), .groups = "drop")
-  if (nrow(mean_df) > 0) {
-    plt_html <- plt_html %>% plotly::add_trace(
-      data = mean_df,
-      x = ~sampleID,
-      y = ~mean_value,
-      type = "scatter",
-      mode = "markers",
-      name = "Mean",
-      legendgroup = "Mean",
-      hovertemplate = hover_tmpl,
-      marker = list(symbol = "x-thin", size = 8, color = "red", line = list(width = 0)),
-      showlegend = FALSE
-    )
-  }
-
-  plt_html <- plt_html %>% plotly::layout(
-    title = list(
-      text = sprintf("<b>Per Sample %s Distribution Across Cells</b>", info$display_name),
-      x = 0.5,
-      xanchor = "center",
-      font = list(size = 18, family = "Arial")
-    ),
-    xaxis = list(
-      title = list(text = "Sample", font = list(size = 16, family = "Arial")),
-      tickfont = list(size = 14, family = "Arial"),
-      tickangle = 45,
-      showline = TRUE,
-      linecolor = "#000000",
-      linewidth = 1.1,
-      mirror = FALSE,
-      zeroline = FALSE,
-      standoff = 26,
-      automargin = TRUE
-    ),
-    yaxis = list(
-      title = list(text = info$value_label, font = list(size = 16, family = "Arial")),
-      tickfont = list(size = 14, family = "Arial"),
-      showline = TRUE,
-      linecolor = "#000000",
-      linewidth = 1.1,
-      zeroline = FALSE,
-      standoff = 8,
-      automargin = TRUE
-    ),
-    legend = list(
-      orientation = "h",
-      x = 0.5,
-      xanchor = "center",
-      y = -0.25,
-      yanchor = "top",
-      font = list(size = 14, family = "Arial"),
-      title = list(text = "")
-    ),
-    margin = list(t = 60, b = 250, l = 130, r = 80),
-    hovermode = "closest",
-    paper_bgcolor = "rgba(0,0,0,0)",
-    plot_bgcolor = "rgba(0,0,0,0)",
-    font = list(family = "Arial", size = 14),
-    height = 700
-  )
-
-  list(ggplot = gp, plotly = plt_html)
+  return(gp)
 }
 
 main <- function() {
@@ -715,125 +585,19 @@ main <- function() {
     })
     names(category_plots) <- as.character(category_levels)
 
-    category_plots_html <- lapply(category_levels, function(cat_lab) {
-      dfp <- cats_long %>%
-        filter(category == cat_lab) %>%
-        mutate(sampleID = factor(sampleID, levels = sample_levels_all)) %>%
-        filter(is.finite(prop))
-
-      cat_col <- unname(cat_to_col[[as.character(cat_lab)]])
-      if (is.null(cat_col) || is.na(cat_col)) cat_col <- "#6C757D"
-      violin_fill <- to_rgba(cat_col, 0.7)
-      box_fill <- to_rgba(cat_col, 0.3)
-      line_col <- to_rgba(cat_col, 1)
-
-      plt <- plotly::plot_ly()
-
-      for (sample_nm in levels(dfp$sampleID)) {
-        sample_df <- dfp %>% filter(sampleID == sample_nm)
-        if (nrow(sample_df) == 0) next
-
-        plt <- plt %>%
-          plotly::add_trace(
-            data = sample_df,
-            x = ~sampleID,
-            y = ~prop,
-            type = "violin",
-            name = NULL,
-            showlegend = FALSE,
-            hovertemplate = "Sample: %{x}<br>Reads, %: %{y:.3f}<extra></extra>",
-            fillcolor = violin_fill,
-            line = list(color = line_col, width = 1.1),
-            spanmode = "hard",
-            scalemode = "width",
-            width = 0.85,
-            points = "none",
-            box = list(visible = FALSE),
-            meanline = list(visible = FALSE)
-          ) %>%
-          plotly::add_trace(
-            data = sample_df,
-            x = ~sampleID,
-            y = ~prop,
-            type = "box",
-            name = NULL,
-            showlegend = FALSE,
-            hoverinfo = "skip",
-            fillcolor = box_fill,
-            line = list(color = to_rgba("#333333", 1), width = 1),
-            boxpoints = FALSE,
-            width = 0.05
-          )
-      }
-
-      mean_df <- dfp %>%
-        group_by(sampleID) %>%
-        summarise(mean_prop = mean(prop, na.rm = TRUE), .groups = "drop")
-      if (nrow(mean_df) > 0) {
-        plt <- plt %>% plotly::add_trace(
-          data = mean_df,
-          x = ~sampleID,
-          y = ~mean_prop,
-          type = "scatter",
-          mode = "markers",
-          name = NULL,
-          showlegend = FALSE,
-          hovertemplate = "Sample: %{x}<br>Reads, %: %{y:.3f}<extra></extra>",
-          marker = list(symbol = "x-thin", size = 8, line = list(width = 0), color = "red")
-        )
-      }
-
-      plt %>%
-        plotly::layout(
-          showlegend = FALSE,
-          title = list(
-            text = sprintf("<b>Per Sample %s Reads Distribution Across Cells</b>", cat_lab),
-            x = 0.5,
-            xanchor = "center",
-            font = list(size = 18, family = "Arial")
-          ),
-          xaxis = list(
-            title = list(text = "Sample", font = list(size = 16, family = "Arial")),
-            tickfont = list(size = 14, family = "Arial"),
-            tickangle = 45,
-            showline = TRUE,
-            linecolor = "#000000",
-            linewidth = 1.1,
-            mirror = FALSE,
-            zeroline = FALSE
-          ),
-          yaxis = list(
-            title = list(text = "Reads, %", font = list(size = 16, family = "Arial")),
-            tickfont = list(size = 14, family = "Arial"),
-            range = c(0, 100),
-            showline = TRUE,
-            linecolor = "#000000",
-            linewidth = 1.1,
-            zeroline = FALSE
-          ),
-          margin = list(t = 60, b = 160, l = 110, r = 60),
-          hovermode = "closest",
-          paper_bgcolor = "rgba(0,0,0,0)",
-          plot_bgcolor = "rgba(0,0,0,0)",
-          font = list(family = "Arial", size = 14),
-          height = 560
-        )
-    })
-    names(category_plots_html) <- as.character(category_levels)
-
     assign("multi_structural_category_combined_plot", p_cats, envir = .GlobalEnv)
     assign("multi_structural_category_violin_plots", category_plots, envir = .GlobalEnv)
-    assign("multi_structural_category_violin_plots_html", category_plots_html, envir = .GlobalEnv)
+
   }
 
   multi_pca_scores_plot_local <- NULL
-  multi_pca_scores_plot_html_local <- NULL
+
   multi_pca_scree_plot_local <- NULL
-  multi_pca_scree_plot_html_local <- NULL
+
   multi_pca_top_loadings_plots_local <- NULL
-  multi_pca_top_loadings_plots_html_local <- NULL
+
   multi_pca_loading_distribution_plots_local <- list()
-  multi_pca_loading_distribution_plots_html_local <- list()
+
   # -------- PCA (all numeric features, per-sample medians) --------
   # 1) Select all numeric columns from the cell summary
   num_cols <- names(multi)[sapply(multi, function(x) is.numeric(x) && !all(is.na(x)))]
@@ -883,48 +647,6 @@ main <- function() {
         multi_pca_scores_plot_local <- gp_scores
         assign("multi_pca_scores_plot", gp_scores, envir = .GlobalEnv)
 
-        sample_levels_pca <- sample_levels_global[sample_levels_global %in% scores$sampleID]
-        if (length(sample_levels_pca) == 0) {
-          sample_levels_pca <- unique(scores$sampleID)
-        }
-        palette_cols_pca <- get_conesa_palette_colors(length(sample_levels_pca), palette = "complete")
-        sample_color_map_pca <- setNames(palette_cols_pca, sample_levels_pca)
-        scores_plotly <- plotly::plot_ly()
-        for (sample_nm in sample_levels_pca) {
-          sample_df <- scores %>% filter(sampleID == sample_nm)
-          if (nrow(sample_df) == 0) next
-          scores_plotly <- scores_plotly %>% plotly::add_trace(
-            data = sample_df,
-            x = ~PC1,
-            y = ~PC2,
-            type = "scatter",
-            mode = "markers",
-            name = sample_nm,
-            text = ~sampleID,
-            hovertemplate = "Sample: %{text}<br>PC1: %{x:.2f}<br>PC2: %{y:.2f}<extra></extra>",
-            marker = list(size = 12, color = sample_color_map_pca[[sample_nm]], line = list(width = 0))
-          )
-        }
-        scores_plotly <- scores_plotly %>%
-          plotly::layout(
-            title = list(text = "<b>PCA Plot Based on sampleID</b>", font = list(size = 20, family = "Arial")),
-            xaxis = list(
-              title = list(text = sprintf("PC1 (%.1f%%)", 100 * var_expl[1]), font = list(size = 16, family = "Arial")),
-              tickfont = list(size = 14, family = "Arial"), standoff = 12, automargin = TRUE
-            ),
-            yaxis = list(
-              title = list(text = sprintf("PC2 (%.1f%%)", 100 * var_expl[2]), font = list(size = 16, family = "Arial")),
-              tickfont = list(size = 14, family = "Arial"), standoff = 10, automargin = TRUE
-            ),
-            legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.25, yanchor = "top", title = list(text = ""), font = list(size = 14, family = "Arial")),
-            paper_bgcolor = "rgba(0,0,0,0)",
-            plot_bgcolor = "rgba(0,0,0,0)",
-            font = list(family = "Arial", size = 16),
-            margin = list(t = 60, b = 120, l = 90, r = 60),
-            height = 520
-          )
-        multi_pca_scores_plot_html_local <- scores_plotly
-        assign("multi_pca_scores_plot_html", scores_plotly, envir = .GlobalEnv)
       }
 
       # B) Scree plot (second)
@@ -952,41 +674,6 @@ main <- function() {
         )
       multi_pca_scree_plot_local <- gp_scree
       assign("multi_pca_scree_plot", gp_scree, envir = .GlobalEnv)
-
-      scree_plotly <- plotly::plot_ly(
-        scree_df,
-        x = ~PC,
-        y = ~Proportion,
-        type = "bar",
-        name = "Proportion",
-        marker = list(color = "#6BAED6")
-      ) %>%
-        plotly::add_trace(
-          y = ~Cumulative,
-          type = "scatter",
-          mode = "lines+markers",
-          name = "Cumulative",
-          hovertemplate = "PC: %{x}<br>Cumulative: %{y:.3f}<extra></extra>",
-          line = list(color = "#4D4D4D", width = 2),
-          marker = list(color = "#4D4D4D", size = 9, line = list(width = 0))
-        ) %>%
-        plotly::layout(
-          title = list(text = "<b>PCA scree plot</b>", font = list(size = 18, family = "Arial")),
-          yaxis = list(
-            title = list(text = "Variance explained", font = list(size = 16, family = "Arial")), tickfont = list(size = 14),
-            standoff = 6, automargin = TRUE
-          ),
-          xaxis = list(
-            title = list(text = "Principal component", font = list(size = 16, family = "Arial")), tickfont = list(size = 14),
-            standoff = 14, automargin = TRUE
-          ),
-          legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.25, yanchor = "top", title = list(text = "")),
-          paper_bgcolor = "rgba(0,0,0,0)",
-          plot_bgcolor = "rgba(0,0,0,0)",
-          margin = list(t = 60, b = 120, l = 80, r = 40)
-        )
-      multi_pca_scree_plot_html_local <- scree_plotly
-      assign("multi_pca_scree_plot_html", scree_plotly, envir = .GlobalEnv)
 
       # C) Top loadings for PC1 and PC2 (third)
       if (ncol(pca_fit$rotation) >= 2) {
@@ -1055,179 +742,6 @@ main <- function() {
         multi_pca_top_loadings_plots_local <- loadings_plots
         assign("multi_pca_top_loadings_plots", loadings_plots, envir = .GlobalEnv)
 
-        pc1_plot_html <- plotly::plot_ly(
-          top_pc1_plot,
-          x = ~abs_loading,
-          y = ~variable,
-          color = ~sign,
-          colors = c("Positive" = "#78C679", "Negative" = "#EE6A50"),
-          type = "bar",
-          orientation = "h",
-          customdata = ~sign,
-          hovertemplate = "Feature: %{y}<br>|loading|: %{x:.3f}<br>Sign: %{customdata}<extra></extra>"
-        ) %>%
-          plotly::layout(
-            title = list(text = "<b>Top 10 loadings: PC1</b>", font = list(size = 18, family = "Arial")),
-            xaxis = list(
-              title = list(text = "Absolute loading", font = list(size = 16, family = "Arial")),
-              tickfont = list(size = 14),
-              automargin = TRUE,
-              standoff = 10
-            ),
-            yaxis = list(
-              title = list(text = "Feature", font = list(size = 16, family = "Arial")),
-              tickfont = list(size = 14),
-              automargin = TRUE,
-              standoff = 6
-            ),
-            legend = list(
-              orientation = "h",
-              x = 0.5,
-              xanchor = "center",
-              y = -0.25,
-              yanchor = "top",
-              font = list(size = 14, family = "Arial"),
-              title = list(text = "Sign")
-            ),
-            paper_bgcolor = "rgba(0,0,0,0)",
-            plot_bgcolor = "rgba(0,0,0,0)",
-            margin = list(t = 60, b = 110, l = 190, r = 70),
-            font = list(family = "Arial", size = 14),
-            height = 460
-          )
-
-        pc2_plot_html <- plotly::plot_ly(
-          top_pc2_plot,
-          x = ~abs_loading,
-          y = ~variable,
-          color = ~sign,
-          colors = c("Positive" = "#78C679", "Negative" = "#EE6A50"),
-          type = "bar",
-          orientation = "h",
-          customdata = ~sign,
-          hovertemplate = "Feature: %{y}<br>|loading|: %{x:.3f}<br>Sign: %{customdata}<extra></extra>"
-        ) %>%
-          plotly::layout(
-            title = list(text = "<b>Top 10 loadings: PC2</b>", font = list(size = 18, family = "Arial")),
-            xaxis = list(
-              title = list(text = "Absolute loading", font = list(size = 16, family = "Arial")),
-              tickfont = list(size = 14),
-              automargin = TRUE,
-              standoff = 10
-            ),
-            yaxis = list(
-              title = list(text = "", font = list(size = 16, family = "Arial")),
-              tickfont = list(size = 14),
-              automargin = TRUE,
-              standoff = 6
-            ),
-            legend = list(
-              orientation = "h",
-              x = 0.5,
-              xanchor = "center",
-              y = -0.25,
-              yanchor = "top",
-              font = list(size = 14, family = "Arial"),
-              title = list(text = "Sign")
-            ),
-            paper_bgcolor = "rgba(0,0,0,0)",
-            plot_bgcolor = "rgba(0,0,0,0)",
-            margin = list(t = 60, b = 110, l = 190, r = 70),
-            font = list(family = "Arial", size = 14),
-            height = 460
-          )
-
-        loadings_plots_html <- list(PC1 = pc1_plot_html, PC2 = pc2_plot_html)
-        multi_pca_top_loadings_plots_html_local <- loadings_plots_html
-        assign("multi_pca_top_loadings_plots_html", loadings_plots_html, envir = .GlobalEnv)
-
-        positive_col <- "#78C679"
-        negative_col <- "#EE6A50"
-        pc1_levels <- rev(as.character(top_pc1_plot$variable))
-        pc2_levels <- rev(as.character(top_pc2_plot$variable))
-
-        combined_loadings_html <- plotly::plot_ly()
-        for (panel in c("PC1", "PC2")) {
-          axis_suffix <- if (panel == "PC1") "" else "2"
-          panel_df <- if (panel == "PC1") top_pc1_plot else top_pc2_plot
-          panel_df <- panel_df %>% mutate(variable = as.character(variable))
-          for (sgn in c("Positive", "Negative")) {
-            sgn_df <- panel_df %>% filter(sign == sgn)
-            if (nrow(sgn_df) == 0) next
-            combined_loadings_html <- combined_loadings_html %>%
-              plotly::add_trace(
-                data = sgn_df,
-                x = ~abs_loading,
-                y = ~variable,
-                type = "bar",
-                orientation = "h",
-                name = sgn,
-                legendgroup = sgn,
-                showlegend = (panel == "PC1"),
-                marker = list(color = if (sgn == "Positive") positive_col else negative_col),
-                hovertemplate = paste0("Feature: %{y}<br>|loading|: %{x:.3f}<br>Sign: ", sgn, "<extra></extra>"),
-                xaxis = paste0("x", axis_suffix),
-                yaxis = paste0("y", axis_suffix)
-              )
-          }
-        }
-
-        combined_loadings_html <- combined_loadings_html %>%
-          plotly::layout(
-            barmode = "stack",
-            xaxis = list(
-              domain = c(0, 0.35),
-              title = list(text = "Absolute loading", font = list(size = 14, family = "Arial")),
-              tickfont = list(size = 14),
-              automargin = TRUE,
-              standoff = 12
-            ),
-            yaxis = list(
-              domain = c(0, 1),
-              title = list(text = "Feature", standoff = 30, automargin = TRUE, font = list(size = 14, family = "Arial")),
-              tickfont = list(size = 14),
-              automargin = TRUE,
-              categoryorder = "array",
-              categoryarray = pc1_levels
-            ),
-            xaxis2 = list(
-              domain = c(0.65, 1),
-              title = list(text = "Absolute loading", font = list(size = 14, family = "Arial")),
-              tickfont = list(size = 14),
-              automargin = TRUE,
-              standoff = 12,
-              anchor = "y2"
-            ),
-            yaxis2 = list(
-              domain = c(0, 1),
-              title = list(text = "", font = list(size = 14, family = "Arial")),
-              tickfont = list(size = 14),
-              automargin = TRUE,
-              categoryorder = "array",
-              categoryarray = pc2_levels,
-              anchor = "x2"
-            ),
-            legend = list(
-              orientation = "h",
-              x = 0.5,
-              xanchor = "center",
-              y = -0.25,
-              yanchor = "top",
-              font = list(size = 14, family = "Arial"),
-              title = list(text = "Sign")
-            ),
-            annotations = list(
-              list(text = "<b>Top 10 loadings: PC1</b>", x = 0.13, y = 1.08, xref = "paper", yref = "paper", showarrow = FALSE, font = list(size = 16, family = "Arial")),
-              list(text = "<b>Top 10 loadings: PC2</b>", x = 0.9, y = 1.08, xref = "paper", yref = "paper", showarrow = FALSE, font = list(size = 16, family = "Arial"))
-            ),
-            paper_bgcolor = "rgba(0,0,0,0)",
-            plot_bgcolor = "rgba(0,0,0,0)",
-            font = list(family = "Arial", size = 14),
-            margin = list(t = 60, b = 140, l = 220, r = 160),
-            height = 640
-          )
-        assign("multi_pca_top_loadings_combined_html", combined_loadings_html, envir = .GlobalEnv)
-
         # D) Distribution plots for top-loading features on PC1/PC2
         sample_levels <- sample_levels_global
         loading_plot_info <- bind_rows(top_pc1, top_pc2) %>%
@@ -1241,15 +755,15 @@ main <- function() {
             if (is.null(gp_loading)) {
               message(sprintf("[INFO] Skipping PCA loading feature %s due to missing or constant data.", feat_name))
             } else {
-              loading_distribution_plots[[feat_name]] <- gp_loading$ggplot
-              loading_distribution_plots_html[[feat_name]] <- gp_loading$plotly
+              loading_distribution_plots[[feat_name]] <- gp_loading
+
             }
           }
         }
         multi_pca_loading_distribution_plots_local <- loading_distribution_plots
-        multi_pca_loading_distribution_plots_html_local <- loading_distribution_plots_html
+
         assign("multi_pca_loading_distribution_plots", loading_distribution_plots, envir = .GlobalEnv)
-        assign("multi_pca_loading_distribution_plots_html", loading_distribution_plots_html, envir = .GlobalEnv)
+
       }
     }
   }
@@ -1344,8 +858,6 @@ main <- function() {
     if (file.exists(css_file)) {
       file.copy(css_file, dirname(html_output_file), overwrite = TRUE)
     }
-
-
 
     rmarkdown::render(
       rmd_file,

@@ -502,8 +502,9 @@ def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
 
     expected_cmd = (
         f"Rscript utilities/SQANTI-sc_report.R "
-        f"{class_file} {junc_file} {mock_args.report} {prefix} "
-        f"{mock_args.mode} --cell_summary {cell_summary}"
+        f"\"{class_file}\" \"{junc_file}\" {mock_args.report} \"{prefix}\" "
+        f"{mock_args.mode} --cell_summary {cell_summary} "
+        f"--refGTF \"{mock_args.refGTF}\""
     ).strip()
 
     actual_cmd = " ".join(mock_run.call_args[0][0].split())
@@ -535,8 +536,8 @@ def test_generate_report_without_cell_summary(mock_isfile, mock_run, mock_args, 
     assert "--cell_summary" not in actual_cmd
     expected_cmd = (
         f"Rscript utilities/SQANTI-sc_report.R "
-        f"{class_file} {junc_file} {mock_args.report} {prefix} "
-        f"{mock_args.mode}"
+        f"\"{class_file}\" \"{junc_file}\" {mock_args.report} \"{prefix}\" "
+        f"{mock_args.mode} --refGTF \"{mock_args.refGTF}\""
     ).strip()
     assert actual_cmd == expected_cmd
 
@@ -875,3 +876,301 @@ def test_pipeline_main_with_clustering(
 
     assert mock_clustering.called
     assert mock_generate_report.called
+
+# ==============================================================================
+# FL Weighting Tests (isoforms mode)
+# ==============================================================================
+
+class TestFLWeightingIsoformsMode:
+    """
+    Tests verifying that in isoforms mode, transcript counts and junction counts
+    are correctly weighted by the FL (full-length read count) values per cell.
+
+    Core principle
+    --------------
+    Each row in the classification file is a unique isoform model.  The FL
+    column contains comma-separated counts representing how many actual
+    transcripts of that isoform were observed in each cell barcode listed in
+    the CB column.  All per-cell metrics (structural-category percentages,
+    junction counts, etc.) must be computed by *summing these FL counts*, NOT
+    by simply counting isoform model rows.
+
+    For junctions: each junction of a given isoform inherits the same FL counts
+    as the isoform itself (one junction row per intron per isoform model, so
+    3 exons → 2 junction rows, each with FL counts equal to the isoform's FL).
+    """
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _cls_row(self, isoform, cb, fl, structural_category,
+                 associated_gene="geneA", exons=2):
+        """Return one classification row dict (isoforms mode)."""
+        return {
+            "isoform": isoform,
+            "CB": cb,
+            "FL": fl,
+            "structural_category": structural_category,
+            "associated_gene": associated_gene,
+            "associated_transcript": "txA",
+            "exons": exons,
+            "length": 500,
+            "ref_length": 600,
+            "chrom": "chr1",
+            "subcategory": "reference_match",
+            "all_canonical": "True",
+            "RTS_stage": "False",
+            "predicted_NMD": "False",
+            "within_CAGE_peak": "False",
+            "polyA_motif_found": "False",
+            "perc_A_downstream_TTS": "0",
+            "diff_to_gene_TSS": "0",
+            "coding": "coding",
+            "min_cov": "0",
+            "ratio_TSS": "0",
+        }
+
+    def _junc_row(self, isoform, junction_category="known", canonical="canonical",
+                  rts=False):
+        """Return one junction row dict (isoform key only; CB/FL come from cls join)."""
+        return {
+            "isoform": isoform,
+            "junction_category": junction_category,
+            "canonical": canonical,
+            "RTS_junction": str(rts),
+            "junction_number": "1",
+            "chrom": "chr1",
+            "strand": "+",
+            "genomic_start_coord": "1000",
+            "genomic_end_coord": "2000",
+        }
+
+    def _run(self, mock_args, tmpdir, cls_rows, junc_rows=None):
+        """Write files, run calculate_metrics_per_cell, return cell summary DataFrame."""
+        out_dir = str(tmpdir.join("output"))
+        file_acc = "f1"
+        sampleID = "s1"
+        sample_dir = os.path.join(out_dir, file_acc)
+        os.makedirs(sample_dir, exist_ok=True)
+        prefix = os.path.join(sample_dir, sampleID)
+
+        mock_args.mode = "isoforms"
+        mock_args.out_dir = out_dir
+
+        pd.DataFrame(cls_rows).to_csv(
+            f"{prefix}_classification.txt", sep="\t", index=False
+        )
+
+        if junc_rows:
+            pd.DataFrame(junc_rows).to_csv(
+                f"{prefix}_junctions.txt", sep="\t", index=False
+            )
+        else:
+            # Empty but valid junctions file
+            pd.DataFrame(columns=["isoform"]).to_csv(
+                f"{prefix}_junctions.txt", sep="\t", index=False
+            )
+
+        design_df = pd.DataFrame({"sampleID": [sampleID], "file_acc": [file_acc]})
+        calculate_metrics_per_cell(mock_args, design_df)
+
+        summary_path = f"{prefix}_SQANTI_cell_summary.txt.gz"
+        assert os.path.isfile(summary_path), "Cell summary was not created"
+        return pd.read_csv(summary_path, sep="\t", compression="gzip")
+
+    # ------------------------------------------------------------------
+    # Test 1 — total_reads reflects sum(FL), not number of isoform rows
+    # ------------------------------------------------------------------
+
+    def test_total_reads_is_fl_sum_not_row_count(self, mock_args, tmpdir):
+        """
+        A cell with 3 FSM isoforms each having FL=5 should have total_reads=15,
+        not total_reads=3 (the number of isoform model rows).
+        """
+        cls_rows = [
+            self._cls_row("iso1", "CB1", "5", "full-splice_match"),
+            self._cls_row("iso2", "CB1", "5", "full-splice_match"),
+            self._cls_row("iso3", "CB1", "5", "full-splice_match"),
+        ]
+        summary = self._run(mock_args, tmpdir, cls_rows)
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        assert cb1["Transcripts_in_cell"] == 15, (
+            f"Expected Transcripts_in_cell=15 (sum of FL counts), got {cb1['Transcripts_in_cell']}"
+        )
+
+    # ------------------------------------------------------------------
+    # Test 2 — structural category % is FL-weighted
+    # ------------------------------------------------------------------
+
+    def test_structural_category_percentage_fl_weighted(self, mock_args, tmpdir):
+        """
+        CB1 has:
+          iso1 (FSM, FL=1)  → 1 FSM transcript
+          iso2 (NIC, FL=9)  → 9 NIC transcripts
+
+        FL-weighted result  : FSM_prop = 10 %, NIC_prop = 90 %
+        Naive row-count     : FSM_prop = 50 %, NIC_prop = 50 %  (wrong)
+        """
+        cls_rows = [
+            self._cls_row("iso1", "CB1", "1", "full-splice_match"),
+            self._cls_row("iso2", "CB1", "9", "novel_in_catalog"),
+        ]
+        summary = self._run(mock_args, tmpdir, cls_rows)
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+
+        assert abs(cb1["FSM_prop"] - 10.0) < 0.01, (
+            f"Expected FSM_prop≈10 % (FL-weighted), got {cb1['FSM_prop']}"
+        )
+        assert abs(cb1["NIC_prop"] - 90.0) < 0.01, (
+            f"Expected NIC_prop≈90 % (FL-weighted), got {cb1['NIC_prop']}"
+        )
+
+    # ------------------------------------------------------------------
+    # Test 3 — junction counts are FL-weighted via isoform-key join
+    # ------------------------------------------------------------------
+
+    def test_junction_counts_fl_weighted_via_isoform_join(self, mock_args, tmpdir):
+        """
+        iso1 (FL=1 in CB1): 1 known_canonical junction
+        iso2 (FL=9 in CB1): 1 novel_not_in_catalog junction
+
+        Each junction inherits the isoform's FL count for that cell, so:
+          Known_canonical_junctions      = 1   (1 × FL=1)
+          Novel_non_canonical_junctions  = 9   (1 × FL=9)   ← novel_not_in_catalog + canonical=False → novel_non_canonical
+          Known_canonical_junctions_prop = 1/(1+9) × 100 = 10 %
+
+        In the junctions file there is no CB column — the CB/FL association is
+        derived from the classification file via the isoform key, exactly as
+        SQANTI-sc does it after the fix we applied.
+        """
+        cls_rows = [
+            self._cls_row("iso1", "CB1", "1", "full-splice_match", exons=2),
+            self._cls_row("iso2", "CB1", "9", "novel_not_in_catalog", exons=2),
+        ]
+        junc_rows = [
+            self._junc_row("iso1", junction_category="known",   canonical="canonical"),
+            self._junc_row("iso2", junction_category="novel",   canonical="non_canonical"),
+        ]
+        summary = self._run(mock_args, tmpdir, cls_rows, junc_rows)
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+
+        assert cb1["Known_canonical_junctions"] == 1, (
+            f"Expected 1 known_canonical junction (FL=1), got {cb1['Known_canonical_junctions']}"
+        )
+        assert cb1["Novel_non_canonical_junctions"] == 9, (
+            f"Expected 9 novel_non_canonical junctions (FL=9), got {cb1['Novel_non_canonical_junctions']}"
+        )
+        assert abs(cb1["Known_canonical_junctions_prop"] - 10.0) < 0.01, (
+            f"Expected Known_canonical_junctions_prop≈10 %, got {cb1['Known_canonical_junctions_prop']}"
+        )
+
+    # ------------------------------------------------------------------
+    # Test 4 — multiple junctions per isoform each inherit FL
+    # ------------------------------------------------------------------
+
+    def test_multi_junction_isoform_each_junction_gets_fl_count(self, mock_args, tmpdir):
+        """
+        iso1 has 3 exons → 2 junctions, FL=5 in CB1.
+        Both junctions are known_canonical, so:
+          Known_canonical_junctions = 2 × 5 = 10
+        """
+        cls_rows = [
+            self._cls_row("iso1", "CB1", "5", "full-splice_match", exons=3),
+        ]
+        junc_rows = [
+            self._junc_row("iso1", junction_category="known", canonical="canonical"),
+            self._junc_row("iso1", junction_category="known", canonical="canonical"),
+        ]
+        summary = self._run(mock_args, tmpdir, cls_rows, junc_rows)
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+
+        assert cb1["Known_canonical_junctions"] == 10, (
+            f"Expected Known_canonical_junctions=10 (2 junctions × FL=5), "
+            f"got {cb1['Known_canonical_junctions']}"
+        )
+
+    # ------------------------------------------------------------------
+    # Test 5 — same isoform appearing in multiple cells is weighted
+    #           independently per cell
+    # ------------------------------------------------------------------
+
+    def test_fl_weighting_is_per_cell_independent(self, mock_args, tmpdir):
+        """
+        iso1 appears in CB1 (FL=3) and CB2 (FL=7) via comma-separated CB/FL.
+        iso2 appears only in CB2 (FL=2).
+
+        All isoforms are FSM; expected results:
+          CB1: total_reads=3,  FSM_prop=100 %
+          CB2: total_reads=9,  FSM_prop=100 %   (iso1 FL=7 + iso2 FL=2)
+        """
+        cls_rows = [
+            self._cls_row("iso1", "CB1,CB2", "3,7", "full-splice_match"),
+            self._cls_row("iso2", "CB2",     "2",   "full-splice_match"),
+        ]
+        summary = self._run(mock_args, tmpdir, cls_rows)
+
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        cb2 = summary[summary["CB"] == "CB2"].iloc[0]
+
+        assert cb1["Transcripts_in_cell"] == 3, (
+            f"CB1 Transcripts_in_cell should be 3 (FL for CB1), got {cb1['Transcripts_in_cell']}"
+        )
+        assert cb2["Transcripts_in_cell"] == 9, (
+            f"CB2 Transcripts_in_cell should be 9 (FL=7 + FL=2), got {cb2['Transcripts_in_cell']}"
+        )
+        assert abs(cb1["FSM_prop"] - 100.0) < 0.01
+        assert abs(cb2["FSM_prop"] - 100.0) < 0.01
+
+    # ------------------------------------------------------------------
+    # Test 6 — reads mode uses 1 count per row regardless of FL column
+    # ------------------------------------------------------------------
+
+    def test_reads_mode_uses_one_count_per_row(self, mock_args, tmpdir):
+        """
+        In reads mode each classification row is a single read (CB is a single
+        barcode, FL column is absent or irrelevant).  total_reads must equal
+        the number of rows, not any FL value.
+        """
+        out_dir = str(tmpdir.join("output_reads"))
+        file_acc = "f1"
+        sampleID = "s1"
+        sample_dir = os.path.join(out_dir, file_acc)
+        os.makedirs(sample_dir, exist_ok=True)
+        prefix = os.path.join(sample_dir, sampleID)
+
+        mock_args.mode = "reads"
+        mock_args.out_dir = out_dir
+
+        # 3 reads all from CB1 — no FL column
+        cls = pd.DataFrame([
+            {"isoform": "r1", "CB": "CB1", "structural_category": "full-splice_match",
+             "associated_gene": "geneA", "associated_transcript": "txA",
+             "exons": 2, "length": 500, "ref_length": 600, "chrom": "chr1"},
+            {"isoform": "r2", "CB": "CB1", "structural_category": "full-splice_match",
+             "associated_gene": "geneA", "associated_transcript": "txA",
+             "exons": 2, "length": 500, "ref_length": 600, "chrom": "chr1"},
+            {"isoform": "r3", "CB": "CB1", "structural_category": "novel_in_catalog",
+             "associated_gene": "geneA", "associated_transcript": "txA",
+             "exons": 2, "length": 500, "ref_length": 600, "chrom": "chr1"},
+        ])
+        cls.to_csv(f"{prefix}_classification.txt", sep="\t", index=False)
+        pd.DataFrame(columns=["isoform"]).to_csv(
+            f"{prefix}_junctions.txt", sep="\t", index=False
+        )
+
+        design_df = pd.DataFrame({"sampleID": [sampleID], "file_acc": [file_acc]})
+        calculate_metrics_per_cell(mock_args, design_df)
+
+        summary = pd.read_csv(
+            f"{prefix}_SQANTI_cell_summary.txt.gz", sep="\t", compression="gzip"
+        )
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+
+        # 3 rows → 3 reads (count=1 per row, no FL weighting)
+        assert cb1["Reads_in_cell"] == 3, (
+            f"Reads mode: expected Reads_in_cell=3 (one per row), got {cb1['Reads_in_cell']}"
+        )
+        assert abs(cb1["FSM_prop"] - (2 / 3 * 100)) < 0.1, (
+            f"Reads mode: expected FSM_prop≈66.7 %, got {cb1['FSM_prop']}"
+        )
