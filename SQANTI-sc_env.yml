@@ -66,6 +66,7 @@ dependencies:
   - slamem=0.8.5
   - seaborn=0.13.2
   - scikit-learn=1.5.2
+  - spliced_bam2gff=1.3
   - pytest=7.4.4
   # SQANTI-sc specific dependencies
   - scanpy
