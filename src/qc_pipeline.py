@@ -9,6 +9,7 @@ from cell_metrics import calculate_metrics_per_cell
 from qc_outputs import write_gene_counts_by_cell, write_ujc_counts_by_cell, write_cv_by_cell
 from qc_reports import generate_report, generate_multisample_report
 from sc_clustering import run_clustering_analysis
+from sc_export import export_h5ad
 
 def main():
     ap = build_parser()
@@ -39,6 +40,9 @@ def main():
     if args.run_clustering:
         for _, row in df.iterrows():
             run_clustering_analysis(args, row)
+
+    if getattr(args, 'export_h5ad', False):
+        export_h5ad(args, df)
 
     generate_report(args, df)
 
