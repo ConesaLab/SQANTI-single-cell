@@ -92,7 +92,7 @@ def process_sample(bam_file, args):
     # 1. Run umi_tools
     # Command provided by user:
     # umi_tools dedup --stdin=*.tagged.bam --stdout=*.dedup.bam --extract-umi-method=tag 
-    # --umi-tag=UB --cell-tag=CB --method=unique --per-gene --gene-tag=GE --per-cell --keep-tag=CB,UB,GE,TX
+    # --umi-tag=UB --cell-tag=CB --method=unique --per-gene --gene-tag=GE --per-cell
     umi_cmd = (
         f"{args.umi_tools_path} dedup "
         f"--stdin={bam_file} "
