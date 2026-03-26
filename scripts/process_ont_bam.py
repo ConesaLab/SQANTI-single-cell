@@ -103,8 +103,7 @@ def process_sample(bam_file, args):
         f"--method=unique "
         f"--per-gene "
         f"--gene-tag=GE "
-        f"--per-cell "
-        f"--keep-tag=CB,UB,GE,TX"
+        f"--per-cell"
     )
     
     # 2. Run spliced_bam2gff
