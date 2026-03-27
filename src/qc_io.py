@@ -28,6 +28,8 @@ def fill_design_table(args):
         axis=1
     )
 
+    if 'input_file' not in df.columns:
+        df['input_file'] = ''
     if 'cell_association' not in df.columns:
         df['cell_association'] = ''
     if 'abundance' not in df.columns:
@@ -61,6 +63,13 @@ def fill_design_table(args):
         if pd.notna(row['SR_bam']) and row['SR_bam']:
             if os.path.isfile(row['SR_bam']):
                  df.at[index, 'SR_bam'] = os.path.abspath(row['SR_bam'])
+
+        # Handle input_file
+        if pd.notna(row['input_file']) and row['input_file']:
+            if os.path.isfile(row['input_file']):
+                 df.at[index, 'input_file'] = os.path.abspath(row['input_file'])
+            else:
+                 print(f"[WARNING] Provided input_file not found: {row['input_file']}", file=sys.stderr)
         
         # Validation based on mode
         has_assoc = pd.notna(df.at[index, 'cell_association']) and df.at[index, 'cell_association']
