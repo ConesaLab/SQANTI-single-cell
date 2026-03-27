@@ -51,15 +51,8 @@ def calculate_metrics_per_cell(args, df):
         file_acc = r['file_acc']
         sampleID = r['sampleID']
         prefix = os.path.join(args.out_dir, file_acc, sampleID)
-        if 'classification_file' in r and pd.notna(r['classification_file']) and r['classification_file'] != '':
-            class_file = r['classification_file']
-        else:
-            class_file = f"{prefix}_classification.txt"
-            
-        if 'junction_file' in r and pd.notna(r['junction_file']) and r['junction_file'] != '':
-            junc_file = r['junction_file']
-        else:
-            junc_file = f"{prefix}_junctions.txt"
+        class_file = f"{prefix}_classification.txt"
+        junc_file = f"{prefix}_junctions.txt"
 
         out_summary = f"{prefix}_SQANTI_cell_summary.txt.gz"
 
