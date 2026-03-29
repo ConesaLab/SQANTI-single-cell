@@ -284,7 +284,7 @@ p.date {
 }
 
 .section-spacer-xl {
-  height: clamp(40px, 6vw, 120px);
+  height: clamp(20px, 3vw, 60px);
   margin: 0;
 }
 
