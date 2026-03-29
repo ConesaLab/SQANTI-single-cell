@@ -287,10 +287,7 @@ def annotate_with_cell_metadata(args, df):
                     cell_data = _parse_tsv_for_cell_association(assoc_path)
 
         # Determine classification file path
-        if 'classification_file' in row and pd.notna(row['classification_file']) and row['classification_file'] != '':
-            class_file = row['classification_file']
-        else:
-            class_file = f"{outputPathPrefix}_classification.txt"
+        class_file = f"{outputPathPrefix}_classification.txt"
 
         if not cell_data:
             print(f"[INFO] No cell data for {file_acc}. Skipping.",
@@ -339,10 +336,7 @@ def annotate_with_cell_metadata(args, df):
             print(f"[INFO] Classification file for {file_acc} not found at {class_file}.",
                   file=sys.stdout)
 
-        if 'junction_file' in row and pd.notna(row['junction_file']) and row['junction_file'] != '':
-            junctions_path = row['junction_file']
-        else:
-            junctions_path = f"{outputPathPrefix}_junctions.txt"
+        junctions_path = f"{outputPathPrefix}_junctions.txt"
         if os.path.isfile(junctions_path):
             try:
                 junc_df = pd.read_csv(junctions_path, sep='\t', dtype=str)

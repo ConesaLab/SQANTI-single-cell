@@ -10,15 +10,8 @@ def generate_report(args, df):
         sampleID = row['sampleID']
         outputPathPrefix = os.path.join(args.out_dir, file_acc, sampleID)
         
-        if 'classification_file' in row and pd.notna(row['classification_file']) and row['classification_file'] != '':
-            class_file = row['classification_file']
-        else:
-            class_file = f"{outputPathPrefix}_classification.txt"
-            
-        if 'junction_file' in row and pd.notna(row['junction_file']) and row['junction_file'] != '':
-            junc_file = row['junction_file']
-        else:
-            junc_file = f"{outputPathPrefix}_junctions.txt"
+        class_file = f"{outputPathPrefix}_classification.txt"
+        junc_file = f"{outputPathPrefix}_junctions.txt"
         print(f"**** Generating SQANTI3 report for {file_acc}...",
               file=sys.stdout)
 
