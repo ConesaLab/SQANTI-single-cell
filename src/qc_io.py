@@ -81,13 +81,16 @@ def fill_design_table(args):
                      print(f"[WARNING] Provided input_file not found: {inf}", file=sys.stderr)
         
         # Validation based on mode
+        final_has_assoc = 'cell_association' in df.columns and pd.notna(df.loc[index, 'cell_association']) and str(df.loc[index, 'cell_association']).strip() != ''
+        final_has_abundance = 'abundance' in df.columns and pd.notna(df.loc[index, 'abundance']) and str(df.loc[index, 'abundance']).strip() != ''
+
         if args.mode == 'reads':
-            if not has_assoc:
+            if not final_has_assoc:
                 raise ValueError(
                     f"ERROR: 'cell_association' is required for sample {row['sampleID']} in 'reads' mode."
                 )
         elif args.mode == 'isoforms':
-            if not has_assoc and not has_abundance:
+            if not final_has_assoc and not final_has_abundance:
                 raise ValueError(
                     f"ERROR: Either 'cell_association' or 'abundance' is required for sample {row['sampleID']} in 'isoforms' mode."
                 )
