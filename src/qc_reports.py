@@ -68,6 +68,7 @@ def generate_multisample_report(args, df):
         return
 
     cell_summaries = []
+    class_files = []
     for _, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
@@ -78,6 +79,10 @@ def generate_multisample_report(args, df):
         else:
             print(f"[INFO] Cell summary not found for {file_acc} ({sampleID}). Skipping this sample.",
                   file=sys.stdout)
+
+        class_file = f"{outputPathPrefix}_classification.txt"
+        if os.path.isfile(class_file):
+            class_files.append(os.path.abspath(class_file))
 
     if len(cell_summaries) < 2:
         print("[INFO] Fewer than 2 cell summaries found. Skipping multisample report.",
@@ -90,10 +95,15 @@ def generate_multisample_report(args, df):
     report_fmt = args.report
     mode = args.mode
 
+    class_files_flag = ""
+    if len(class_files) >= 2:
+        class_files_flag = f' --class_files "{",".join(class_files)}"'
+
     cmd = (
         f"Rscript {reportAssetsPath}/SQANTI-sc_multisample_report.R "
         f"--files \"{files_arg}\" --out_dir \"{out_dir}\" "
         f"--mode {mode} --report {report_fmt} --prefix \"{prefix}\""
+        f"{class_files_flag}"
     )
 
     print("**** Generating multisample SQANTI-sc report...", file=sys.stdout)

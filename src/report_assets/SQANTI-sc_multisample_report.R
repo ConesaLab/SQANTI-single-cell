@@ -31,13 +31,13 @@ library(RColorConesa)
 parse_args <- function() {
   args <- commandArgs(trailingOnly = TRUE)
   # Simple flag parser: expects --key value pairs, and a single string for --files (comma-separated)
-  res <- list(files = NULL, out_dir = ".", mode = "reads", report = "pdf", prefix = "SQANTI_sc_multi_report")
+  res <- list(files = NULL, class_files = NULL, out_dir = ".", mode = "reads", report = "pdf", prefix = "SQANTI_sc_multi_report")
   i <- 1
   while (i <= length(args)) {
     key <- args[i]
     if (startsWith(key, "--")) {
       k <- substring(key, 3)
-      if (k %in% c("files", "out_dir", "mode", "report", "prefix")) {
+      if (k %in% c("files", "class_files", "out_dir", "mode", "report", "prefix")) {
         if (i + 1 <= length(args)) {
           res[[k]] <- args[i + 1]
           i <- i + 2
@@ -65,7 +65,11 @@ safe_read_summary <- function(fpath) {
   # read.table supports gz automatically
   df <- tryCatch(
     {
-      read.table(fpath, header = TRUE, sep = "\t", stringsAsFactors = FALSE, check.names = FALSE)
+      if (requireNamespace("data.table", quietly = TRUE)) {
+        data.table::fread(fpath, header = TRUE, sep = "\t", stringsAsFactors = FALSE, check.names = FALSE, data.table = FALSE)
+      } else {
+        read.table(fpath, header = TRUE, sep = "\t", stringsAsFactors = FALSE, check.names = FALSE)
+      }
     },
     error = function(e) {
       message(sprintf("[ERROR] Failed to read summary %s: %s", fpath, e$message))
@@ -95,14 +99,10 @@ safe_read_summary <- function(fpath) {
 # Helper: tidy feature names for titles and subtitles
 format_feature_display_name <- function(feature) {
   cleaned <- feature
-  suffixes <- c(
-    "_prop_in_cell$", "_perc_in_cell$", "_prop$", "_perc$",
-    "_percentage$", "_pct$", "_ratio$", "_count$", "_counts$",
-    "_in_cell$", "_per_cell$", "_value$"
+  cleaned <- gsub(
+    "(_prop_in_cell|_perc_in_cell|_prop|_perc|_percentage|_pct|_ratio|_counts?|_in_cell|_per_cell|_value)$",
+    "", cleaned, ignore.case = TRUE
   )
-  for (pattern in suffixes) {
-    cleaned <- gsub(pattern, "", cleaned, ignore.case = TRUE)
-  }
   cleaned <- gsub("([0-9]+)b", "\\1 bp", cleaned, ignore.case = TRUE)
   cleaned <- stringr::str_replace_all(cleaned, "_+", " ")
   cleaned <- stringr::str_squish(cleaned)
@@ -361,16 +361,55 @@ build_loading_feature_plot <- function(multi, feature_info, sample_levels) {
       x = "Sample",
       y = info$value_label
     ) +
-    theme_classic(base_size = 16) +
+    theme_classic(base_size = 14) +
     theme(
       legend.position = "none",
       plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-      plot.subtitle = element_text(size = 12, hjust = 0.5),
-      axis.title = element_text(size = 16),
-      axis.text.x = element_text(size = 14, angle = 35, hjust = 1),
-      axis.text.y = element_text(size = 14)
+      plot.subtitle = element_text(size = 13, hjust = 0.5),
+      axis.title = element_text(size = 15),
+      axis.text.x = element_text(size = 13, angle = 35, hjust = 1),
+      axis.text.y = element_text(size = 13)
     )
   return(gp)
+}
+
+# Reusable helper: violin + boxplot comparing a single metric across samples
+build_sample_comparison_plot <- function(data, col_name, title, y_label,
+                                         sample_levels, scale_percent = FALSE) {
+  if (!col_name %in% colnames(data)) return(NULL)
+  plot_df <- data %>%
+    select(sampleID, value = all_of(col_name)) %>%
+    mutate(value = as.numeric(value)) %>%
+    filter(is.finite(value))
+  if (nrow(plot_df) == 0) return(NULL)
+  if (scale_percent) plot_df$value <- plot_df$value * 100
+  plot_df$sampleID <- factor(plot_df$sampleID, levels = sample_levels)
+
+  uniqueness <- plot_df %>%
+    group_by(sampleID) %>%
+    summarise(uv = n_distinct(value), .groups = "drop")
+  use_violin <- any(uniqueness$uv > 1)
+
+  gp <- ggplot(plot_df, aes(x = sampleID, y = value, fill = sampleID, colour = sampleID))
+  if (use_violin) {
+    gp <- gp + geom_violin(trim = TRUE, scale = "width", alpha = 0.7, linewidth = 0.3)
+  }
+  gp <- gp +
+    geom_boxplot(width = 0.05, outlier.shape = NA, alpha = 0.3, colour = "grey20") +
+    stat_summary(fun = mean, geom = "point", shape = 4, size = 1,
+                 colour = "red", stroke = 0.45) +
+    scale_fill_conesa(palette = "complete", drop = FALSE) +
+    scale_color_conesa(palette = "complete", guide = "none", drop = FALSE) +
+    labs(title = title, x = "Sample", y = y_label) +
+    theme_classic(base_size = 14) +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+      axis.title = element_text(size = 15),
+      axis.text.x = element_text(size = 13, angle = 35, hjust = 1),
+      axis.text.y = element_text(size = 13)
+    )
+  gp
 }
 
 main <- function() {
@@ -421,16 +460,13 @@ main <- function() {
     group_by(sampleID) %>%
     summarise(
       cells = n_distinct(CB),
-      mean_reads = mean(.data[[count_col]], na.rm = TRUE),
-      mean_umis = if ("UMIs_in_cell" %in% names(.)) mean(UMIs_in_cell, na.rm = TRUE) else NA,
       median_reads = median(.data[[count_col]], na.rm = TRUE),
-      mean_genes = mean(Genes_in_cell, na.rm = TRUE),
+      median_umis = if ("UMIs_in_cell" %in% names(.)) median(UMIs_in_cell, na.rm = TRUE) else NA,
       median_genes = median(Genes_in_cell, na.rm = TRUE),
-      mean_annotated = mean(Annotated_genes, na.rm = TRUE),
-      mean_novel = mean(Novel_genes, na.rm = TRUE),
-      mean_ujc = if ("UJCs_in_cell" %in% names(.)) mean(UJCs_in_cell, na.rm = TRUE) else NA,
+      median_annotated = median(Annotated_genes, na.rm = TRUE),
+      median_novel = median(Novel_genes, na.rm = TRUE),
       median_ujc = if ("UJCs_in_cell" %in% names(.)) median(UJCs_in_cell, na.rm = TRUE) else NA,
-      mean_mt = mean(MT_perc, na.rm = TRUE)
+      median_mt = median(MT_perc, na.rm = TRUE)
     )
 
   entity_label_plural <- if (params$mode == "isoforms") "Transcripts" else "Reads"
@@ -440,20 +476,20 @@ main <- function() {
     transmute(
       Sample = sampleID,
       `Cell\nBarcodes` = cells,
-      `Average\nReads` = mean_reads,
-      `Average\nUMIs` = mean_umis,
-      `Average\nAnnotated\nGenes` = mean_annotated,
-      `Average\nNovel\nGenes` = mean_novel,
-      `Average\nUJCs` = mean_ujc,
-      `Average\nMitochondrial\nReads` = mean_mt
+      `Median\nReads` = median_reads,
+      `Median\nUMIs` = median_umis,
+      `Median\nAnnotated\nGenes` = median_annotated,
+      `Median\nNovel\nGenes` = median_novel,
+      `Median\nUJCs` = median_ujc,
+      `Median\nMitochondrial\nReads` = median_mt
     )
 
   # Rename columns dynamically
-  colnames(summary_tbl)[colnames(summary_tbl) == "Average\nReads"] <- paste0("Average\n", entity_label_plural)
-  colnames(summary_tbl)[colnames(summary_tbl) == "Average\nMitochondrial\nReads"] <- paste0("Average\nMitochondrial\n", entity_label_plural)
+  colnames(summary_tbl)[colnames(summary_tbl) == "Median\nReads"] <- paste0("Median\n", entity_label_plural)
+  colnames(summary_tbl)[colnames(summary_tbl) == "Median\nMitochondrial\nReads"] <- paste0("Median\nMitochondrial\n", entity_label_plural)
 
   if (params$mode == "isoforms") {
-    summary_tbl <- summary_tbl %>% select(-`Average\nUMIs`, -`Average\nUJCs`)
+    summary_tbl <- summary_tbl %>% select(-`Median\nUMIs`, -`Median\nUJCs`)
   }
 
   summary_tbl_html <- summary_tbl
@@ -465,6 +501,127 @@ main <- function() {
   assign("entity_label", if (params$mode == "isoforms") "Transcript" else "Read", envir = .GlobalEnv)
   assign("entity_label_plural", entity_label_plural, envir = .GlobalEnv)
   assign("mode", params$mode, envir = .GlobalEnv)
+
+  # -------- Per-Cell Library Size plots --------
+  library_size_specs <- list()
+  library_size_specs[[paste0(entity_label_plural, " per Cell")]] <- list(
+    col = count_col, y = paste0(entity_label_plural, ", count")
+  )
+  if (params$mode == "reads" && "UMIs_in_cell" %in% colnames(multi)) {
+    library_size_specs[["UMIs per Cell"]] <- list(col = "UMIs_in_cell", y = "UMIs, count")
+  }
+  if ("Genes_in_cell" %in% colnames(multi)) {
+    library_size_specs[["Genes per Cell"]] <- list(col = "Genes_in_cell", y = "Genes, count")
+  }
+  if ("MT_perc" %in% colnames(multi)) {
+    library_size_specs[["Mitochondrial % per Cell"]] <- list(
+      col = "MT_perc", y = paste0(entity_label_plural, ", %")
+    )
+  }
+
+  multi_library_size_plots <- list()
+  for (nm in names(library_size_specs)) {
+    spec <- library_size_specs[[nm]]
+    gp <- build_sample_comparison_plot(
+      multi, spec$col,
+      title = paste0("Per Sample ", nm, " Distribution"),
+      y_label = spec$y,
+      sample_levels = sample_levels_global,
+      scale_percent = isTRUE(spec$scale_pct)
+    )
+    if (!is.null(gp)) multi_library_size_plots[[nm]] <- gp
+  }
+  if (length(multi_library_size_plots) > 0) {
+    assign("multi_library_size_plots", multi_library_size_plots, envir = .GlobalEnv)
+  }
+
+  # -------- Gene Characterization plots --------
+  gene_char_specs <- list()
+  if ("Annotated_genes" %in% colnames(multi)) {
+    gene_char_specs[["Annotated Genes per Cell"]] <- list(col = "Annotated_genes", y = "Genes, count")
+  }
+  if (params$mode == "reads" && "UJCs_in_cell" %in% colnames(multi)) {
+    gene_char_specs[["UJCs per Cell"]] <- list(col = "UJCs_in_cell", y = "UJCs, count")
+  }
+
+  multi_gene_char_plots <- list()
+  for (nm in names(gene_char_specs)) {
+    spec <- gene_char_specs[[nm]]
+    gp <- build_sample_comparison_plot(
+      multi, spec$col,
+      title = paste0("Per Sample ", nm, " Distribution"),
+      y_label = spec$y,
+      sample_levels = sample_levels_global
+    )
+    if (!is.null(gp)) multi_gene_char_plots[[nm]] <- gp
+  }
+  if (length(multi_gene_char_plots) > 0) {
+    assign("multi_gene_char_plots", multi_gene_char_plots, envir = .GlobalEnv)
+  }
+
+  # -------- Bulk-level Length Distribution --------
+  multi_length_distribution_plot_local <- NULL
+  if (!is.null(params$class_files) && nzchar(params$class_files)) {
+    class_file_paths <- trimws(unlist(strsplit(params$class_files, ",", fixed = TRUE)))
+    class_file_paths <- class_file_paths[nchar(class_file_paths) > 0 & file.exists(class_file_paths)]
+
+    if (length(class_file_paths) >= 2) {
+      select_cols <- if (params$mode == "isoforms") c("length", "FL") else c("length")
+      len_dfs <- lapply(class_file_paths, function(f) {
+        df <- tryCatch(
+          data.table::fread(f, select = select_cols, header = TRUE, sep = "\t",
+                            stringsAsFactors = FALSE, data.table = FALSE),
+          error = function(e) { message("[WARNING] Could not read ", f, ": ", e$message); NULL }
+        )
+        if (is.null(df) || nrow(df) == 0) return(NULL)
+        df$length <- suppressWarnings(as.numeric(df$length))
+        df <- df[is.finite(df$length) & df$length > 0, , drop = FALSE]
+        sample_id <- sub("_classification\\.txt(\\.gz)?$", "", basename(f))
+        df$sampleID <- sample_id
+        df
+      })
+      len_combined <- bind_rows(Filter(Negate(is.null), len_dfs))
+
+      if (nrow(len_combined) > 0) {
+        if (params$mode == "isoforms" && "FL" %in% colnames(len_combined)) {
+          len_combined$FL <- suppressWarnings(as.integer(len_combined$FL))
+          len_combined$FL[is.na(len_combined$FL) | len_combined$FL < 1] <- 1L
+          len_combined <- len_combined[rep(seq_len(nrow(len_combined)), len_combined$FL), c("sampleID", "length")]
+        }
+        len_combined$sampleID <- factor(len_combined$sampleID, levels = sample_levels_global)
+
+        uniqueness <- len_combined %>%
+          group_by(sampleID) %>%
+          summarise(uv = n_distinct(length), .groups = "drop")
+        use_violin <- any(uniqueness$uv > 1)
+
+        gp_len <- ggplot(len_combined, aes(x = sampleID, y = length, fill = sampleID, colour = sampleID))
+        if (use_violin) {
+          gp_len <- gp_len + geom_violin(trim = TRUE, scale = "width", alpha = 0.7, linewidth = 0.3)
+        }
+        gp_len <- gp_len +
+          geom_boxplot(width = 0.05, outlier.shape = NA, alpha = 0.3, colour = "grey20") +
+          stat_summary(fun = mean, geom = "point", shape = 4, size = 1,
+                       colour = "red", stroke = 0.45) +
+          scale_fill_conesa(palette = "complete", drop = FALSE) +
+          scale_color_conesa(palette = "complete", guide = "none", drop = FALSE) +
+          labs(
+            title = paste0("Per Sample ", entity_label_plural, " Length Distribution"),
+            x = "Sample", y = "Length, bp"
+          ) +
+          theme_classic(base_size = 14) +
+          theme(
+            legend.position = "none",
+            plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+            axis.title = element_text(size = 15),
+            axis.text.x = element_text(size = 13, angle = 35, hjust = 1),
+            axis.text.y = element_text(size = 13)
+          )
+        multi_length_distribution_plot_local <- gp_len
+        assign("multi_length_distribution_plot", gp_len, envir = .GlobalEnv)
+      }
+    }
+  }
 
   # Output path
   out_dir <- params$out_dir
@@ -493,7 +650,7 @@ main <- function() {
           ),
           labels = c(
             "FSM", "ISM", "NIC", "NNC",
-            "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic intron"
+            "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron"
           )
         )
       ) %>%
@@ -535,17 +692,17 @@ main <- function() {
         fill = guide_legend(override.aes = list(shape = 15, size = 5, alpha = 0.95, colour = NA, stroke = 0)),
         linetype = "none", alpha = "none", size = "none", colour = "none"
       ) +
-      theme_classic(base_size = 12) +
+      theme_classic(base_size = 13) +
       labs(
         title = "Structural Category Proportions by Sample",
         x = "Structural category", y = "Reads, %"
       ) +
       theme(
         legend.position = "bottom",
-        axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
-        axis.title = element_text(size = 16),
-        axis.text.y = element_text(size = 14),
-        plot.title = element_text(size = 20, face = "bold", hjust = 0.5)
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 13),
+        axis.title = element_text(size = 15),
+        axis.text.y = element_text(size = 13),
+        plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
       )
 
     category_levels <- levels(cats_long$category)
@@ -559,7 +716,7 @@ main <- function() {
       "Antisense" = "#66C2A4",
       "Fusion" = "goldenrod1",
       "Intergenic" = "darksalmon",
-      "Genic intron" = "#41B6C4"
+      "Genic Intron" = "#41B6C4"
     )
 
     category_plots <- lapply(category_levels, function(cat_lab) {
@@ -573,14 +730,14 @@ main <- function() {
         geom_boxplot(width = 0.05, outlier.shape = NA, fill = cat_col, color = box_outline_col, alpha = 0.3) +
         stat_summary(fun = mean, geom = "point", shape = 4, size = 1, colour = "red", stroke = 0.9) +
         scale_y_continuous(limits = c(0, 100), expand = expansion(add = c(1, 0))) +
-        theme_classic(base_size = 14) +
+        theme_classic(base_size = 13) +
         labs(title = paste0("Per Sample ", cat_lab, " Reads Distribution Across Cells"), x = "Sample", y = "Reads, %") +
         theme(
           legend.position = "none",
-          axis.text.x = element_text(angle = 0, hjust = 0.5, size = 14),
+          axis.text.x = element_text(angle = 35, hjust = 1, size = 13),
           plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-          axis.title = element_text(size = 16),
-          axis.text.y = element_text(size = 14)
+          axis.title = element_text(size = 15),
+          axis.text.y = element_text(size = 13)
         )
     })
     names(category_plots) <- as.character(category_levels)
@@ -624,7 +781,7 @@ main <- function() {
         gp_scores <- ggplot(scores, aes(x = PC1, y = PC2, colour = sampleID, label = sampleID)) +
           geom_point(size = 3.8, alpha = 0.95, shape = 19, stroke = 0) +
           scale_color_conesa(palette = "complete") +
-          theme_classic(base_size = 16) +
+          theme_classic(base_size = 14) +
           labs(
             title = "PCA Plot Based on sampleID",
             x = sprintf("PC1 (%.1f%%)", 100 * var_expl[1]),
@@ -635,13 +792,13 @@ main <- function() {
           theme(
             legend.position = "bottom",
             legend.title = element_blank(),
-            legend.text = element_text(size = 12),
+            legend.text = element_text(size = 13),
             legend.key = element_blank(),
             legend.margin = margin(t = 16),
             plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-            axis.title = element_text(size = 16),
-            axis.text.x = element_text(size = 14),
-            axis.text.y = element_text(size = 14)
+            axis.title = element_text(size = 15),
+            axis.text.x = element_text(size = 13),
+            axis.text.y = element_text(size = 13)
           ) +
           guides(colour = guide_legend(override.aes = list(size = 5, alpha = 0.95, stroke = 0)))
         multi_pca_scores_plot_local <- gp_scores
@@ -662,13 +819,13 @@ main <- function() {
         geom_line(aes(y = Cumulative, colour = "Cumulative", group = 1), linewidth = 0.6) +
         scale_fill_manual(values = c("Proportion" = "#6BAED6"), name = "") +
         scale_color_manual(values = c("Cumulative" = "#4D4D4D"), name = "") +
-        theme_classic(base_size = 16) +
+        theme_classic(base_size = 14) +
         labs(title = "PCA scree plot", y = "Variance explained", x = "Principal component") +
         theme(
           plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-          axis.title = element_text(size = 16),
-          axis.text.x = element_text(size = 14),
-          axis.text.y = element_text(size = 14),
+          axis.title = element_text(size = 15),
+          axis.text.x = element_text(size = 13),
+          axis.text.y = element_text(size = 13),
           legend.position = "bottom",
           legend.margin = margin(t = 20)
         )
@@ -680,30 +837,21 @@ main <- function() {
         rot <- as.data.frame(pca_fit$rotation)
         rot$variable <- rownames(rot)
         top_n <- 10L
-        pick_top <- function(colname) {
+        pick_top <- function(colname, n = top_n) {
           ord <- order(abs(rot[[colname]]), decreasing = TRUE)
-          head(rot[ord, c("variable", colname)], top_n)
+          df <- head(rot[ord, c("variable", colname)], n)
+          colnames(df) <- c("variable", "loading")
+          df %>%
+            mutate(
+              variable = as.character(variable),
+              PC = colname,
+              rank = dplyr::row_number(),
+              sign = if_else(loading >= 0, "Positive", "Negative"),
+              abs_loading = abs(loading)
+            )
         }
         top_pc1 <- pick_top("PC1")
-        colnames(top_pc1) <- c("variable", "loading")
-        top_pc1 <- top_pc1 %>%
-          mutate(
-            variable = as.character(variable),
-            PC = "PC1",
-            rank = dplyr::row_number(),
-            sign = if_else(loading >= 0, "Positive", "Negative"),
-            abs_loading = abs(loading)
-          )
         top_pc2 <- pick_top("PC2")
-        colnames(top_pc2) <- c("variable", "loading")
-        top_pc2 <- top_pc2 %>%
-          mutate(
-            variable = as.character(variable),
-            PC = "PC2",
-            rank = dplyr::row_number(),
-            sign = if_else(loading >= 0, "Positive", "Negative"),
-            abs_loading = abs(loading)
-          )
 
         top_pc1_plot <- top_pc1
         top_pc2_plot <- top_pc2
@@ -716,26 +864,26 @@ main <- function() {
           geom_col(width = 0.7) +
           coord_flip() +
           scale_fill_manual(values = c("Positive" = "#78C679", "Negative" = "#EE6A50"), name = "Sign", limits = c("Positive", "Negative"), drop = FALSE) +
-          theme_classic(base_size = 16) +
+          theme_classic(base_size = 14) +
           labs(title = "Top 10 loadings: PC1", x = "Feature", y = "Absolute loading") +
           theme(
             plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-            axis.title = element_text(size = 16),
-            axis.text.x = element_text(size = 14),
-            axis.text.y = element_text(size = 14),
+            axis.title = element_text(size = 15),
+            axis.text.x = element_text(size = 13),
+            axis.text.y = element_text(size = 13),
             legend.position = "bottom"
           )
         gp_load2 <- ggplot(top_pc2_plot, aes(x = variable, y = abs_loading, fill = sign)) +
           geom_col(width = 0.7) +
           coord_flip() +
           scale_fill_manual(values = c("Positive" = "#78C679", "Negative" = "#EE6A50"), name = "Sign", limits = c("Positive", "Negative"), drop = FALSE) +
-          theme_classic(base_size = 16) +
+          theme_classic(base_size = 14) +
           labs(title = "Top 10 loadings: PC2", x = "Feature", y = "Absolute loading") +
           theme(
             plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-            axis.title = element_text(size = 16),
-            axis.text.x = element_text(size = 14),
-            axis.text.y = element_text(size = 14),
+            axis.title = element_text(size = 15),
+            axis.text.x = element_text(size = 13),
+            axis.text.y = element_text(size = 13),
             legend.position = "bottom"
           )
         loadings_plots <- list(PC1 = gp_load1, PC2 = gp_load2)
@@ -747,7 +895,6 @@ main <- function() {
         loading_plot_info <- bind_rows(top_pc1, top_pc2) %>%
           distinct(variable, .keep_all = TRUE)
         loading_distribution_plots <- list()
-        loading_distribution_plots_html <- list()
         if (nrow(loading_plot_info) > 0) {
           for (idx in seq_len(nrow(loading_plot_info))) {
             gp_loading <- build_loading_feature_plot(multi, loading_plot_info[idx, ], sample_levels)
@@ -756,12 +903,10 @@ main <- function() {
               message(sprintf("[INFO] Skipping PCA loading feature %s due to missing or constant data.", feat_name))
             } else {
               loading_distribution_plots[[feat_name]] <- gp_loading
-
             }
           }
         }
         multi_pca_loading_distribution_plots_local <- loading_distribution_plots
-
         assign("multi_pca_loading_distribution_plots", loading_distribution_plots, envir = .GlobalEnv)
 
       }
@@ -790,6 +935,16 @@ main <- function() {
     pushViewport(viewport(x = 0.5, y = 0.5))
     grid.draw(tbl_grob)
     popViewport()
+
+    if (length(multi_library_size_plots) > 0) {
+      for (plt in multi_library_size_plots) print(plt)
+    }
+    if (length(multi_gene_char_plots) > 0) {
+      for (plt in multi_gene_char_plots) print(plt)
+    }
+    if (!is.null(multi_length_distribution_plot_local)) {
+      print(multi_length_distribution_plot_local)
+    }
 
     if (have_cats) {
       for (gp in category_plots) {

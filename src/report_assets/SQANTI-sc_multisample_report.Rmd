@@ -1,5 +1,5 @@
 ---
-title: "SQANTI-single cell multi-sample `r if (exists('mode') && mode == 'isoforms') 'isoforms' else 'reads'` report"
+title: "SQANTI-single cell<br>multi-sample `r if (exists('mode') && mode == 'isoforms') 'isoforms' else 'reads'` report"
 date: "`r paste0('Date: ', format(Sys.time(), '%d %B %Y'))`"
 output:
   html_document:
@@ -32,35 +32,265 @@ if (exists("multi_summary_tbl_html", envir = .GlobalEnv)) {
 }
 ```
 
-# Samples `r entity_label_plural` Distributions per Structural Category {.tabset .tabset-fade}
+# Samples Per-Cell Library Size
 
-## Samples Comparison {.tabset}
+```{r libsize-dropdown}
+if (exists("multi_library_size_plots", envir = .GlobalEnv)) {
+  lplots <- get("multi_library_size_plots", envir = .GlobalEnv)
+  lib_names <- names(lplots)
 
-```{r structural-per-category, results='asis'}
-if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
-  plot_list <- get("multi_structural_category_violin_plots", envir = .GlobalEnv)
+  if (length(lib_names) > 0) {
+    items_html <- paste(sapply(lib_names, function(name) {
+      target_id <- paste0("libsize-", gsub("[^A-Za-z0-9]", "-", tolower(name)))
+      sprintf('      <li><a href="#" data-target="#%s">%s</a></li>', target_id, htmltools::htmlEscape(name))
+    }), collapse = "\n")
 
-  if (length(plot_list) > 0) {
-    # Define category order
-    category_order <- c("FSM", "ISM", "NIC", "NNC", "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron")
-    # Sort list by category order if possible
-    matched <- match(category_order, names(plot_list))
-    # Filter and reorder, keep only those that exist
-    plot_list <- plot_list[na.omit(matched)]
-
-    # Create tabs for each category
-    for (name in names(plot_list)) {
-      cat("\n### ", name, "\n")
-      print(plot_list[[name]])
-      cat("\n")
-    }
-  } else {
-    cat("No per-category structural plots available.")
+    htmltools::HTML(paste0(
+      '<div id="libsize-dropdown" class="dropdown-toolbar">\n',
+      '  <div class="btn-group">\n',
+      '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
+      '      <span class="label">', htmltools::htmlEscape(lib_names[1]), '</span> <span class="caret"></span>\n',
+      '    </button>\n',
+      '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
+      items_html, '\n',
+      '    </ul>\n',
+      '  </div>\n',
+      '</div>\n'
+    ))
   }
 } else {
-  cat("No per-category structural plots available.")
+  cat("No per-cell library size plots available.")
 }
 ```
+
+```{r libsize-panes, results='asis'}
+if (exists("multi_library_size_plots", envir = .GlobalEnv)) {
+  lplots <- get("multi_library_size_plots", envir = .GlobalEnv)
+  first <- TRUE
+  for (i in seq_along(names(lplots))) {
+    plot_name <- names(lplots)[i]
+    target_id <- paste0("libsize-", gsub("[^A-Za-z0-9]", "-", tolower(plot_name)))
+    css_class <- if (first) "toggle-pane" else "toggle-pane hidden-pane"
+    css_style <- if (first) "display:block;" else "display:none;"
+    first <- FALSE
+
+    res <- knitr::knit_child(text = c(
+      sprintf('<div id="%s" class="%s" style="%s">', target_id, css_class, css_style),
+      '',
+      sprintf('```{r libsize-plot-%d, fig.width=12, fig.height=7, echo=FALSE, warning=FALSE, message=FALSE}', i),
+      'lp <- get("multi_library_size_plots", envir = .GlobalEnv)',
+      sprintf('print(lp[["%s"]])', plot_name),
+      '```',
+      '',
+      '</div>'
+    ), envir = globalenv(), quiet = TRUE)
+    cat(res, sep = '\n')
+  }
+}
+```
+
+```{=html}
+<div class="section-spacer-xl"></div>
+```
+
+# Samples Gene Characterization
+
+```{r genechar-dropdown}
+if (exists("multi_gene_char_plots", envir = .GlobalEnv)) {
+  gplots <- get("multi_gene_char_plots", envir = .GlobalEnv)
+  gene_names <- names(gplots)
+
+  if (length(gene_names) > 0) {
+    items_html <- paste(sapply(gene_names, function(name) {
+      target_id <- paste0("genechar-", gsub("[^A-Za-z0-9]", "-", tolower(name)))
+      sprintf('      <li><a href="#" data-target="#%s">%s</a></li>', target_id, htmltools::htmlEscape(name))
+    }), collapse = "\n")
+
+    htmltools::HTML(paste0(
+      '<div id="genechar-dropdown" class="dropdown-toolbar">\n',
+      '  <div class="btn-group">\n',
+      '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
+      '      <span class="label">', htmltools::htmlEscape(gene_names[1]), '</span> <span class="caret"></span>\n',
+      '    </button>\n',
+      '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
+      items_html, '\n',
+      '    </ul>\n',
+      '  </div>\n',
+      '</div>\n'
+    ))
+  }
+} else {
+  cat("No gene characterization plots available.")
+}
+```
+
+```{r genechar-panes, results='asis'}
+if (exists("multi_gene_char_plots", envir = .GlobalEnv)) {
+  gplots <- get("multi_gene_char_plots", envir = .GlobalEnv)
+  first <- TRUE
+  for (i in seq_along(names(gplots))) {
+    plot_name <- names(gplots)[i]
+    target_id <- paste0("genechar-", gsub("[^A-Za-z0-9]", "-", tolower(plot_name)))
+    css_class <- if (first) "toggle-pane" else "toggle-pane hidden-pane"
+    css_style <- if (first) "display:block;" else "display:none;"
+    first <- FALSE
+
+    res <- knitr::knit_child(text = c(
+      sprintf('<div id="%s" class="%s" style="%s">', target_id, css_class, css_style),
+      '',
+      sprintf('```{r genechar-plot-%d, fig.width=12, fig.height=7, echo=FALSE, warning=FALSE, message=FALSE}', i),
+      'gp <- get("multi_gene_char_plots", envir = .GlobalEnv)',
+      sprintf('print(gp[["%s"]])', plot_name),
+      '```',
+      '',
+      '</div>'
+    ), envir = globalenv(), quiet = TRUE)
+    cat(res, sep = '\n')
+  }
+}
+```
+
+```{=html}
+<div class="section-spacer-xl"></div>
+```
+
+# Samples `r entity_label_plural` Length Distribution
+
+```{r length-dist-plot, fig.width=12, fig.height=7}
+if (exists("multi_length_distribution_plot", envir = .GlobalEnv)) {
+  print(get("multi_length_distribution_plot", envir = .GlobalEnv))
+} else {
+  cat("Length distribution plot is not available (classification files were not provided).")
+}
+```
+
+```{=html}
+<div class="section-spacer-xl"></div>
+```
+
+# Samples `r entity_label_plural` Distributions per Structural Category {.tabset .tabset-fade}
+
+## Samples Comparison
+
+```{=html}
+<div id="structcat-dropdown" class="dropdown-toolbar">
+  <div class="btn-group">
+    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
+      <span class="label">FSM</span> <span class="caret"></span>
+    </button>
+    <ul class="dropdown-menu dropdown-menu-right" role="menu">
+      <li><a href="#" data-target="#structcat-fsm">FSM</a></li>
+      <li><a href="#" data-target="#structcat-ism">ISM</a></li>
+      <li><a href="#" data-target="#structcat-nic">NIC</a></li>
+      <li><a href="#" data-target="#structcat-nnc">NNC</a></li>
+      <li><a href="#" data-target="#structcat-genic-genomic">Genic Genomic</a></li>
+      <li><a href="#" data-target="#structcat-antisense">Antisense</a></li>
+      <li><a href="#" data-target="#structcat-fusion">Fusion</a></li>
+      <li><a href="#" data-target="#structcat-intergenic">Intergenic</a></li>
+      <li><a href="#" data-target="#structcat-genic-intron">Genic Intron</a></li>
+    </ul>
+  </div>
+</div>
+```
+
+<div id="structcat-fsm" class="toggle-pane" style="display:block;">
+
+```{r structcat-fsm, fig.width=12, fig.height=7}
+if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
+  plots <- get("multi_structural_category_violin_plots", envir = .GlobalEnv)
+  if (!is.null(plots[["FSM"]])) print(plots[["FSM"]])
+}
+```
+
+</div>
+
+<div id="structcat-ism" class="toggle-pane hidden-pane" style="display:none;">
+
+```{r structcat-ism, fig.width=12, fig.height=7}
+if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
+  plots <- get("multi_structural_category_violin_plots", envir = .GlobalEnv)
+  if (!is.null(plots[["ISM"]])) print(plots[["ISM"]])
+}
+```
+
+</div>
+
+<div id="structcat-nic" class="toggle-pane hidden-pane" style="display:none;">
+
+```{r structcat-nic, fig.width=12, fig.height=7}
+if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
+  plots <- get("multi_structural_category_violin_plots", envir = .GlobalEnv)
+  if (!is.null(plots[["NIC"]])) print(plots[["NIC"]])
+}
+```
+
+</div>
+
+<div id="structcat-nnc" class="toggle-pane hidden-pane" style="display:none;">
+
+```{r structcat-nnc, fig.width=12, fig.height=7}
+if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
+  plots <- get("multi_structural_category_violin_plots", envir = .GlobalEnv)
+  if (!is.null(plots[["NNC"]])) print(plots[["NNC"]])
+}
+```
+
+</div>
+
+<div id="structcat-genic-genomic" class="toggle-pane hidden-pane" style="display:none;">
+
+```{r structcat-genic-genomic, fig.width=12, fig.height=7}
+if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
+  plots <- get("multi_structural_category_violin_plots", envir = .GlobalEnv)
+  if (!is.null(plots[["Genic Genomic"]])) print(plots[["Genic Genomic"]])
+}
+```
+
+</div>
+
+<div id="structcat-antisense" class="toggle-pane hidden-pane" style="display:none;">
+
+```{r structcat-antisense, fig.width=12, fig.height=7}
+if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
+  plots <- get("multi_structural_category_violin_plots", envir = .GlobalEnv)
+  if (!is.null(plots[["Antisense"]])) print(plots[["Antisense"]])
+}
+```
+
+</div>
+
+<div id="structcat-fusion" class="toggle-pane hidden-pane" style="display:none;">
+
+```{r structcat-fusion, fig.width=12, fig.height=7}
+if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
+  plots <- get("multi_structural_category_violin_plots", envir = .GlobalEnv)
+  if (!is.null(plots[["Fusion"]])) print(plots[["Fusion"]])
+}
+```
+
+</div>
+
+<div id="structcat-intergenic" class="toggle-pane hidden-pane" style="display:none;">
+
+```{r structcat-intergenic, fig.width=12, fig.height=7}
+if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
+  plots <- get("multi_structural_category_violin_plots", envir = .GlobalEnv)
+  if (!is.null(plots[["Intergenic"]])) print(plots[["Intergenic"]])
+}
+```
+
+</div>
+
+<div id="structcat-genic-intron" class="toggle-pane hidden-pane" style="display:none;">
+
+```{r structcat-genic-intron, fig.width=12, fig.height=7}
+if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
+  plots <- get("multi_structural_category_violin_plots", envir = .GlobalEnv)
+  if (!is.null(plots[["Genic Intron"]])) print(plots[["Genic Intron"]])
+}
+```
+
+</div>
 
 ```{=html}
 <div class="section-spacer-xl"></div>
@@ -72,7 +302,7 @@ if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
 
 <div id="pca-scores" class="pca-pane">
 
-```{r pca-scores}
+```{r pca-scores, fig.width=12, fig.height=8}
 if (exists("multi_pca_scores_plot", envir = .GlobalEnv)) {
   print(get("multi_pca_scores_plot", envir = .GlobalEnv))
 } else {
@@ -86,7 +316,7 @@ if (exists("multi_pca_scores_plot", envir = .GlobalEnv)) {
 
 <div id="pca-scree" class="pca-pane">
 
-```{r pca-scree}
+```{r pca-scree, fig.width=12, fig.height=8}
 if (exists("multi_pca_scree_plot", envir = .GlobalEnv)) {
   print(get("multi_pca_scree_plot", envir = .GlobalEnv))
 } else {
@@ -98,35 +328,163 @@ if (exists("multi_pca_scree_plot", envir = .GlobalEnv)) {
 
 ## Top 10 loadings by component {.tabset}
 
-<div id="pca-loadings" class="pca-pane">
+### PC Loadings
 
-```{r pca-loadings, results='asis'}
-# Print Loadings (PC1 / PC2)
+```{r pcaload-bar-dropdown}
 if (exists("multi_pca_top_loadings_plots", envir = .GlobalEnv)) {
-  loadings_plots <- get("multi_pca_top_loadings_plots", envir = .GlobalEnv)
-  for (name in names(loadings_plots)) {
-    cat("\n### ", name, " Loadings\n")
-    print(loadings_plots[[name]])
-    cat("\n")
+  lplots <- get("multi_pca_top_loadings_plots", envir = .GlobalEnv)
+  pc_names <- paste0(names(lplots), " Loadings")
+
+  items_html <- paste(sapply(pc_names, function(name) {
+    target_id <- paste0("pcaload-", gsub("[^A-Za-z0-9]", "-", tolower(name)))
+    sprintf('      <li><a href="#" data-target="#%s">%s</a></li>', target_id, htmltools::htmlEscape(name))
+  }), collapse = "\n")
+
+  htmltools::HTML(paste0(
+    '<div id="pcaload-dropdown" class="dropdown-toolbar">\n',
+    '  <div class="btn-group">\n',
+    '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
+    '      <span class="label">', htmltools::htmlEscape(pc_names[1]), '</span> <span class="caret"></span>\n',
+    '    </button>\n',
+    '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
+    items_html, '\n',
+    '    </ul>\n',
+    '  </div>\n',
+    '</div>\n'
+  ))
+}
+```
+
+```{r pcaload-bar-panes, results='asis'}
+if (exists("multi_pca_top_loadings_plots", envir = .GlobalEnv)) {
+  lplots <- get("multi_pca_top_loadings_plots", envir = .GlobalEnv)
+  first <- TRUE
+  for (i in seq_along(names(lplots))) {
+    pc_name <- names(lplots)[i]
+    display_name <- paste0(pc_name, " Loadings")
+    target_id <- paste0("pcaload-", gsub("[^A-Za-z0-9]", "-", tolower(display_name)))
+    css_class <- if (first) "toggle-pane" else "toggle-pane hidden-pane"
+    css_style <- if (first) "display:block;" else "display:none;"
+    first <- FALSE
+
+    res <- knitr::knit_child(text = c(
+      sprintf('<div id="%s" class="%s" style="%s">', target_id, css_class, css_style),
+      '',
+      sprintf('```{r pcaload-bar-%d, fig.width=12, fig.height=8, echo=FALSE, warning=FALSE, message=FALSE}', i),
+      sprintf('lp <- get("multi_pca_top_loadings_plots", envir = .GlobalEnv)'),
+      sprintf('print(lp[["%s"]])', pc_name),
+      '```',
+      '',
+      '</div>'
+    ), envir = globalenv(), quiet = TRUE)
+    cat(res, sep = '\n')
   }
 }
+```
 
-# Print Feature Distributions
+### Feature Distributions
+
+```{r pcafeat-dist-dropdown}
 if (exists("multi_pca_loading_distribution_plots", envir = .GlobalEnv)) {
-  feature_plots <- get("multi_pca_loading_distribution_plots", envir = .GlobalEnv)
-  if (length(feature_plots) > 0) {
-    for (name in names(feature_plots)) {
-      cat("\n### ", name, "\n")
-      print(feature_plots[[name]])
-      cat("\n")
-    }
+  fplots <- get("multi_pca_loading_distribution_plots", envir = .GlobalEnv)
+  feat_names <- names(fplots)
+
+  if (length(feat_names) > 0) {
+    items_html <- paste(sapply(feat_names, function(name) {
+      target_id <- paste0("pcafeat-", gsub("[^A-Za-z0-9]", "-", tolower(name)))
+      sprintf('      <li><a href="#" data-target="#%s">%s</a></li>', target_id, htmltools::htmlEscape(name))
+    }), collapse = "\n")
+
+    htmltools::HTML(paste0(
+      '<div id="pcafeat-dropdown" class="dropdown-toolbar">\n',
+      '  <div class="btn-group">\n',
+      '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
+      '      <span class="label">', htmltools::htmlEscape(feat_names[1]), '</span> <span class="caret"></span>\n',
+      '    </button>\n',
+      '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
+      items_html, '\n',
+      '    </ul>\n',
+      '  </div>\n',
+      '</div>\n'
+    ))
+  }
+} else {
+  cat("No feature distribution plots available.")
+}
+```
+
+```{r pcafeat-dist-panes, results='asis'}
+if (exists("multi_pca_loading_distribution_plots", envir = .GlobalEnv)) {
+  fplots <- get("multi_pca_loading_distribution_plots", envir = .GlobalEnv)
+  first <- TRUE
+  for (i in seq_along(names(fplots))) {
+    feat_name <- names(fplots)[i]
+    target_id <- paste0("pcafeat-", gsub("[^A-Za-z0-9]", "-", tolower(feat_name)))
+    css_class <- if (first) "toggle-pane" else "toggle-pane hidden-pane"
+    css_style <- if (first) "display:block;" else "display:none;"
+    first <- FALSE
+
+    res <- knitr::knit_child(text = c(
+      sprintf('<div id="%s" class="%s" style="%s">', target_id, css_class, css_style),
+      '',
+      sprintf('```{r pcafeat-dist-%d, fig.width=12, fig.height=8, echo=FALSE, warning=FALSE, message=FALSE}', i),
+      sprintf('fp <- get("multi_pca_loading_distribution_plots", envir = .GlobalEnv)'),
+      sprintf('print(fp[["%s"]])', feat_name),
+      '```',
+      '',
+      '</div>'
+    ), envir = globalenv(), quiet = TRUE)
+    cat(res, sep = '\n')
   }
 }
 ```
 
-</div>
+```{=html}
+<script>
+(function(){
+  function setupDropdown(groupId){
+    var container=document.getElementById(groupId);
+    if(!container) return;
+    var labelSpan=container.querySelector(".dropdown-toggle .label");
+    var links=container.querySelectorAll(".dropdown-menu a");
+    var panesContainer = container.parentElement;
+    while (panesContainer && !panesContainer.querySelector('.toggle-pane')) {
+      panesContainer = panesContainer.parentElement;
+    }
+    if (!panesContainer) panesContainer = container.closest('section, div.section') || document;
 
-```{r pca-feature-dists, include=FALSE}
-NULL
+    Array.prototype.forEach.call(links,function(link){
+      link.addEventListener("click",function(e){
+        e.preventDefault();
+        var target = panesContainer.querySelector(this.getAttribute("data-target"));
+        if (!target) return;
+        Array.prototype.forEach.call(panesContainer.querySelectorAll(".toggle-pane"), function(el){
+          el.classList.add("hidden-pane");
+          el.style.display = "none";
+        });
+        target.classList.remove("hidden-pane");
+        target.style.display = "block";
+        if(labelSpan) labelSpan.textContent=this.textContent.trim();
+        setTimeout(function(){
+          if (window.jQuery && jQuery.fn.dataTable) {
+            jQuery(target).find('table.dataTable').each(function(){
+              if (jQuery.fn.dataTable.isDataTable(this)) {
+                jQuery(this).DataTable().columns.adjust().draw(false);
+              }
+            });
+          }
+        }, 0);
+      });
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded",function(){
+    setupDropdown("libsize-dropdown");
+    setupDropdown("genechar-dropdown");
+    setupDropdown("structcat-dropdown");
+    setupDropdown("pcaload-dropdown");
+    setupDropdown("pcafeat-dropdown");
+  });
+})();
+</script>
 ```
-
