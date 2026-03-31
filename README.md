@@ -45,19 +45,19 @@ You can install SQANTI-sc by downloading the source code or cloning the reposito
 
 **Option A: Download Source Code (Recommended for General Users)**
 We recommend this option for general users who want to use the stable version of the tool.
-Download the latest release from the [Releases page](https://github.com/ConesaLab/SQANTI-sc/releases) (if available) or download the repository as a ZIP file.
+Download the latest release from the [Releases page](https://github.com/ConesaLab/SQANTI-single-cell/releases) (if available) or download the repository as a ZIP file.
 ```bash
-wget https://github.com/ConesaLab/SQANTI-sc/archive/refs/heads/main.zip
+wget https://github.com/ConesaLab/SQANTI-single-cell/archive/refs/heads/main.zip
 unzip main.zip
-mv SQANTI-sc-main SQANTI-sc
-cd SQANTI-sc
+mv SQANTI-single-cell-main SQANTI-single-cell
+cd SQANTI-single-cell
 ```
 
 **Option B: Clone Repository (For Developers)**
 If you intend to contribute to the development of SQANTI-sc, please clone the repository. This option sets up a git repository and is NOT recommended for general users unless you plan to submit pull requests or track the latest development changes.
 ```bash
-git clone https://github.com/ConesaLab/SQANTI-sc.git
-cd SQANTI-sc
+git clone https://github.com/ConesaLab/SQANTI-single-cell.git
+cd SQANTI-single-cell
 ```
 
 <a name="2-install-sqanti3"></a>
@@ -69,7 +69,7 @@ Please follow the [SQANTI3 Installation Instructions](https://github.com/ConesaL
 **Important: SQANTI3 Location.**
 SQANTI-sc needs to know where SQANTI3 is installed. You have two options:
 
-*  **Option A (Simpler):** Place the `SQANTI3` folder inside the `SQANTI-sc` directory.
+*  **Option A (Simpler):** Place the `SQANTI3` folder inside the `SQANTI-single-cell` directory.
 *  **Option B (Flexible):** Install SQANTI3 anywhere and set the `SQANTI3_DIR` environment variable:
 ```bash
 export SQANTI3_DIR=/path/to/your/SQANTI3/directory
