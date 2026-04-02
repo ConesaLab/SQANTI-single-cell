@@ -19,14 +19,18 @@ suppressPackageStartupMessages({
   library(rmarkdown)
 })
 
-# Ensure RColorConesa is available; if not, install from GitHub, then load
+# Ensure RColorConesa is available; DO NOT install from GitHub to prevent HPC timeouts.
 if (!requireNamespace("RColorConesa", quietly = TRUE)) {
-  if (!requireNamespace("devtools", quietly = TRUE)) {
-    install.packages("devtools")
+  message("[WARNING] RColorConesa not installed. Using fallback color palettes.")
+  scale_fill_conesa <- function(palette = "complete", drop = FALSE, ...) {
+    ggplot2::scale_fill_manual(values = c("#6BAED6", "#FC8D59", "#78C679", "#EE6A50", "#969696", "#66C2A4", "#FFD92F", "#E78AC3", "#A6D854", "#8DA0CB", "#E5C494", "#B3B3B3", "#8DD3C7", "#FFFFB3", "#BEBADA", "#FB8072", "#80B1D3", "#FDB462", "#B3DE69", "#FCCDE5"), drop = drop, ...)
   }
-  devtools::install_github("ConesaLab/RColorConesa")
+  scale_color_conesa <- function(palette = "complete", drop = FALSE, ...) {
+    ggplot2::scale_color_manual(values = c("#6BAED6", "#FC8D59", "#78C679", "#EE6A50", "#969696", "#66C2A4", "#FFD92F", "#E78AC3", "#A6D854", "#8DA0CB", "#E5C494", "#B3B3B3", "#8DD3C7", "#FFFFB3", "#BEBADA", "#FB8072", "#80B1D3", "#FDB462", "#B3DE69", "#FCCDE5"), drop = drop, ...)
+  }
+} else {
+  library(RColorConesa)
 }
-library(RColorConesa)
 
 parse_args <- function() {
   args <- commandArgs(trailingOnly = TRUE)
