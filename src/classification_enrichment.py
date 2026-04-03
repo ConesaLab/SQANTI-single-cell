@@ -229,11 +229,14 @@ def annotate_with_cell_metadata(args, df):
         try:
             with pysam.AlignmentFile(bam_file, "rb", check_sq=False) as bam:
                 for read in bam:
-                    if read.has_tag("XM") and read.has_tag("CB"):
-                        umi = read.get_tag("XM")
-                        cb = read.get_tag("CB")
+                    cb = next((read.get_tag(t) for t in ["CB", "CR", "XC"] if read.has_tag(t)), None)
+                    umi = next((read.get_tag(t) for t in ["XM", "UB", "UR", "RX"] if read.has_tag(t)), None)
+                    
+                    if cb:
                         isoform = read.query_name
-                        cell_dict[isoform] = {"UMI": umi, "CB": cb}
+                        cell_dict[isoform] = {"CB": cb}
+                        if umi:
+                            cell_dict[isoform]["UMI"] = umi
         except Exception as e:
             print(f"[ERROR] Failed to parse BAM file {bam_file}: {e}",
                   file=sys.stderr)
