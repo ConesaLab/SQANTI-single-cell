@@ -702,7 +702,7 @@ def test_prepare_anndata_isoforms_mode(mock_args, tmpdir):
     assert adata.shape[0] == 2   # 2 cells
     # CELL1: geneA=3, CELL2: geneA=5+2=7
     cell2_geneA = adata[adata.obs_names == 'CELL2', 'geneA'].X
-    assert cell2_geneA.item() == 7
+    assert cell2_geneA[0, 0] == 7
 
 
 def test_prepare_anndata_missing_file(mock_args, tmpdir, capsys):
