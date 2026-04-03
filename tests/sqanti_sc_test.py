@@ -56,7 +56,6 @@ def mock_args(tmpdir):
             self.SKIPHASH = False
             self.ignore_cell_summary = False
             self.min_ref_len = 0
-            self.force_id_ignore = False
             self.genename = False
             self.short_reads = None
             self.SR_bam = None
@@ -64,7 +63,7 @@ def mock_args(tmpdir):
             self.aligner_choice = "minimap2"
             self.gmap_index = None
             self.sites = "ATAC,GCAG,GTAG"
-            self.skipORF = False
+            self.include_ORF = False
             self.orf_input = None
             self.CAGE_peak = None
             self.polyA_motif_list = None
@@ -177,14 +176,14 @@ def test_run_sqanti3_qc_gtf(
 
 
 def test_run_sqanti3_qc_fusion_requires_orf(mock_args):
-    """In fusion mode without --orf_input and not skipping ORF, raise error."""
+    """In fusion mode without --orf_input and including ORF, raise error."""
     design_df = pd.DataFrame({
         'sampleID': ['sample1'],
         'file_acc': ['file1']
     })
     # Create minimal environment so the function reaches fusion check
     mock_args.is_fusion = True
-    mock_args.skipORF = False
+    mock_args.include_ORF = True
     mock_args.orf_input = None
     mock_args.input_dir = os.getcwd()
     # Ensure reference files exist
@@ -816,10 +815,10 @@ def test_generate_report_with_clustering_flag(mock_isfile, mock_run, mock_args):
 @patch('qc_reports.os.path.isfile')
 @patch('qc_reports.reportAssetsPath', 'utilities')
 def test_generate_report_with_optional_flags(mock_isfile, mock_run, mock_args):
-    """Flags like --skipORF, --CAGE_peak, --polyA_motif_list should appear in command."""
+    """Flags like --include_ORF, --CAGE_peak, --polyA_motif_list should appear in command."""
     mock_isfile.return_value = True
     mock_args.mode = "reads"
-    mock_args.skipORF = True
+    mock_args.include_ORF = True
     mock_args.CAGE_peak = True
     mock_args.polyA_motif_list = True
     df = pd.DataFrame({"sampleID": ["sample1"], "file_acc": ["file1"]})
@@ -827,7 +826,7 @@ def test_generate_report_with_optional_flags(mock_isfile, mock_run, mock_args):
     generate_report(mock_args, df)
 
     actual_cmd = " ".join(mock_run.call_args[0][0].split())
-    assert "--skipORF" in actual_cmd
+    assert "--include_ORF" in actual_cmd
     assert "--CAGE_peak" in actual_cmd
     assert "--polyA_motif_list" in actual_cmd
 
