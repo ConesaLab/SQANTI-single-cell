@@ -114,11 +114,11 @@ usage: sqanti_sc.py [-h] --mode {reads,isoforms} --design DESIGN --refGTF REFGTF
                     [--normalization {log1p,sqrt,pearson}] [--n_neighbors N] [--n_pc N]
                     [--resolution RES] [--n_top_genes N] [--clustering_method {leiden,louvain,kmeans}]
                     [--n_clusters N]
-                    [--min_ref_len MIN_REF_LEN] [--force_id_ignore] [--genename] 
+                    [--min_ref_len MIN_REF_LEN] [--genename] 
                     [--novel_gene_prefix NOVEL_GENE_PREFIX] [--ref_cov_min_pct PCT]
                     [--short_reads SHORT_READS] [--SR_bam SR_BAM] 
                     [--aligner_choice {minimap2,uLTRA,gmap,deSALT}] [-x GMAP_INDEX]
-                    [--skipORF] [--orf_input ORF_INPUT]
+                    [--include_ORF] [--orf_input ORF_INPUT]
                     [--CAGE_peak CAGE_PEAK] [--polyA_motif_list POLYA_MOTIF_LIST] 
                     [--polyA_peak POLYA_PEAK] [--phyloP_bed PHYLOP_BED] 
                     [--isoAnnotLite] [--gff3 GFF3]
@@ -180,7 +180,6 @@ SQANTI-sc Clustering and UMAP options:
 SQANTI3 Customization and filtering:
   --min_ref_len MIN_REF_LEN
                         Minimum reference transcript length (default: 0 bp)
-  --force_id_ignore     Allow the usage of transcript IDs non related with PacBio's nomenclature
   --genename            Use gene_name tag from GTF to define genes. Default: gene_id
   --novel_gene_prefix PREFIX
                         Prefix for novel isoforms
@@ -194,7 +193,7 @@ Aligner and mapping options:
                         Path to gmap_build index. Mandatory if using GMAP.
 
 ORF prediction:
-  --skipORF             Skip ORF prediction
+  --include_ORF         Run ORF prediction
   --orf_input ORF_INPUT Input fasta to run ORF on.
 
 SQANTI3 Orthogonal data inputs:
