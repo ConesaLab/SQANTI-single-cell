@@ -110,7 +110,7 @@ usage: sqanti_sc.py [-h] --mode {reads,isoforms} --design DESIGN --refGTF REFGTF
                     [--out_dir OUT_DIR] [--input_dir INPUT_DIR] [--report {pdf,html,both,skip}] 
                     [-@ SAMTOOLS_CPUS] [--verbose] [--skip_hash] [--ignore_cell_summary]
                     [--multisample_report] [--multisample_report_prefix PREFIX]
-                    [--write_per_cell_outputs] [--run_clustering]
+                    [--write_per_cell_outputs] [--export_h5ad] [--run_clustering]
                     [--normalization {log1p,sqrt,pearson}] [--n_neighbors N] [--n_pc N]
                     [--resolution RES] [--n_top_genes N] [--clustering_method {leiden,louvain,kmeans}]
                     [--n_clusters N]
@@ -162,6 +162,8 @@ SQANTI-sc specific options:
                         Prefix for multisample report (Default: SQANTI_sc_multisample_report)
   --write_per_cell_outputs
                         Write per-cell gene/UJC counts and CV matrices
+  --export_h5ad         Export an AnnData .h5ad file per sample with count matrix and cell QC metadata,
+                        compatible with Scanpy and Seurat
   --min_cov MIN_COV     Minimum short read coverage to validate an isoform (default: 1)
   --ratio_TSS RATIO_TSS Minimum ratio_TSS to validate a TSS (default: 2.0)
 
@@ -435,6 +437,7 @@ The majority of SQANTI-reads-specific otuputs are not output by SQANTI-sc, with 
 *   **`*_report.html` / `*.pdf`**: Comprehensive quality control reports summarizing the data at the single-cell level.
 *   **`clustering/umap_results.csv`**: (If `--run_clustering` is active) Contains the UMAP coordinates and cluster assignments for each cell barcode.
 *   **`*_SQANTI_cell_summary.txt.gz`**: A GZIP-compressed tab-delimited file containing a wide array of quality control metrics aggregated per cell. This is the core file for downstream analysis of cellular transcriptome quality.
+*   **`*.h5ad`**: (If `--run_clustering` is active) An [AnnData](https://anndata.readthedocs.io/) object containing the gene × cell count matrix (`.X`), isoform × cell count matrix (`.obsm["isoform_counts"]`, isoforms mode only), per-cell QC metrics (`.obs`), UMAP coordinates (`.obsm["X_umap"]`), and cluster labels (`.obs["cluster"]`). This file is directly compatible with [Scanpy](https://scanpy.readthedocs.io/) (Python) and [Seurat](https://satijalab.org/seurat/) (R, via [SeuratDisk](https://mojaveazure.github.io/seurat-disk/)).
 
 #### Glossary of Cell Summary columns
 
@@ -485,6 +488,32 @@ The output `_SQANTI_cell_summary.txt.gz` has the following possible fields:
 * **`[Category]_CAGE_peak_support_prop`** : Proportion of CAGE support within each structural category.  
 * **`PolyA_motif_support_prop`** : Proportion of reads with identified PolyA motifs (if provided).  
 * **`[Category]_PolyA_motif_support_prop`** : Proportion of PolyA support within each structural category.  
+
+## Exporting to Scanpy / Seurat
+
+SQANTI-sc provides a standalone utility script (`scripts/export_scanpy_seurat.py`) to convert pipeline outputs into an AnnData `.h5ad` file for downstream analysis with Scanpy or Seurat. This script can be run independently on any existing SQANTI-sc output without re-running the pipeline.
+
+```bash
+python scripts/export_scanpy_seurat.py \
+    --mode isoforms \
+    --classification ./results/sample1/sample1_classification.txt \
+    --cell_summary ./results/sample1/sample1_SQANTI_cell_summary.txt.gz \
+    --clustering ./results/sample1/clustering/umap_results.csv \
+    -o ./export \
+    -p sample1
+```
+
+The resulting `.h5ad` file contains:
+
+| Slot | Content |
+| :--- | :--- |
+| `.X` | Gene × cell count matrix (sparse) |
+| `.obsm["isoform_counts"]` | Isoform × cell count matrix (isoforms mode only) |
+| `.obs` | Per-cell QC metrics from the cell summary |
+| `.obs["cluster"]` | Cluster labels (if clustering results provided) |
+| `.obsm["X_umap"]` | UMAP coordinates (if clustering results provided) |
+| `.var` | Gene/feature metadata |
+| `.uns["isoform_features"]` | Isoform-to-gene mapping (isoforms mode only) |
 
 ## Citation
 
