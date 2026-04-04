@@ -31,8 +31,7 @@ def run_sqanti3_qc(args, df):
             "-o", sampleID,
             "-s", args.sites,
             "--ratio_TSS_metric", args.ratio_TSS_metric,
-            "--report", "skip",
-            "--force_id_ignore"
+            "--report", "skip"
         ]
 
         if getattr(args, 'novel_gene_prefix', None):
@@ -53,13 +52,10 @@ def run_sqanti3_qc(args, df):
             if getattr(args, arg):
                 cmd_parts.append(flag)
 
-        # Handle skipORF logic:
-        # If mode is 'reads', ALWAYS skip ORF.
-        # If mode is 'isoforms', use the user's --skipORF flag (if provided).
-        if args.mode == 'reads':
-            cmd_parts.append('--skipORF')
-        elif getattr(args, 'skipORF', False):
-            cmd_parts.append('--skipORF')
+        # Handle include_ORF logic:
+        # If mode is 'isoforms', use the user's --include_ORF flag (if provided).
+        if args.mode == 'isoforms' and getattr(args, 'include_ORF', False):
+            cmd_parts.append('--include_ORF')
 
         optional_files = [
             ("CAGE_peak", "--CAGE_peak"),
@@ -158,9 +154,9 @@ def run_sqanti3_qc(args, df):
                 cmd = build_sqanti_command(input_file, file_acc, sampleID, coverage=coverage_file, SR_bam=sr_bam_file)
                 if getattr(args, 'is_fusion', False):
                     cmd += " --is_fusion"
-                    if not getattr(args, 'skipORF', False):
+                    if getattr(args, 'include_ORF', False):
                         if not getattr(args, 'orf_input', None):
-                            raise ValueError("[ERROR] --orf_input must be provided for fusion unless --skipORF is specified.")
+                            raise ValueError("[ERROR] --orf_input must be provided for fusion if --include_ORF is specified.")
                         cmd += f" --orf_input {args.orf_input}"
                 print(cmd, file=sys.stdout)
                 run_command(cmd, qc_logger, out_file=log_file, description="SQANTI3 failed to execute")
@@ -200,10 +196,10 @@ def run_sqanti3_qc(args, df):
             cmd = build_sqanti_command(gtf_file, file_acc, sampleID, coverage=coverage_file, SR_bam=sr_bam_file)
             if args.is_fusion:
                 cmd += " --is_fusion"
-                if not args.skipORF:
+                if args.include_ORF:
                     if not args.orf_input:
                         raise ValueError(
-                            "[ERROR] --orf_input must be provided for fusion unless --skipORF is specified."
+                            "[ERROR] --orf_input must be provided for fusion if --include_ORF is specified."
                         )
                     cmd += f" --orf_input {args.orf_input}"
             print(cmd, file=sys.stdout)

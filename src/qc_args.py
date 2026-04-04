@@ -68,8 +68,8 @@ def build_parser(version_str: str = '1.1.0'):
 
     # SQANTI3 ORF prediction
     apo = ap.add_argument_group("SQANTI3 ORF prediction")
-    apo.add_argument('--skipORF', action="store_true", default=False,
-                     help="Skip ORF prediction.")
+    apo.add_argument('--include_ORF', action="store_true", default=False,
+                     help="Include ORF prediction.")
     apo.add_argument('--orf_input',
                      help="Input fasta for ORF prediction.")
 

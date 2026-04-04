@@ -20,8 +20,8 @@ def generate_report(args, df):
                 flags = []
                 if args.ignore_cell_summary:
                     flags.append("--ignore_cell_summary")
-                if args.skipORF:
-                    flags.append("--skipORF")
+                if getattr(args, 'include_ORF', False):
+                    flags.append("--include_ORF")
                 if args.CAGE_peak:
                     flags.append("--CAGE_peak")
                 if args.polyA_motif_list:
