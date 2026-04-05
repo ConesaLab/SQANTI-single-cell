@@ -38,6 +38,9 @@ def build_parser(version_str: str = '1.1.0'):
                      help='Output prefix for the multisample report (default: SQANTI_sc_multisample_report).')
     apsc.add_argument('--write_per_cell_outputs', action='store_true', default=False,
                        help='When set, writes per-cell gene_counts.csv, ujc_counts.csv, and cv.csv for each sample.')
+    apsc.add_argument('--export_h5ad', action='store_true', default=False,
+                      help='Export an AnnData .h5ad file per sample with count matrix and cell QC metadata, '
+                           'compatible with Scanpy and Seurat.')
     apsc.add_argument('--min_cov', type=int, default=1,
                       help='Minimum min_cov short read coverage to validate an isoform (default: 1).')
     apsc.add_argument('--ratio_TSS', type=float, default=2.0, dest="ratio_TSS_threshold",

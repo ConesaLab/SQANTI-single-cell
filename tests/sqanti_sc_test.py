@@ -4,6 +4,18 @@ from io import StringIO
 from unittest.mock import MagicMock, mock_open, patch
 import subprocess
 
+import sys
+import platform
+# --- MOCK FOR WINDOWS TESTING ---
+# SQANTI3 and some pandas versions check for POSIX platforms.
+if sys.platform == 'win32':
+    sys.platform = 'linux'
+    import collections
+    os.uname = lambda: collections.namedtuple('Uname', ['sysname', 'nodename', 'release', 'version', 'machine'])('Linux', 'localhost', '5.10.0', '1', 'x86_64')
+    # Mock pysam so tests can run without the C extension compilation on win32
+    sys.modules['pysam'] = MagicMock()
+# --------------------------------
+
 import pandas as pd
 import pytest
 
@@ -1173,3 +1185,317 @@ class TestFLWeightingIsoformsMode:
         assert abs(cb1["FSM_prop"] - (2 / 3 * 100)) < 0.1, (
             f"Reads mode: expected FSM_prop≈66.7 %, got {cb1['FSM_prop']}"
         )
+
+
+# ==============================================================================
+# Export Scanpy / Seurat Tests
+# ==============================================================================
+
+# Add scripts path for export module imports
+scripts_path = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../scripts")
+)
+if scripts_path not in sys.path:
+    sys.path.insert(0, scripts_path)
+
+from export_scanpy_seurat import (
+    _prepare_classification,
+    _build_gene_matrix,
+    _build_isoform_matrix,
+    _build_anndata,
+)
+
+
+def test_export_gene_matrix_reads_mode(tmpdir):
+    """Gene matrix from reads-mode classification has correct shape and counts."""
+    cls = pd.DataFrame({
+        'isoform': ['r1', 'r2', 'r3', 'r4'],
+        'CB': ['CELL1', 'CELL1', 'CELL2', 'CELL2'],
+        'associated_gene': ['geneA', 'geneB', 'geneA', 'geneA'],
+    })
+    class_file = str(tmpdir.join("cls.txt"))
+    cls.to_csv(class_file, sep='\t', index=False)
+
+    prepared = _prepare_classification(class_file, "reads")
+    mat, barcodes, genes = _build_gene_matrix(prepared, "reads")
+    adata = _build_anndata(mat, barcodes, genes)
+
+    assert adata.shape == (2, 2)  # 2 cells, 2 genes
+    # CELL2 has 2 reads of geneA
+    cell2_idx = list(adata.obs_names).index("CELL2")
+    geneA_idx = list(adata.var_names).index("geneA")
+    assert adata.X[cell2_idx, geneA_idx] == 2
+    assert "isoform_counts" not in adata.obsm
+
+
+def test_export_isoform_matrix_isoforms_mode(tmpdir):
+    """Isoform matrix from isoforms-mode correctly sums FL weights and acts as layer."""
+    cls = pd.DataFrame({
+        'isoform': ['iso1', 'iso2'],
+        'CB': ['CELL1,CELL2', 'CELL2'],
+        'FL': ['3,5', '2'],
+        'associated_gene': ['geneA', 'geneA'],
+    })
+    class_file = str(tmpdir.join("cls.txt"))
+    cls.to_csv(class_file, sep='\t', index=False)
+
+    prepared = _prepare_classification(class_file, "isoforms")
+    gene_mat, barcodes, genes = _build_gene_matrix(prepared, "isoforms")
+    iso_mat, isoforms, iso_genes = _build_isoform_matrix(prepared, barcodes)
+
+    adata = _build_anndata(
+        gene_mat, barcodes, genes,
+        iso_mat=iso_mat, isoforms=isoforms, iso_genes=iso_genes
+    )
+
+    assert adata.shape[0] == 2  # 2 cells
+    assert "isoform_counts" in adata.obsm
+    assert adata.obsm["isoform_counts"].shape == (2, 2)
+    assert "isoform_features" in adata.uns
+
+
+def test_export_h5ad_with_cell_summary(tmpdir):
+    """.h5ad .obs contains cell summary metrics when provided."""
+    cls = pd.DataFrame({
+        'isoform': ['r1', 'r2'],
+        'CB': ['CELL1', 'CELL2'],
+        'associated_gene': ['geneA', 'geneA'],
+    })
+    class_file = str(tmpdir.join("cls.txt"))
+    cls.to_csv(class_file, sep='\t', index=False)
+
+    summary = pd.DataFrame({
+        'CB': ['CELL1', 'CELL2'],
+        'Reads_in_cell': [10, 20],
+        'Genes_in_cell': [5, 8],
+    })
+    summary_file = str(tmpdir.join("summary.txt.gz"))
+    summary.to_csv(summary_file, sep='\t', index=False, compression='gzip')
+
+    prepared = _prepare_classification(class_file, "reads")
+    mat, barcodes, genes = _build_gene_matrix(prepared, "reads")
+
+    adata = _build_anndata(mat, barcodes, genes,
+                           cell_summary_file=summary_file)
+
+    assert "Reads_in_cell" in adata.obs.columns
+    assert "Genes_in_cell" in adata.obs.columns
+    assert adata.obs.loc["CELL1", "Reads_in_cell"] == 10
+
+
+def test_export_h5ad_with_clustering(tmpdir):
+    """.h5ad includes UMAP in obsm and cluster labels in obs."""
+    cls = pd.DataFrame({
+        'isoform': ['r1', 'r2'],
+        'CB': ['CELL1', 'CELL2'],
+        'associated_gene': ['geneA', 'geneA'],
+    })
+    class_file = str(tmpdir.join("cls.txt"))
+    cls.to_csv(class_file, sep='\t', index=False)
+
+    clust = pd.DataFrame({
+        'Barcode': ['CELL1', 'CELL2'],
+        'Cluster': [0, 1],
+        'UMAP_1': [1.0, 2.0],
+        'UMAP_2': [3.0, 4.0],
+    })
+    clust_file = str(tmpdir.join("umap.csv"))
+    clust.to_csv(clust_file, index=False)
+
+    prepared = _prepare_classification(class_file, "reads")
+    mat, barcodes, genes = _build_gene_matrix(prepared, "reads")
+
+    adata = _build_anndata(mat, barcodes, genes,
+                           clustering_file=clust_file)
+
+    assert "cluster" in adata.obs.columns
+    assert "X_umap" in adata.obsm
+    assert adata.obsm["X_umap"].shape == (2, 2)
+
+
+def test_export_h5ad_minimal(tmpdir):
+    """.h5ad works with classification file only (no summary/clustering)."""
+    cls = pd.DataFrame({
+        'isoform': ['r1', 'r2', 'r3'],
+        'CB': ['CELL1', 'CELL1', 'CELL2'],
+        'associated_gene': ['geneA', 'geneB', 'geneA'],
+    })
+    class_file = str(tmpdir.join("cls.txt"))
+    cls.to_csv(class_file, sep='\t', index=False)
+
+    prepared = _prepare_classification(class_file, "reads")
+    mat, barcodes, genes = _build_gene_matrix(prepared, "reads")
+
+    adata = _build_anndata(mat, barcodes, genes)
+
+    assert adata.shape == (2, 2)
+    assert "X_umap" not in adata.obsm
+
+
+# ==============================================================================
+# Integrated h5ad Export Tests (src/sc_export.py)
+# ==============================================================================
+
+from sc_export import (
+    _prepare_classification as sc_prepare_classification,
+    _build_gene_matrix as sc_build_gene_matrix,
+    _build_isoform_matrix as sc_build_isoform_matrix,
+    _build_anndata as sc_build_anndata,
+    export_h5ad,
+)
+
+
+def test_sc_export_h5ad_reads_mode(tmpdir):
+    """h5ad from reads mode has correct gene x cell shape."""
+    cls = pd.DataFrame({
+        'isoform': ['r1', 'r2', 'r3', 'r4'],
+        'CB': ['CELL1', 'CELL1', 'CELL2', 'CELL2'],
+        'associated_gene': ['geneA', 'geneB', 'geneA', 'geneA'],
+    })
+    class_file = str(tmpdir.join("cls.txt"))
+    cls.to_csv(class_file, sep='\t', index=False)
+
+    prepared = sc_prepare_classification(class_file, "reads")
+    mat, barcodes, genes = sc_build_gene_matrix(prepared, "reads")
+
+    adata = sc_build_anndata(mat, barcodes, genes)
+
+    assert adata.shape == (2, 2)  # 2 cells, 2 genes
+    cell2_idx = list(adata.obs_names).index("CELL2")
+    geneA_idx = list(adata.var_names).index("geneA")
+    assert adata.X[cell2_idx, geneA_idx] == 2
+    assert "isoform_counts" not in adata.obsm
+
+
+def test_sc_export_h5ad_isoforms_mode(tmpdir):
+    """h5ad from isoforms mode has gene matrix in .X and isoform data in .obsm."""
+    cls = pd.DataFrame({
+        'isoform': ['iso1', 'iso2'],
+        'CB': ['CELL1,CELL2', 'CELL2'],
+        'FL': ['3,5', '2'],
+        'associated_gene': ['geneA', 'geneA'],
+    })
+    class_file = str(tmpdir.join("cls.txt"))
+    cls.to_csv(class_file, sep='\t', index=False)
+
+    prepared = sc_prepare_classification(class_file, "isoforms")
+    gene_mat, barcodes, genes = sc_build_gene_matrix(prepared, "isoforms")
+    iso_mat, isoforms, iso_genes = sc_build_isoform_matrix(prepared, barcodes)
+
+    adata = sc_build_anndata(
+        gene_mat, barcodes, genes,
+        iso_mat=iso_mat, isoforms=isoforms, iso_genes=iso_genes,
+    )
+
+    assert adata.shape[0] == 2  # 2 cells
+    cell2_idx = list(adata.obs_names).index("CELL2")
+    geneA_idx = list(adata.var_names).index("geneA")
+    assert adata.X[cell2_idx, geneA_idx] == 7
+
+    assert "isoform_counts" in adata.obsm
+    assert adata.obsm["isoform_counts"].shape == (2, 2)
+    assert "isoform_features" in adata.uns
+
+
+def test_sc_export_h5ad_with_cell_summary(tmpdir):
+    """.obs contains cell summary QC metrics when summary file exists."""
+    cls = pd.DataFrame({
+        'isoform': ['r1', 'r2'],
+        'CB': ['CELL1', 'CELL2'],
+        'associated_gene': ['geneA', 'geneA'],
+    })
+    class_file = str(tmpdir.join("cls.txt"))
+    cls.to_csv(class_file, sep='\t', index=False)
+
+    summary = pd.DataFrame({
+        'CB': ['CELL1', 'CELL2'],
+        'Reads_in_cell': [10, 20],
+        'Genes_in_cell': [5, 8],
+    })
+    summary_file = str(tmpdir.join("summary.txt.gz"))
+    summary.to_csv(summary_file, sep='\t', index=False, compression='gzip')
+
+    prepared = sc_prepare_classification(class_file, "reads")
+    mat, barcodes, genes = sc_build_gene_matrix(prepared, "reads")
+    adata = sc_build_anndata(mat, barcodes, genes,
+                             cell_summary_file=summary_file)
+
+    assert "Reads_in_cell" in adata.obs.columns
+    assert "Genes_in_cell" in adata.obs.columns
+    assert adata.obs.loc["CELL1", "Reads_in_cell"] == 10
+
+
+def test_sc_export_h5ad_with_clustering(tmpdir):
+    """.obsm has UMAP and .obs has cluster labels when clustering exists."""
+    cls = pd.DataFrame({
+        'isoform': ['r1', 'r2'],
+        'CB': ['CELL1', 'CELL2'],
+        'associated_gene': ['geneA', 'geneA'],
+    })
+    class_file = str(tmpdir.join("cls.txt"))
+    cls.to_csv(class_file, sep='\t', index=False)
+
+    clust = pd.DataFrame({
+        'Barcode': ['CELL1', 'CELL2'],
+        'Cluster': [0, 1],
+        'UMAP_1': [1.0, 2.0],
+        'UMAP_2': [3.0, 4.0],
+    })
+    clust_file = str(tmpdir.join("umap.csv"))
+    clust.to_csv(clust_file, index=False)
+
+    prepared = sc_prepare_classification(class_file, "reads")
+    mat, barcodes, genes = sc_build_gene_matrix(prepared, "reads")
+    adata = sc_build_anndata(mat, barcodes, genes,
+                             clustering_file=clust_file)
+
+    assert "cluster" in adata.obs.columns
+    assert "X_umap" in adata.obsm
+    import numpy as np
+    assert adata.obsm["X_umap"].shape == (2, 2)
+
+
+@patch('qc_pipeline.build_parser')
+@patch('qc_pipeline.run_sqanti3_qc')
+@patch('qc_pipeline.annotate_with_ujc_hash')
+@patch('qc_pipeline.annotate_with_cell_metadata')
+@patch('qc_pipeline.calculate_metrics_per_cell')
+@patch('qc_pipeline.generate_report')
+@patch('qc_pipeline.export_h5ad')
+def test_pipeline_main_with_export_h5ad(
+        mock_export,
+        mock_generate_report,
+        mock_calc,
+        mock_add,
+        mock_hash,
+        mock_get,
+        mock_build_parser,
+        tmpdir):
+    """Pipeline main calls export_h5ad when --export_h5ad is set."""
+    class DummyArgs:
+        def __init__(self):
+            self.inDESIGN = str(tmpdir.join('design.csv'))
+            self.input_dir = str(tmpdir)
+            self.out_dir = str(tmpdir)
+            self.refGTF = __file__
+            self.refFasta = __file__
+            self.mode = 'reads'
+            self.report = 'pdf'
+            self.SKIPHASH = True
+            self.write_per_cell_outputs = False
+            self.log_level = 'INFO'
+            self.run_clustering = False
+            self.export_h5ad = True  # <-- enabled
+
+    tmpdir.join('design.csv').write(
+        'sampleID,file_acc,cell_association\ns1,f1,assoc.txt\n'
+    )
+
+    class DummyParser:
+        def parse_args(self_inner):
+            return DummyArgs()
+
+    mock_build_parser.return_value = DummyParser()
+    pipeline_main()
+    assert mock_export.called
+    assert mock_generate_report.called
