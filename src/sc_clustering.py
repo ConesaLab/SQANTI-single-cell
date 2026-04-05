@@ -51,14 +51,23 @@ def prepare_anndata(args, row):
             df['count'] = 1
 
         # Aggregate by Gene and Cell
-        # Filter out novel genes if desired? User didn't specify, but usually we want all genes.
-        # However, associated_gene might be "novelGene_X".
         
-        # Create count matrix: Cell x Gene
-        count_matrix = df.groupby(['CB', 'associated_gene'])['count'].sum().unstack(fill_value=0)
+        import scipy.sparse as sp
+        
+        # Factorize CBs and associated_genes for sparse indexing
+        cbs = df['CB'].astype('category')
+        genes = df['associated_gene'].astype('category')
+        
+        # Create sparse matrix
+        count_matrix = sp.csr_matrix(
+            (df['count'].values, (cbs.cat.codes, genes.cat.codes)),
+            shape=(len(cbs.cat.categories), len(genes.cat.categories))
+        )
         
         # Create AnnData
         adata = sc.AnnData(count_matrix)
+        adata.obs_names = cbs.cat.categories
+        adata.var_names = genes.cat.categories
         adata.var_names_make_unique()
         
         return adata
@@ -133,8 +142,7 @@ def run_clustering_analysis(args, row):
             cluster_col = 'kmeans'
         
         # Save results
-        # We need to export UMAP coordinates and Cluster IDs for R plotting
-        
+
         umap_coords = pd.DataFrame(adata.obsm['X_umap'], columns=['UMAP_1', 'UMAP_2'], index=adata.obs_names)
         clusters = adata.obs[[cluster_col]].rename(columns={cluster_col: 'Cluster'})
         

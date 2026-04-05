@@ -68,7 +68,6 @@ def mock_args(tmpdir):
             self.SKIPHASH = False
             self.ignore_cell_summary = False
             self.min_ref_len = 0
-            self.force_id_ignore = False
             self.genename = False
             self.short_reads = None
             self.SR_bam = None
@@ -76,7 +75,7 @@ def mock_args(tmpdir):
             self.aligner_choice = "minimap2"
             self.gmap_index = None
             self.sites = "ATAC,GCAG,GTAG"
-            self.skipORF = False
+            self.include_ORF = False
             self.orf_input = None
             self.CAGE_peak = None
             self.polyA_motif_list = None
@@ -189,14 +188,14 @@ def test_run_sqanti3_qc_gtf(
 
 
 def test_run_sqanti3_qc_fusion_requires_orf(mock_args):
-    """In fusion mode without --orf_input and not skipping ORF, raise error."""
+    """In fusion mode without --orf_input and including ORF, raise error."""
     design_df = pd.DataFrame({
         'sampleID': ['sample1'],
         'file_acc': ['file1']
     })
     # Create minimal environment so the function reaches fusion check
     mock_args.is_fusion = True
-    mock_args.skipORF = False
+    mock_args.include_ORF = True
     mock_args.orf_input = None
     mock_args.input_dir = os.getcwd()
     # Ensure reference files exist
@@ -714,7 +713,7 @@ def test_prepare_anndata_isoforms_mode(mock_args, tmpdir):
     assert adata.shape[0] == 2   # 2 cells
     # CELL1: geneA=3, CELL2: geneA=5+2=7
     cell2_geneA = adata[adata.obs_names == 'CELL2', 'geneA'].X
-    assert cell2_geneA.item() == 7
+    assert cell2_geneA[0, 0] == 7
 
 
 def test_prepare_anndata_missing_file(mock_args, tmpdir, capsys):
@@ -828,10 +827,10 @@ def test_generate_report_with_clustering_flag(mock_isfile, mock_run, mock_args):
 @patch('qc_reports.os.path.isfile')
 @patch('qc_reports.reportAssetsPath', 'utilities')
 def test_generate_report_with_optional_flags(mock_isfile, mock_run, mock_args):
-    """Flags like --skipORF, --CAGE_peak, --polyA_motif_list should appear in command."""
+    """Flags like --include_ORF, --CAGE_peak, --polyA_motif_list should appear in command."""
     mock_isfile.return_value = True
     mock_args.mode = "reads"
-    mock_args.skipORF = True
+    mock_args.include_ORF = True
     mock_args.CAGE_peak = True
     mock_args.polyA_motif_list = True
     df = pd.DataFrame({"sampleID": ["sample1"], "file_acc": ["file1"]})
@@ -839,7 +838,7 @@ def test_generate_report_with_optional_flags(mock_isfile, mock_run, mock_args):
     generate_report(mock_args, df)
 
     actual_cmd = " ".join(mock_run.call_args[0][0].split())
-    assert "--skipORF" in actual_cmd
+    assert "--include_ORF" in actual_cmd
     assert "--CAGE_peak" in actual_cmd
     assert "--polyA_motif_list" in actual_cmd
 
@@ -1347,7 +1346,7 @@ from sc_export import (
 
 
 def test_sc_export_h5ad_reads_mode(tmpdir):
-    """h5ad from reads mode has correct gene × cell shape."""
+    """h5ad from reads mode has correct gene x cell shape."""
     cls = pd.DataFrame({
         'isoform': ['r1', 'r2', 'r3', 'r4'],
         'CB': ['CELL1', 'CELL1', 'CELL2', 'CELL2'],
@@ -1362,11 +1361,9 @@ def test_sc_export_h5ad_reads_mode(tmpdir):
     adata = sc_build_anndata(mat, barcodes, genes)
 
     assert adata.shape == (2, 2)  # 2 cells, 2 genes
-    # CELL2 has 2 reads of geneA
     cell2_idx = list(adata.obs_names).index("CELL2")
     geneA_idx = list(adata.var_names).index("geneA")
     assert adata.X[cell2_idx, geneA_idx] == 2
-    # No isoform layer in reads mode
     assert "isoform_counts" not in adata.obsm
 
 
@@ -1390,15 +1387,13 @@ def test_sc_export_h5ad_isoforms_mode(tmpdir):
         iso_mat=iso_mat, isoforms=isoforms, iso_genes=iso_genes,
     )
 
-    # Gene matrix in .X: CELL2 has geneA = 5 + 2 = 7
     assert adata.shape[0] == 2  # 2 cells
     cell2_idx = list(adata.obs_names).index("CELL2")
     geneA_idx = list(adata.var_names).index("geneA")
     assert adata.X[cell2_idx, geneA_idx] == 7
 
-    # Isoform data in .obsm
     assert "isoform_counts" in adata.obsm
-    assert adata.obsm["isoform_counts"].shape == (2, 2)  # 2 cells, 2 isoforms
+    assert adata.obsm["isoform_counts"].shape == (2, 2)
     assert "isoform_features" in adata.uns
 
 

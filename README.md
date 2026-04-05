@@ -45,19 +45,19 @@ You can install SQANTI-sc by downloading the source code or cloning the reposito
 
 **Option A: Download Source Code (Recommended for General Users)**
 We recommend this option for general users who want to use the stable version of the tool.
-Download the latest release from the [Releases page](https://github.com/ConesaLab/SQANTI-sc/releases) (if available) or download the repository as a ZIP file.
+Download the latest release from the [Releases page](https://github.com/ConesaLab/SQANTI-single-cell/releases) (if available) or download the repository as a ZIP file.
 ```bash
-wget https://github.com/ConesaLab/SQANTI-sc/archive/refs/heads/main.zip
+wget https://github.com/ConesaLab/SQANTI-single-cell/archive/refs/heads/main.zip
 unzip main.zip
-mv SQANTI-sc-main SQANTI-sc
-cd SQANTI-sc
+mv SQANTI-single-cell-main SQANTI-single-cell
+cd SQANTI-single-cell
 ```
 
 **Option B: Clone Repository (For Developers)**
 If you intend to contribute to the development of SQANTI-sc, please clone the repository. This option sets up a git repository and is NOT recommended for general users unless you plan to submit pull requests or track the latest development changes.
 ```bash
-git clone https://github.com/ConesaLab/SQANTI-sc.git
-cd SQANTI-sc
+git clone https://github.com/ConesaLab/SQANTI-single-cell.git
+cd SQANTI-single-cell
 ```
 
 <a name="2-install-sqanti3"></a>
@@ -69,7 +69,7 @@ Please follow the [SQANTI3 Installation Instructions](https://github.com/ConesaL
 **Important: SQANTI3 Location.**
 SQANTI-sc needs to know where SQANTI3 is installed. You have two options:
 
-*  **Option A (Simpler):** Place the `SQANTI3` folder inside the `SQANTI-sc` directory.
+*  **Option A (Simpler):** Place the `SQANTI3` folder inside the `SQANTI-single-cell` directory.
 *  **Option B (Flexible):** Install SQANTI3 anywhere and set the `SQANTI3_DIR` environment variable:
 ```bash
 export SQANTI3_DIR=/path/to/your/SQANTI3/directory
@@ -114,11 +114,11 @@ usage: sqanti_sc.py [-h] --mode {reads,isoforms} --design DESIGN --refGTF REFGTF
                     [--normalization {log1p,sqrt,pearson}] [--n_neighbors N] [--n_pc N]
                     [--resolution RES] [--n_top_genes N] [--clustering_method {leiden,louvain,kmeans}]
                     [--n_clusters N]
-                    [--min_ref_len MIN_REF_LEN] [--force_id_ignore] [--genename] 
+                    [--min_ref_len MIN_REF_LEN] [--genename] 
                     [--novel_gene_prefix NOVEL_GENE_PREFIX] [--ref_cov_min_pct PCT]
                     [--short_reads SHORT_READS] [--SR_bam SR_BAM] 
                     [--aligner_choice {minimap2,uLTRA,gmap,deSALT}] [-x GMAP_INDEX]
-                    [--skipORF] [--orf_input ORF_INPUT]
+                    [--include_ORF] [--orf_input ORF_INPUT]
                     [--CAGE_peak CAGE_PEAK] [--polyA_motif_list POLYA_MOTIF_LIST] 
                     [--polyA_peak POLYA_PEAK] [--phyloP_bed PHYLOP_BED] 
                     [--isoAnnotLite] [--gff3 GFF3]
@@ -182,7 +182,6 @@ SQANTI-sc Clustering and UMAP options:
 SQANTI3 Customization and filtering:
   --min_ref_len MIN_REF_LEN
                         Minimum reference transcript length (default: 0 bp)
-  --force_id_ignore     Allow the usage of transcript IDs non related with PacBio's nomenclature
   --genename            Use gene_name tag from GTF to define genes. Default: gene_id
   --novel_gene_prefix PREFIX
                         Prefix for novel isoforms
@@ -196,7 +195,7 @@ Aligner and mapping options:
                         Path to gmap_build index. Mandatory if using GMAP.
 
 ORF prediction:
-  --skipORF             Skip ORF prediction
+  --include_ORF         Run ORF prediction
   --orf_input ORF_INPUT Input fasta to run ORF on.
 
 SQANTI3 Orthogonal data inputs:
@@ -265,15 +264,16 @@ A comma-separated values (CSV) file containing the metadata for your samples.
 
 | Column | Description |
 | :--- | :--- |
-| `sampleID` | **Required**. A unique identifier for each of the samples (e.g., `Sample1`) as we want them to be represented in the output. |
-| `file_acc` | **Required**. The file prefix used to locate your input reads files. SQANTI-sc will search the `--input_dir` for files starting with this prefix (e.g., `PB_S1` matches `PB_S1.bam`, `PB_S1.fastq`, or `PB_S1.gtf`). These will also be the names of the output directories where the output files corresponding to each sample will be located.|
+| `input_file` | **Recommended**. The exact absolute or relative path to the input reads file (BAM/FASTQ/FASTA/GTF) for this sample. If provided, the pipeline reads exactly this file and ignores `--input_dir`. |
+| `sampleID` | **Required**. A unique descriptive identifier for the sample (e.g., `pb_brain`). This will be used as the prefix for output files and the display name in reports. |
+| `file_acc` | **Required**. The identifier used to name the output directory where this sample's results will be stored entirely separate from others. <br> *Fallback Logic:* If you do not provide an `input_file` column, SQANTI-sc will use this as a prefix to search the `--input_dir` for input files (e.g., `SRX123456` will match `--input_dir/SRX123456*.bam`). |
 | `cell_association` | **Required**. Path to the file linking reads to cell barcodes for each sample. <br> There are 2 options for this file: <br> 1. A **TSV file** mapping Read IDs to Cell Barcodes. The minimum columns required are `id` (identifier of the read) and `cb` (cell barcode of the read).  <br> 2. A **uBAM/BAM file** containing `CB` (Cell Barcode) and `XM`/`UB` (UMI) tags. Easier to give if your input reads are already in uBAM format (the uBAM file can be the same as the one used as input reads).|
 
 **Example `design_reads.csv`:**
 ```csv
-sampleID,file_acc,cell_association
-Sample1,PB_S1,/data/Sample1/barcodes.tsv
-Sample2,PB_S2,/data/Sample2/sample2.bam
+input_file,sampleID,file_acc,cell_association
+/data/pb/SRX123456.bam,pb_brain,SRX123456,/data/pb/SRX123456_barcodes.tsv
+/data/pb/SRX123457.gff,pb_lung,SRX123457,/data/pb/SRX123457.bam
 ```
 
 **Example `cell_association` file (barcodes.tsv):**
@@ -315,8 +315,9 @@ A comma-separated values (CSV) file containing the metadata for your samples.
 
 | Column | Description |
 | :--- | :--- |
-| `sampleID` | **Required**. A unique identifier for each of the samples (e.g., `Sample1`) as we want them to be represented in the output. |
-| `file_acc` | **Required**. The file prefix used to locate your input transcript models files (matches `{file_acc}.gtf` or `{file_acc}.fasta`). These will also be the names of the output directories where the output files corresponding to each sample will be located. |
+| `input_file` | **Recommended**. The exact absolute or relative path to the input transcript models file (GTF/FASTA) for this sample. If provided, the pipeline reads exactly this file and ignores `--input_dir`. |
+| `sampleID` | **Required**. A unique descriptive identifier for the sample (e.g., `PacBio_Brain_5k`). This will be used as the prefix for output files and the display name in validation plots/reports. |
+| `file_acc` | **Required**. The identifier used to name the output directory where this sample's results will be stored entirely separate from others. <br> *Fallback Logic:* If you do not provide an `input_file` column, SQANTI-sc will use this as a prefix to search the `--input_dir` for input files. |
 | `cell_association` | **Conditional**. Path to the file linking Isoform IDs to Cell Barcodes (TSV) *if no abundance matrix is present*. |
 | `abundance` | **Conditional**. Path to a folder containing quantification data in **Market Exchange (MEX) format**. The folder **MUST** contain three files: `matrix.mtx`, `features.tsv` (with the transcript model IDs used in the input), and `barcodes.tsv`.|
 | `coverage` | **Optional**. Path to STAR splice junction output(s). Used to validate splice junctions. Can be a single file, a directory, a comma-separated list, a wildcard pattern, or a File of File Names (FOFN). |
@@ -326,9 +327,9 @@ A comma-separated values (CSV) file containing the metadata for your samples.
 
 **Example `design_isoforms.csv`:**
 ```csv
-sampleID,file_acc,abundance,coverage,SR_bam
-Sample1,Iso_S1,/data/S1_counts/,/path/to/S1_SJ.out.tab,/path/to/S1_sorted.bam
-Sample2,Iso_S2,/data/S2_counts/,/path/to/S2_SJ.out.tab,/path/to/S2_sorted.bam
+input_file,sampleID,file_acc,abundance,coverage,SR_bam
+/data/SRX987654.gtf,Iso_Brain,SRX987654,/data/SRX987654/counts/,/path/to/sr1_SJ.out.tab,/path/to/sr1_sorted.bam
+/data/SRX987655.gtf,Iso_Lung,SRX987655,/data/SRX987655/counts/,/path/to/sr2_SJ.out.tab,/path/to/sr2_sorted.bam
 ```
 
 *   **Reference Files**: Same as Reads Mode (`--refFasta`, `--refGTF`).

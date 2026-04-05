@@ -51,15 +51,8 @@ def calculate_metrics_per_cell(args, df):
         file_acc = r['file_acc']
         sampleID = r['sampleID']
         prefix = os.path.join(args.out_dir, file_acc, sampleID)
-        if 'classification_file' in r and pd.notna(r['classification_file']) and r['classification_file'] != '':
-            class_file = r['classification_file']
-        else:
-            class_file = f"{prefix}_classification.txt"
-            
-        if 'junction_file' in r and pd.notna(r['junction_file']) and r['junction_file'] != '':
-            junc_file = r['junction_file']
-        else:
-            junc_file = f"{prefix}_junctions.txt"
+        class_file = f"{prefix}_classification.txt"
+        junc_file = f"{prefix}_junctions.txt"
 
         out_summary = f"{prefix}_SQANTI_cell_summary.txt.gz"
 
@@ -397,7 +390,7 @@ def calculate_metrics_per_cell(args, df):
             numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['exons'] > 1) & (cls_valid['all_canonical'] == 'canonical')].groupby('CB')['_count'].sum()
             summary[f"{abbr}_canon_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0)).fillna(0)
 
-        if not args.skipORF:
+        if args.include_ORF:
             nmd = cls_valid[cls_valid['predicted_NMD'].astype(str) == 'TRUE'].groupby('CB')['_count'].sum()
             summary['NMD_prop_in_cell'] = safe_prop(nmd.reindex(summary.index, fill_value=0), summary['total_reads']).fillna(0)
             for cat in structural_categories:

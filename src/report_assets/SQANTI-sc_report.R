@@ -34,7 +34,7 @@ mode <- args[5]
 
 # Initialize ignore_cell_summary flag
 ignore_cell_summary <- FALSE
-skipORF <- FALSE
+include_ORF <- FALSE
 CAGE_peak <- FALSE
 polyA_motif_list <- FALSE
 cell_summary_path <- NULL
@@ -50,8 +50,8 @@ if (length(args) > 5) {
       i <- i + 1
       next
     }
-    if (arg == "--skipORF") {
-      skipORF <- TRUE
+    if (arg == "--include_ORF") {
+      include_ORF <- TRUE
       i <- i + 1
       next
     }
@@ -2068,7 +2068,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   ))
 
   #  Coding/non-coding across structural categories (change it in the future to a combine plot)
-  if (!skipORF) {
+  if (include_ORF) {
     # Update to new column naming convention: {tag}_coding_prop
     # Explicitly define columns to match cell_metrics.py output (lowercase for non-canonical categories)
     coding_cols <- c(
@@ -2125,7 +2125,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         box_alpha = 0.1
       )
     ))
-  } # End of if (!skipORF)
+  } # End of if (include_ORF)
 
   subcategory_configs <- list(
     list(
@@ -2351,7 +2351,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   )
 
   # Determine which bad feature columns are actually present in SQANTI_cell_summary
-  # This implicitly handles skipORF, as NMD_prop_in_cell won't be in SQANTI_cell_summary if skipORF is TRUE
+  # This implicitly handles include_ORF, as NMD_prop_in_cell won't be in SQANTI_cell_summary if include_ORF is FALSE
   bad_feature_cols_present <- intersect(names(all_bad_features_map), colnames(SQANTI_cell_summary))
   bad_feature_cols_present <- bad_feature_cols_present[sapply(bad_feature_cols_present, function(col) any(!is.na(SQANTI_cell_summary[[col]])) && sum(SQANTI_cell_summary[[col]], na.rm = TRUE) > 0)] # keep only if data exists
 
@@ -3643,7 +3643,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     }
 
     # Coding and Non-Coding Distributions
-    if (!skipORF) {
+    if (include_ORF) {
       if (exists("gg_coding_across_category")) render_pdf_plot("gg_coding_across_category")
       if (exists("gg_non_coding_across_category")) render_pdf_plot("gg_non_coding_across_category")
     }

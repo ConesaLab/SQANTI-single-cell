@@ -31,8 +31,7 @@ def run_sqanti3_qc(args, df):
             "-o", sampleID,
             "-s", args.sites,
             "--ratio_TSS_metric", args.ratio_TSS_metric,
-            "--report", "skip",
-            "--force_id_ignore"
+            "--report", "skip"
         ]
 
         if getattr(args, 'novel_gene_prefix', None):
@@ -53,13 +52,10 @@ def run_sqanti3_qc(args, df):
             if getattr(args, arg):
                 cmd_parts.append(flag)
 
-        # Handle skipORF logic:
-        # If mode is 'reads', ALWAYS skip ORF.
-        # If mode is 'isoforms', use the user's --skipORF flag (if provided).
-        if args.mode == 'reads':
-            cmd_parts.append('--skipORF')
-        elif getattr(args, 'skipORF', False):
-            cmd_parts.append('--skipORF')
+        # Handle include_ORF logic:
+        # If mode is 'isoforms', use the user's --include_ORF flag (if provided).
+        if args.mode == 'isoforms' and getattr(args, 'include_ORF', False):
+            cmd_parts.append('--include_ORF')
 
         optional_files = [
             ("CAGE_peak", "--CAGE_peak"),
@@ -132,6 +128,65 @@ def run_sqanti3_qc(args, df):
         log_file = os.path.join(logs_dir, "sqanti3.log")
         update_logger(qc_logger, file_acc_dir, "qc", args.log_level)
 
+        # -------------------------------------------------------------------
+        # 1) Explicit input_file Support (bypasses glob pattern matching)
+        # -------------------------------------------------------------------
+        input_file = row.get('input_file')
+        if pd.notna(input_file) and input_file:
+            if not os.path.isfile(input_file):
+                print(f"[ERROR] Specified input_file not found: {input_file}", file=sys.stderr)
+                continue
+            
+            if args.verbose:
+                print(f'[INFO] Running SQANTI-sc qc for explicit input file: {input_file}', file=sys.stdout)
+            
+            fname = input_file.lower()
+            if fname.endswith('.gz'):
+                fname = fname[:-3]
+            ext = fname.split('.')[-1]
+            
+            if ext in ['fastq', 'fq']:
+                cmd = build_sqanti_command(input_file, file_acc, sampleID, is_fastq=True, coverage=coverage_file, SR_bam=sr_bam_file)
+                print(cmd, file=sys.stdout)
+                run_command(cmd, qc_logger, out_file=log_file, description="SQANTI3 failed to execute")
+                continue
+            elif ext in ['gtf', 'gff', 'gff3']:
+                cmd = build_sqanti_command(input_file, file_acc, sampleID, coverage=coverage_file, SR_bam=sr_bam_file)
+                if getattr(args, 'is_fusion', False):
+                    cmd += " --is_fusion"
+                    if getattr(args, 'include_ORF', False):
+                        if not getattr(args, 'orf_input', None):
+                            raise ValueError("[ERROR] --orf_input must be provided for fusion if --include_ORF is specified.")
+                        cmd += f" --orf_input {args.orf_input}"
+                print(cmd, file=sys.stdout)
+                run_command(cmd, qc_logger, out_file=log_file, description="SQANTI3 failed to execute")
+                continue
+            elif ext == 'bam':
+                if getattr(args, 'mode', '') != "reads":
+                    print(f"[ERROR] BAM input_file is only supported in 'reads' mode (for {input_file})", file=sys.stderr)
+                    continue
+                tmp_fastq = os.path.join(args.input_dir, f"{file_acc}_tmp.fastq")
+                cmd_tofastq = f"samtools fastq -@ {getattr(args, 'samtools_cpus', 1)} {input_file} -n > {tmp_fastq}"
+                run_command(cmd_tofastq, qc_logger, out_file=log_file, description="Samtools failed to execute")
+                
+                if not os.path.isfile(tmp_fastq):
+                    print(f"[ERROR] FASTQ not generated for {file_acc}", file=sys.stderr)
+                    continue
+                cmd = build_sqanti_command(tmp_fastq, file_acc, sampleID, is_fastq=True, coverage=coverage_file, SR_bam=sr_bam_file)
+                print(cmd, file=sys.stdout)
+                run_command(cmd, qc_logger, out_file=log_file, description="SQANTI3 failed to execute")
+                try:
+                    os.remove(tmp_fastq)
+                except FileNotFoundError:
+                    pass
+                continue
+            else:
+                print(f"[ERROR] Unsupported input_file extension for {input_file}", file=sys.stderr)
+                continue
+
+        # -------------------------------------------------------------------
+        # 2) Legacy Support (glob matching from --input_dir)
+        # -------------------------------------------------------------------
         gtf_pattern = os.path.join(args.input_dir, f"{file_acc}*.g*f")
         gtf_files = glob.glob(gtf_pattern)
         if gtf_files:
@@ -141,10 +196,10 @@ def run_sqanti3_qc(args, df):
             cmd = build_sqanti_command(gtf_file, file_acc, sampleID, coverage=coverage_file, SR_bam=sr_bam_file)
             if args.is_fusion:
                 cmd += " --is_fusion"
-                if not args.skipORF:
+                if args.include_ORF:
                     if not args.orf_input:
                         raise ValueError(
-                            "[ERROR] --orf_input must be provided for fusion unless --skipORF is specified."
+                            "[ERROR] --orf_input must be provided for fusion if --include_ORF is specified."
                         )
                     cmd += f" --orf_input {args.orf_input}"
             print(cmd, file=sys.stdout)

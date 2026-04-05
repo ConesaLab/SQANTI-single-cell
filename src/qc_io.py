@@ -14,65 +14,83 @@ def fill_design_table(args):
     if missing_columns:
         raise ValueError(f"ERROR: Missing required columns: {missing_columns}")
 
-    # Create the new columns based on the existing ones
-    df['classification_file'] = df.apply(
-        lambda row: os.path.join(
-            args.out_dir, row['file_acc'], f"{row['sampleID']}_classification.txt"
-        ),
-        axis=1
-    )
-    df['junction_file'] = df.apply(
-        lambda row: os.path.join(
-            args.out_dir, row['file_acc'], f"{row['sampleID']}_junctions.txt"
-        ),
-        axis=1
-    )
 
-    if 'cell_association' not in df.columns:
-        df['cell_association'] = ''
-    if 'abundance' not in df.columns:
-        df['abundance'] = ''
-    if 'coverage' not in df.columns:
-        df['coverage'] = ''
-    if 'SR_bam' not in df.columns:
-        df['SR_bam'] = ''
+
+
 
     for index, row in df.iterrows():
-        # Handle cell_association
-        if pd.isna(row['cell_association']) or not row['cell_association']:
+        # Validate 'abundance' if present
+        has_abundance = False
+        if 'abundance' in df.columns:
+            ab = row.get('abundance')
+            if pd.notna(ab) and ab:
+                if os.path.isdir(str(ab)):
+                     df.loc[index, 'abundance'] = os.path.abspath(str(ab))
+                     has_abundance = True
+                else:
+                     print(f"[WARNING] Provided abundance directory not found: {ab}", file=sys.stderr)
+
+        # Initial check for 'cell_association'
+        has_assoc = False
+        if 'cell_association' in df.columns:
+             ca = row.get('cell_association')
+             if pd.notna(ca) and ca:
+                 if os.path.isfile(str(ca)):
+                      df.loc[index, 'cell_association'] = os.path.abspath(str(ca))
+                      has_assoc = True
+                 else:
+                      print(f"[WARNING] Provided cell_association file not found: {ca}", file=sys.stderr)
+        
+        # Only auto-discover cell_association if missing AND it is strictly required
+        needs_assoc = (getattr(args, 'mode', '') == 'reads') or (getattr(args, 'mode', '') == 'isoforms' and not has_abundance)
+        
+        if not has_assoc and needs_assoc:
             file_acc = row['file_acc']
             bam_pattern = os.path.join(args.input_dir, f"{file_acc}*.bam")
             bam_files = glob.glob(bam_pattern)
-            assoc_file_path = os.path.join(
-                args.input_dir, f"{file_acc}_cell_association.txt"
-            )
+            assoc_file_path = os.path.join(args.input_dir, f"{file_acc}_cell_association.txt")
 
             if bam_files:
-                df.at[index, 'cell_association'] = os.path.abspath(bam_files[0])
+                df.loc[index, 'cell_association'] = os.path.abspath(bam_files[0])
+                has_assoc = True
             elif os.path.isfile(assoc_file_path):
-                df.at[index, 'cell_association'] = os.path.abspath(assoc_file_path)
+                df.loc[index, 'cell_association'] = os.path.abspath(assoc_file_path)
+                has_assoc = True
 
         # Handle coverage
-        if pd.notna(row['coverage']) and row['coverage']:
-            if os.path.isfile(row['coverage']):
-                 df.at[index, 'coverage'] = os.path.abspath(row['coverage'])
+        if 'coverage' in df.columns:
+            cov = row.get('coverage')
+            if pd.notna(cov) and cov:
+                if os.path.isfile(str(cov)):
+                     df.loc[index, 'coverage'] = os.path.abspath(str(cov))
 
         # Handle SR_bam
-        if pd.notna(row['SR_bam']) and row['SR_bam']:
-            if os.path.isfile(row['SR_bam']):
-                 df.at[index, 'SR_bam'] = os.path.abspath(row['SR_bam'])
+        if 'SR_bam' in df.columns:
+            srb = row.get('SR_bam')
+            if pd.notna(srb) and srb:
+                if os.path.isfile(str(srb)):
+                     df.loc[index, 'SR_bam'] = os.path.abspath(str(srb))
+
+        # Handle input_file
+        if 'input_file' in df.columns:
+            inf = row.get('input_file')
+            if pd.notna(inf) and inf:
+                if os.path.isfile(str(inf)):
+                     df.loc[index, 'input_file'] = os.path.abspath(str(inf))
+                else:
+                     print(f"[WARNING] Provided input_file not found: {inf}", file=sys.stderr)
         
         # Validation based on mode
-        has_assoc = pd.notna(df.at[index, 'cell_association']) and df.at[index, 'cell_association']
-        has_abundance = pd.notna(df.at[index, 'abundance']) and df.at[index, 'abundance']
+        final_has_assoc = 'cell_association' in df.columns and pd.notna(df.loc[index, 'cell_association']) and str(df.loc[index, 'cell_association']).strip() != ''
+        final_has_abundance = 'abundance' in df.columns and pd.notna(df.loc[index, 'abundance']) and str(df.loc[index, 'abundance']).strip() != ''
 
         if args.mode == 'reads':
-            if not has_assoc:
+            if not final_has_assoc:
                 raise ValueError(
                     f"ERROR: 'cell_association' is required for sample {row['sampleID']} in 'reads' mode."
                 )
         elif args.mode == 'isoforms':
-            if not has_assoc and not has_abundance:
+            if not final_has_assoc and not final_has_abundance:
                 raise ValueError(
                     f"ERROR: Either 'cell_association' or 'abundance' is required for sample {row['sampleID']} in 'isoforms' mode."
                 )

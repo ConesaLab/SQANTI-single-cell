@@ -229,11 +229,14 @@ def annotate_with_cell_metadata(args, df):
         try:
             with pysam.AlignmentFile(bam_file, "rb", check_sq=False) as bam:
                 for read in bam:
-                    if read.has_tag("XM") and read.has_tag("CB"):
-                        umi = read.get_tag("XM")
-                        cb = read.get_tag("CB")
+                    cb = next((read.get_tag(t) for t in ["CB", "CR", "XC"] if read.has_tag(t)), None)
+                    umi = next((read.get_tag(t) for t in ["XM", "UB", "UR", "RX"] if read.has_tag(t)), None)
+                    
+                    if cb:
                         isoform = read.query_name
-                        cell_dict[isoform] = {"UMI": umi, "CB": cb}
+                        cell_dict[isoform] = {"CB": cb}
+                        if umi:
+                            cell_dict[isoform]["UMI"] = umi
         except Exception as e:
             print(f"[ERROR] Failed to parse BAM file {bam_file}: {e}",
                   file=sys.stderr)
@@ -287,10 +290,7 @@ def annotate_with_cell_metadata(args, df):
                     cell_data = _parse_tsv_for_cell_association(assoc_path)
 
         # Determine classification file path
-        if 'classification_file' in row and pd.notna(row['classification_file']) and row['classification_file'] != '':
-            class_file = row['classification_file']
-        else:
-            class_file = f"{outputPathPrefix}_classification.txt"
+        class_file = f"{outputPathPrefix}_classification.txt"
 
         if not cell_data:
             print(f"[INFO] No cell data for {file_acc}. Skipping.",
@@ -339,10 +339,7 @@ def annotate_with_cell_metadata(args, df):
             print(f"[INFO] Classification file for {file_acc} not found at {class_file}.",
                   file=sys.stdout)
 
-        if 'junction_file' in row and pd.notna(row['junction_file']) and row['junction_file'] != '':
-            junctions_path = row['junction_file']
-        else:
-            junctions_path = f"{outputPathPrefix}_junctions.txt"
+        junctions_path = f"{outputPathPrefix}_junctions.txt"
         if os.path.isfile(junctions_path):
             try:
                 junc_df = pd.read_csv(junctions_path, sep='\t', dtype=str)
