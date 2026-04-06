@@ -781,6 +781,7 @@ def test_run_clustering_analysis_smoke(mock_scanpy, mock_args, tmpdir):
     # Mock scanpy to avoid requiring the full pipeline
     import numpy as np
     mock_adata = MagicMock()
+    mock_adata.__getitem__.return_value = mock_adata
     mock_adata.n_vars = 3
     mock_adata.obs_names = [f'CELL{i}' for i in range(5)]
     mock_adata.obsm = {'X_umap': np.random.rand(5, 2), 'X_pca': np.random.rand(5, 3)}
