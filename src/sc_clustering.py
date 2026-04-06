@@ -35,6 +35,17 @@ def prepare_anndata(args, row):
             print(f"[WARNING] No valid cell barcodes found in {class_file}.", file=sys.stdout)
             return None
 
+        # Exclude novel genes — clustering should be based on annotated genes only
+        novel_mask = df['associated_gene'].str.startswith('novelGene_', na=False)
+        n_novel = novel_mask.sum()
+        if n_novel > 0:
+            print(f"[INFO] Excluding {n_novel:,} reads/transcripts mapped to novel genes from clustering.", file=sys.stdout)
+            df = df[~novel_mask]
+        
+        if df.empty:
+            print(f"[WARNING] No reads mapped to annotated genes in {class_file}.", file=sys.stdout)
+            return None
+
         # Expand data if needed (isoforms mode)
         if args.mode == 'isoforms':
             # CB and FL are comma-separated
@@ -114,8 +125,9 @@ def run_clustering_analysis(args, row):
         else:
             n_top = args.n_top_genes
         sc.pp.highly_variable_genes(adata, n_top_genes=n_top)
-        
-        # Scale
+        adata = adata[:, adata.var.highly_variable]
+
+        # Scale (safe after HVG subsetting — matrix is now cells × n_top_genes)
         sc.pp.scale(adata, max_value=10)
         
         # PCA
