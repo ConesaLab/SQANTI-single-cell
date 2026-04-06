@@ -1021,6 +1021,8 @@ main <- function() {
     rmarkdown::render(
       rmd_file,
       output_file = html_output_file,
+      intermediates_dir = dirname(html_output_file),
+      knit_root_dir = dirname(html_output_file),
       envir = globalenv(),
       quiet = TRUE
     )
