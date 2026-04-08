@@ -118,7 +118,8 @@ def calculate_metrics_per_cell(args, df):
         if args.mode != 'isoforms':
             summary['UJCs_in_cell'] = cls_valid[cls_valid['exons'] > 1].groupby('CB')['jxn_string'].nunique().reindex(summary.index, fill_value=0)
 
-        mt = cls_valid[cls_valid['chrom'] == 'MT'].groupby('CB')['_count'].sum().rename('MT_reads_count')
+        mito_chroms = ['MT', 'chrM', 'chrMT', 'mt', 'Mt']
+        mt = cls_valid[cls_valid['chrom'].isin(mito_chroms)].groupby('CB')['_count'].sum().rename('MT_reads_count')
         summary = summary.join(mt, how='left').fillna({'MT_reads_count': 0})
         summary['MT_perc'] = safe_prop(summary['MT_reads_count'], summary['total_reads'])
 
