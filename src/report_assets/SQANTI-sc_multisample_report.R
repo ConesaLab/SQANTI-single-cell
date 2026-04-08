@@ -22,11 +22,16 @@ suppressPackageStartupMessages({
 # Ensure RColorConesa is available; DO NOT install from GitHub to prevent HPC timeouts.
 if (!requireNamespace("RColorConesa", quietly = TRUE)) {
   message("[WARNING] RColorConesa not installed. Using fallback color palettes.")
+  get_conesa_fallback <- function(n) {
+    base_cols <- c("#15918A", "#F58A53", "#FDC659", "#74CDF0", "#FDA3D1", "#9F7BB8", "#EE446F")
+    if (n <= length(base_cols)) return(base_cols[1:n])
+    grDevices::colorRampPalette(base_cols)(n)
+  }
   scale_fill_conesa <- function(palette = "complete", drop = FALSE, ...) {
-    ggplot2::scale_fill_manual(values = c("#6BAED6", "#FC8D59", "#78C679", "#EE6A50", "#969696", "#66C2A4", "#FFD92F", "#E78AC3", "#A6D854", "#8DA0CB", "#E5C494", "#B3B3B3", "#8DD3C7", "#FFFFB3", "#BEBADA", "#FB8072", "#80B1D3", "#FDB462", "#B3DE69", "#FCCDE5"), drop = drop, ...)
+    ggplot2::discrete_scale("fill", "conesa_fallback", get_conesa_fallback, drop = drop, ...)
   }
   scale_color_conesa <- function(palette = "complete", drop = FALSE, ...) {
-    ggplot2::scale_color_manual(values = c("#6BAED6", "#FC8D59", "#78C679", "#EE6A50", "#969696", "#66C2A4", "#FFD92F", "#E78AC3", "#A6D854", "#8DA0CB", "#E5C494", "#B3B3B3", "#8DD3C7", "#FFFFB3", "#BEBADA", "#FB8072", "#80B1D3", "#FDB462", "#B3DE69", "#FCCDE5"), drop = drop, ...)
+    ggplot2::discrete_scale("colour", "conesa_fallback", get_conesa_fallback, drop = drop, ...)
   }
 } else {
   library(RColorConesa)
@@ -301,14 +306,21 @@ get_conesa_palette_colors <- function(n, palette = "complete") {
 
   if (is.null(col_vec) || length(col_vec) == 0) {
     fallback <- c(
-      "#6BAED6", "#FC8D59", "#78C679", "#EE6A50", "#969696",
-      "#66C2A4", "#FFD92F", "#E78AC3", "#A6D854", "#8DA0CB",
-      "#E5C494", "#B3B3B3"
+      "#15918A", "#F58A53", "#FDC659", "#74CDF0",
+      "#FDA3D1", "#9F7BB8", "#EE446F"
     )
-    col_vec <- fallback
+    if (n <= length(fallback)) {
+      return(fallback[1:n])
+    } else {
+      return(grDevices::colorRampPalette(fallback)(n))
+    }
   }
 
-  rep_len(col_vec, n)
+  if (n <= length(col_vec)) {
+    return(col_vec[1:n])
+  } else {
+    return(grDevices::colorRampPalette(col_vec)(n))
+  }
 }
 
 # Helper: build per-feature violin + boxplot for a PCA loading
