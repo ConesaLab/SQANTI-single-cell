@@ -516,6 +516,36 @@ The resulting `.h5ad` file contains:
 | `.var` | Gene/feature metadata |
 | `.uns["isoform_features"]` | Isoform-to-gene mapping (isoforms mode only) |
 
+## Regenerate multisample reports from existing outputs
+
+SQANTI-sc provides a standalone utility script (`scripts/generate_multisample_report.py`) to create multisample reports from previously generated per-sample outputs. This is useful when you want to compare only a subset of samples or conditions without rerunning the full pipeline.
+
+The script takes a tab-separated **FOFN** (File of File Names) listing one sample per line. The first column is the path to a `*_SQANTI_cell_summary.txt.gz` file (required). The second column is the path to a `*_classification.txt` file (optional, enables length distribution plots). Lines starting with `#` are ignored.
+
+**Example `multisample_inputs.txt`:**
+```text
+# cell_summary	classification
+/results/SRX123/pb_brain_SQANTI_cell_summary.txt.gz	/results/SRX123/pb_brain_classification.txt
+/results/SRX456/pb_lung_SQANTI_cell_summary.txt.gz	/results/SRX456/pb_lung_classification.txt
+/results/SRX789/pb_heart_SQANTI_cell_summary.txt.gz
+```
+
+```bash
+python scripts/generate_multisample_report.py \
+    --mode reads \
+    --fofn multisample_inputs.txt \
+    --report both \
+    -o ./multisample_output \
+    -p my_comparison
+```
+
+To compare a different subset of samples, simply edit the FOFN file.
+
+Notes:
+- At least 2 valid `*_SQANTI_cell_summary.txt.gz` files are required.
+- The classification column is optional, but providing at least 2 enables multisample length distribution plots.
+- The script reuses the same R multisample report generator used by `--multisample_report` in `sqanti_sc.py`.
+
 ## Citation
 
 If you are using SQANTI-single-cell, please cite:
