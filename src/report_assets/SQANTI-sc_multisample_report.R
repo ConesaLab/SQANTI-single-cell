@@ -492,32 +492,78 @@ main <- function() {
       median_umis = if ("UMIs_in_cell" %in% names(.)) median(UMIs_in_cell, na.rm = TRUE) else NA,
       median_genes = median(Genes_in_cell, na.rm = TRUE),
       median_annotated = median(Annotated_genes, na.rm = TRUE),
-      median_novel = median(Novel_genes, na.rm = TRUE),
-      median_ujc = if ("UJCs_in_cell" %in% names(.)) median(UJCs_in_cell, na.rm = TRUE) else NA,
-      median_mt = median(MT_perc, na.rm = TRUE)
+      median_ujc = if ("UJCs_in_cell" %in% names(.)) median(UJCs_in_cell, na.rm = TRUE) else NA
     )
+
+  # Compute per-sample length statistics from classification files (if available)
+  len_stats <- NULL
+  if (!is.null(params$class_files) && nzchar(params$class_files)) {
+    class_paths_tbl <- trimws(unlist(strsplit(params$class_files, ",", fixed = TRUE)))
+    class_paths_tbl <- class_paths_tbl[nchar(class_paths_tbl) > 0 & file.exists(class_paths_tbl)]
+    if (length(class_paths_tbl) >= 1) {
+      len_sel <- if (params$mode == "isoforms") c("length", "FL") else c("length")
+      len_tbl_dfs <- lapply(class_paths_tbl, function(f) {
+        df <- tryCatch(
+          data.table::fread(f, select = len_sel, header = TRUE, sep = "\t",
+                            stringsAsFactors = FALSE, data.table = FALSE),
+          error = function(e) NULL
+        )
+        if (is.null(df) || nrow(df) == 0) return(NULL)
+        df$length <- suppressWarnings(as.numeric(df$length))
+        df <- df[is.finite(df$length) & df$length > 0, , drop = FALSE]
+        sid <- sub("_classification\\.txt(\\.gz)?$", "", basename(f))
+        df$sampleID <- sid
+        df
+      })
+      len_tbl_all <- bind_rows(Filter(Negate(is.null), len_tbl_dfs))
+      if (nrow(len_tbl_all) > 0) {
+        if (params$mode == "isoforms" && "FL" %in% colnames(len_tbl_all)) {
+          len_tbl_all$FL <- suppressWarnings(as.integer(len_tbl_all$FL))
+          len_tbl_all$FL[is.na(len_tbl_all$FL) | len_tbl_all$FL < 1] <- 1L
+          len_tbl_all <- len_tbl_all[rep(seq_len(nrow(len_tbl_all)), len_tbl_all$FL), c("sampleID", "length")]
+        }
+        len_stats <- len_tbl_all %>%
+          group_by(sampleID) %>%
+          summarise(
+            median_length = median(length, na.rm = TRUE),
+            iqr_length = IQR(length, na.rm = TRUE),
+            .groups = "drop"
+          )
+      }
+    }
+  }
+  if (!is.null(len_stats)) {
+    per_sample_stats <- left_join(per_sample_stats, len_stats, by = "sampleID")
+  } else {
+    per_sample_stats$median_length <- NA_real_
+    per_sample_stats$iqr_length <- NA_real_
+  }
 
   entity_label_plural <- if (params$mode == "isoforms") "Transcripts" else "Reads"
 
   summary_tbl <- per_sample_stats %>%
-    mutate(across(where(is.numeric), ~ round(., 3))) %>%
+    mutate(across(where(is.numeric), ~ round(., 1))) %>%
     transmute(
       Sample = sampleID,
       `Cell\nBarcodes` = cells,
       `Median\nReads` = median_reads,
       `Median\nUMIs` = median_umis,
       `Median\nAnnotated\nGenes` = median_annotated,
-      `Median\nNovel\nGenes` = median_novel,
       `Median\nUJCs` = median_ujc,
-      `Median\nMitochondrial\nReads` = median_mt
+      `Median\nLength\n(bp)` = median_length,
+      `Length\nIQR\n(bp)` = iqr_length
     )
 
   # Rename columns dynamically
   colnames(summary_tbl)[colnames(summary_tbl) == "Median\nReads"] <- paste0("Median\n", entity_label_plural)
-  colnames(summary_tbl)[colnames(summary_tbl) == "Median\nMitochondrial\nReads"] <- paste0("Median\nMitochondrial\n", entity_label_plural)
 
   if (params$mode == "isoforms") {
     summary_tbl <- summary_tbl %>% select(-`Median\nUMIs`, -`Median\nUJCs`)
+  }
+
+  # Drop length columns if no classification files were provided
+  if (all(is.na(summary_tbl$`Median\nLength\n(bp)`))) {
+    summary_tbl <- summary_tbl %>% select(-`Median\nLength\n(bp)`, -`Length\nIQR\n(bp)`)
   }
 
   summary_tbl_html <- summary_tbl
