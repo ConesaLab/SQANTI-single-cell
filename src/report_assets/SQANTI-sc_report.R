@@ -224,18 +224,12 @@ build_violin_plot <- function(df_long,
     df_long <- df_long[is.finite(df_long$Value) & df_long$Value > 0, , drop = FALSE]
   }
 
-  # Compute robust bandwidth for KDE
-  vals <- df_long$Value[is.finite(df_long$Value)]
-  bw_eff <- if (length(vals) >= 2) stats::bw.nrd0(vals) * adjust else 0.1
-  if (is.na(bw_eff) || bw_eff <= 0) bw_eff <- 0.1
-
   p <- ggplot(df_long, aes(x = Variable, y = Value)) +
-    # Violin layer with outline rule
     {
       if (isTRUE(violin_outline_fill)) {
-        geom_violin(aes(fill = Variable, color = Variable), alpha = violin_alpha, scale = "width", show.legend = legend, bw = bw_eff, trim = TRUE)
+        geom_violin(aes(fill = Variable, color = Variable), alpha = violin_alpha, scale = "width", show.legend = legend, adjust = adjust, trim = TRUE)
       } else {
-        geom_violin(aes(fill = Variable), color = "black", alpha = violin_alpha, scale = "width", show.legend = legend, bw = bw_eff, trim = TRUE)
+        geom_violin(aes(fill = Variable), color = "black", alpha = violin_alpha, scale = "width", show.legend = legend, adjust = adjust, trim = TRUE)
       }
     } +
     scale_fill_manual(values = fill_map, labels = x_labels) +
@@ -440,7 +434,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
                 df_sub$Cluster <- factor(df_sub$Cluster, levels = unique_clusters)
                 ggplot(df_sub, aes(x = Cluster, y = length_num, fill = Cluster)) +
                   geom_violin(aes(color = Cluster), alpha = 0.7, scale = "width",
-                              adjust = 1.2, trim = TRUE, show.legend = FALSE) +
+                              adjust = 1, trim = TRUE, show.legend = FALSE) +
                   scale_color_manual(values = colors, guide = "none") +
                   geom_boxplot(width = 0.05, alpha = 0.5, outlier.shape = NA,
                                color = "grey20", show.legend = FALSE) +
@@ -771,18 +765,13 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # Clamp values to ylim range
     df$value <- pmin(pmax(df$value, ylim[1]), ylim[2])
 
-    # Shared bandwidth
-    valid_vals <- df$value[is.finite(df$value)]
-    bw_eff <- if (length(valid_vals) >= 2) stats::bw.nrd0(valid_vals) else 0.1
-    if (is.na(bw_eff) || bw_eff <= 0) bw_eff <- 0.1
-
     p <- ggplot(df, aes(x = bin, y = value, fill = group)) +
       geom_violin(aes(color = group),
         alpha = violin_alpha,
         position = position_dodge(width = dodge_width),
         scale = "width",
         trim = TRUE,
-        bw = bw_eff,
+        adjust = 1,
         linewidth = 0.3,
         show.legend = TRUE
       ) +
@@ -1143,7 +1132,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     plot_subtitle <- if (mode == "isoforms") "Reference transcriptome vs. Sample transcriptome" else "Reference transcriptome vs. Sample reads"
 
     p <- ggplot(plot_df, aes(x = Dataset, y = length, fill = Dataset)) +
-      geom_violin(aes(color = Dataset), alpha = 0.7, scale = "width", adjust = 1.5, trim = TRUE, show.legend = FALSE) +
+      geom_violin(aes(color = Dataset), alpha = 0.7, scale = "width", adjust = 1, trim = TRUE, show.legend = FALSE) +
       scale_color_manual(values = pal, guide = "none") +
       geom_boxplot(width = 0.05, alpha = 0.6, outlier.shape = NA, color = "grey20", show.legend = FALSE) +
       stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1, show.legend = FALSE) +
@@ -1279,7 +1268,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     violin_outline_fill = FALSE,
     box_outline_default = "black",
     log_scale = TRUE,
-    adjust = 1.5
+    adjust = 1
   )
 
   # 1. Number of Reads Across Cells
