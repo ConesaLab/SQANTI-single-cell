@@ -211,12 +211,17 @@ build_violin_plot <- function(df_long,
                               violin_outline_fill = FALSE,
                               box_outline_default = "grey20",
                               adjust = 1,
+                              log_scale = FALSE,
                               ...) {
   # Clamp values for percentage / count plots
   if (grepl("%", y_label)) {
     df_long$Value <- pmin(pmax(df_long$Value, 0), 100)
   } else if (grepl("count", y_label, ignore.case = TRUE)) {
     df_long$Value <- pmax(df_long$Value, 0)
+  }
+
+  if (isTRUE(log_scale)) {
+    df_long <- df_long[is.finite(df_long$Value) & df_long$Value > 0, , drop = FALSE]
   }
 
   # Compute robust bandwidth for KDE
@@ -264,6 +269,10 @@ build_violin_plot <- function(df_long,
 
   if (!is.null(ylim)) {
     p <- p + coord_cartesian(ylim = ylim)
+  }
+
+  if (isTRUE(log_scale)) {
+    p <- p + scale_y_log10(labels = scales::comma)
   }
 
   return(p)
@@ -1269,6 +1278,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     box_width = 0.05,
     violin_outline_fill = FALSE,
     box_outline_default = "black",
+    log_scale = TRUE,
     adjust = 1.5
   )
 
@@ -1338,7 +1348,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     x_labels = c("Annotated Genes", "Novel Genes"),
     y_label = paste(entity_label_plural, ", counts", sep = ""),
     fill_map = c("Annotated_genes" = fill_color_orange, "Novel_genes" = fill_color_orange),
-    plot_args = pivot_defaults
+    plot_args = c(pivot_defaults, list(log_scale = TRUE))
   ))
 
   if ("Genes_in_cell" %in% colnames(SQANTI_cell_summary)) {
@@ -1836,21 +1846,26 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   }
 
   # Bulk distributions
-  gg_bulk_all_reads <<- ggplot(Classification_file, aes(x = length)) +
-    geom_histogram(binwidth = 50, fill = "#CC6633", color = "black", alpha = 0.5) +
+  bulk_len_breaks <- c(50, 100, 250, 500, 1000, 2000, 5000, 10000, 20000, 50000)
+
+  gg_bulk_all_reads <<- ggplot(Classification_file[Classification_file$length > 0, ], aes(x = length)) +
+    geom_histogram(bins = 80, fill = "#CC6633", color = "black", alpha = 0.5) +
+    scale_x_log10(breaks = bulk_len_breaks, labels = scales::comma) +
+    annotation_logticks(sides = "b") +
+    coord_cartesian(clip = "off") +
     labs(
       title = paste("All", entity_label, "Lengths Distribution"),
-      x = paste(entity_label, "length"),
+      x = paste(entity_label, "length (bp)"),
       y = paste(entity_label_plural, ", counts", sep = "")
     ) +
     theme_classic() +
     theme(
       legend.position = "none",
       plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-      plot.margin = margin(t = 40, r = 5, b = 5, l = 5, unit = "pt"),
+      plot.margin = margin(t = 40, r = 20, b = 5, l = 5, unit = "pt"),
       axis.title = element_text(size = 16),
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16)
+      axis.text.x = element_text(size = 14, angle = 35, hjust = 1)
     )
 
   # Bulk read length distribution by structural category
@@ -1897,30 +1912,29 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     levels = names(structural_category_palette)
   )
 
-  gg_bulk_length_by_category <<- ggplot(Classification_file, aes(x = length, color = structural_category_pretty)) +
-    geom_freqpoly(binwidth = 100, linewidth = 1.2, na.rm = TRUE) +
+  gg_bulk_length_by_category <<- ggplot(Classification_file[Classification_file$length > 0, ], aes(x = length, color = structural_category_pretty)) +
+    geom_freqpoly(bins = 80, linewidth = 1.2, na.rm = TRUE) +
     labs(
       title = paste("All", entity_label, "Lengths Distribution by Structural Category"),
-      x = paste(entity_label, "length"),
+      x = paste(entity_label, "length (bp)"),
       y = paste(entity_label_plural, ", counts", sep = ""),
       color = NULL
     ) +
     theme_classic(base_size = 16) +
     scale_color_manual(values = structural_category_palette, drop = FALSE) +
-    scale_x_continuous(
-      breaks = scales::pretty_breaks(n = 8),
-      labels = scales::comma
-    ) +
+    scale_x_log10(breaks = bulk_len_breaks, labels = scales::comma) +
+    annotation_logticks(sides = "b") +
+    coord_cartesian(clip = "off") +
     theme(
       legend.position = "bottom",
       legend.title = element_blank(),
       legend.key.size = unit(0.8, "cm"),
       legend.text = element_text(size = 12),
       plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-      plot.margin = margin(t = 40, r = 5, b = 5, l = 5, unit = "pt"),
+      plot.margin = margin(t = 40, r = 20, b = 5, l = 5, unit = "pt"),
       axis.title = element_text(size = 16),
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16)
+      axis.text.x = element_text(size = 14, angle = 35, hjust = 1)
     ) +
     guides(color = guide_legend(nrow = 2))
 
@@ -1928,13 +1942,13 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   Classification_file$exons <- as.numeric(Classification_file$exons)
 
   gg_bulk_length_by_exon_type <<- ggplot(
-    Classification_file,
+    Classification_file[Classification_file$length > 0, ],
     aes(x = length, color = ifelse(exons == 1, "Mono-Exon", "Multi-Exon"))
   ) +
-    geom_freqpoly(binwidth = 100, linewidth = 1.2, na.rm = TRUE) +
+    geom_freqpoly(bins = 80, linewidth = 1.2, na.rm = TRUE) +
     labs(
       title = paste("Mono- vs Multi- Exon", entity_label, "Lengths Distribution"),
-      x = paste(entity_label, "length"),
+      x = paste(entity_label, "length (bp)"),
       y = paste(entity_label_plural, ", counts", sep = ""),
       color = NULL
     ) +
@@ -1942,20 +1956,19 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     scale_color_manual(
       values = c("Multi-Exon" = "#3B0057", "Mono-Exon" = "#FFE44C")
     ) +
-    scale_x_continuous(
-      breaks = scales::pretty_breaks(n = 8),
-      labels = scales::comma
-    ) +
+    scale_x_log10(breaks = bulk_len_breaks, labels = scales::comma) +
+    annotation_logticks(sides = "b") +
+    coord_cartesian(clip = "off") +
     theme(
       legend.position = "bottom",
       legend.title = element_blank(),
       legend.key.size = unit(1, "cm"),
       legend.text = element_text(size = 14),
       plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-      plot.margin = margin(t = 40, r = 5, b = 5, l = 5, unit = "pt"),
+      plot.margin = margin(t = 40, r = 20, b = 5, l = 5, unit = "pt"),
       axis.title = element_text(size = 16),
       axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 16)
+      axis.text.x = element_text(size = 14, angle = 35, hjust = 1)
     )
 
   # Cell-level length distributions (all + mono)
