@@ -341,8 +341,12 @@ build_loading_feature_plot <- function(multi, feature_info, sample_levels) {
     return(NULL)
   }
   info <- infer_feature_metadata(feature_name, plot_df$value)
+  use_log <- (info$unit == "count")
   if (info$scale_to_percent) {
     plot_df <- plot_df %>% mutate(value = value * 100)
+  }
+  if (use_log) {
+    plot_df <- plot_df %>% filter(value > 0)
   }
   if (length(sample_levels) == 0) {
     sample_levels <- unique(plot_df$sampleID)
@@ -386,12 +390,16 @@ build_loading_feature_plot <- function(multi, feature_info, sample_levels) {
       axis.text.x = element_text(size = 13, angle = 35, hjust = 1),
       axis.text.y = element_text(size = 13)
     )
+  if (use_log) {
+    gp <- gp + scale_y_log10(labels = scales::comma)
+  }
   return(gp)
 }
 
 # Reusable helper: violin + boxplot comparing a single metric across samples
 build_sample_comparison_plot <- function(data, col_name, title, y_label,
-                                         sample_levels, scale_percent = FALSE) {
+                                         sample_levels, scale_percent = FALSE,
+                                         log_scale = FALSE) {
   if (!col_name %in% colnames(data)) return(NULL)
   plot_df <- data %>%
     select(sampleID, value = all_of(col_name)) %>%
@@ -399,6 +407,7 @@ build_sample_comparison_plot <- function(data, col_name, title, y_label,
     filter(is.finite(value))
   if (nrow(plot_df) == 0) return(NULL)
   if (scale_percent) plot_df$value <- plot_df$value * 100
+  if (isTRUE(log_scale)) plot_df <- plot_df %>% filter(value > 0)
   plot_df$sampleID <- factor(plot_df$sampleID, levels = sample_levels)
 
   uniqueness <- plot_df %>%
@@ -425,6 +434,9 @@ build_sample_comparison_plot <- function(data, col_name, title, y_label,
       axis.text.x = element_text(size = 13, angle = 35, hjust = 1),
       axis.text.y = element_text(size = 13)
     )
+  if (isTRUE(log_scale)) {
+    gp <- gp + scale_y_log10(labels = scales::comma)
+  }
   gp
 }
 
@@ -521,13 +533,13 @@ main <- function() {
   # -------- Per-Cell Library Size plots --------
   library_size_specs <- list()
   library_size_specs[[paste0(entity_label_plural, " per Cell")]] <- list(
-    col = count_col, y = paste0(entity_label_plural, ", count")
+    col = count_col, y = paste0(entity_label_plural, ", count"), log = TRUE
   )
   if (params$mode == "reads" && "UMIs_in_cell" %in% colnames(multi)) {
-    library_size_specs[["UMIs per Cell"]] <- list(col = "UMIs_in_cell", y = "UMIs, count")
+    library_size_specs[["UMIs per Cell"]] <- list(col = "UMIs_in_cell", y = "UMIs, count", log = TRUE)
   }
   if ("Genes_in_cell" %in% colnames(multi)) {
-    library_size_specs[["Genes per Cell"]] <- list(col = "Genes_in_cell", y = "Genes, count")
+    library_size_specs[["Genes per Cell"]] <- list(col = "Genes_in_cell", y = "Genes, count", log = TRUE)
   }
   if ("MT_perc" %in% colnames(multi)) {
     library_size_specs[["Mitochondrial % per Cell"]] <- list(
@@ -543,7 +555,8 @@ main <- function() {
       title = paste0("Per Sample ", nm, " Distribution"),
       y_label = spec$y,
       sample_levels = sample_levels_global,
-      scale_percent = isTRUE(spec$scale_pct)
+      scale_percent = isTRUE(spec$scale_pct),
+      log_scale = isTRUE(spec$log)
     )
     if (!is.null(gp)) multi_library_size_plots[[nm]] <- gp
   }
@@ -554,10 +567,10 @@ main <- function() {
   # -------- Gene Characterization plots --------
   gene_char_specs <- list()
   if ("Annotated_genes" %in% colnames(multi)) {
-    gene_char_specs[["Annotated Genes per Cell"]] <- list(col = "Annotated_genes", y = "Genes, count")
+    gene_char_specs[["Annotated Genes per Cell"]] <- list(col = "Annotated_genes", y = "Genes, count", log = TRUE)
   }
   if (params$mode == "reads" && "UJCs_in_cell" %in% colnames(multi)) {
-    gene_char_specs[["UJCs per Cell"]] <- list(col = "UJCs_in_cell", y = "UJCs, count")
+    gene_char_specs[["UJCs per Cell"]] <- list(col = "UJCs_in_cell", y = "UJCs, count", log = TRUE)
   }
 
   multi_gene_char_plots <- list()
@@ -567,7 +580,8 @@ main <- function() {
       multi, spec$col,
       title = paste0("Per Sample ", nm, " Distribution"),
       y_label = spec$y,
-      sample_levels = sample_levels_global
+      sample_levels = sample_levels_global,
+      log_scale = isTRUE(spec$log)
     )
     if (!is.null(gp)) multi_gene_char_plots[[nm]] <- gp
   }
@@ -621,6 +635,12 @@ main <- function() {
                        colour = "red", stroke = 0.45) +
           scale_fill_conesa(palette = "complete", drop = FALSE) +
           scale_color_conesa(palette = "complete", guide = "none", drop = FALSE) +
+          scale_y_log10(
+            breaks = c(50, 100, 250, 500, 1000, 2000, 5000, 10000, 20000, 50000),
+            labels = scales::comma
+          ) +
+          annotation_logticks(sides = "l") +
+          coord_cartesian(clip = "off") +
           labs(
             title = paste0("Per Sample ", entity_label_plural, " Length Distribution"),
             x = "Sample", y = "Length, bp"
@@ -631,7 +651,8 @@ main <- function() {
             plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
             axis.title = element_text(size = 15),
             axis.text.x = element_text(size = 13, angle = 35, hjust = 1),
-            axis.text.y = element_text(size = 13)
+            axis.text.y = element_text(size = 13),
+            plot.margin = margin(t = 5, r = 5, b = 5, l = 10, unit = "pt")
           )
         multi_length_distribution_plot_local <- gp_len
         assign("multi_length_distribution_plot", gp_len, envir = .GlobalEnv)
