@@ -445,8 +445,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
                   labs(
                     title = title_str,
                     x     = "Cluster",
-                    y     = if (mode == "isoforms") paste(entity_label_plural, "Length (bp, log10)")
-                             else "Feature Length (bp, log10)"
+                    y     = "Length, bp"
                   ) +
                   theme_classic(base_size = 11) +
                   theme(
@@ -902,8 +901,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     keep_cols <- c(
       required_cols,
-      if ("count" %in% colnames(cls_df)) "count",
-      if ("structural_category" %in% colnames(cls_df)) "structural_category"
+      if ("count" %in% colnames(cls_df)) "count"
     )
     df <- cls_df[, keep_cols, drop = FALSE]
     for (col in required_cols) df[[col]] <- suppressWarnings(as.numeric(df[[col]]))
@@ -915,59 +913,13 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       return(NULL)
     }
 
-    # Compute coverage fractions (fraction of ref body covered by each read)
-    # diff_to_TSS: positive = read starts upstream of ref TSS, negative = downstream
-    # diff_to_TTS: positive = read ends downstream of ref TTS, negative = upstream
-    #
-    # For FSM: diffs are within terminal exons, so genomic = transcript space.
-    #          Use exact formula: start = -diff_to_TSS / ref_length
-    # For ISM: diffs may cross introns, so genomic >> transcript space.
-    #          Use length/ref_length ratio + sign-based positioning:
-    #          - 5' only truncated:  covers (1-ratio) to 1
-    #          - 3' only truncated:  covers 0 to ratio
-    #          - Both truncated:     use genomic ratio to split the gap (approximation)
-    is_fsm <- !is.na(df$structural_category) & df$structural_category == "full-splice_match"
-    cov_ratio <- pmin(1, df$length / df$ref_length)
-
-    # FSM: exact formula (diffs within terminal exons = transcript space)
-    df$start_frac <- ifelse(is_fsm,
-      pmax(0, pmin(1, -df$diff_to_TSS / df$ref_length)),
-      NA_real_
-    )
-    df$end_frac <- ifelse(is_fsm,
-      pmax(0, pmin(1, 1 + df$diff_to_TTS / df$ref_length)),
-      NA_real_
-    )
-
-    # ISM: sign-based positioning with length/ref_length ratio
-    is_ism <- !is_fsm
-    tss_neg <- df$diff_to_TSS < 0 # 5' truncated
-    tts_neg <- df$diff_to_TTS < 0 # 3' truncated
-
-    # ISM: only 3' truncated (starts at ref TSS, ends early)
-    idx <- is_ism & !tss_neg & tts_neg
-    df$start_frac[idx] <- 0
-    df$end_frac[idx] <- cov_ratio[idx]
-
-    # ISM: only 5' truncated (starts late, ends at ref TTS)
-    idx <- is_ism & tss_neg & !tts_neg
-    df$start_frac[idx] <- 1 - cov_ratio[idx]
-    df$end_frac[idx] <- 1
-
-    # ISM: both truncated — use genomic ratio to distribute the gap
-    idx <- is_ism & tss_neg & tts_neg
-    total_gap <- pmax(0, df$ref_length[idx] - df$length[idx])
-    abs_tss <- abs(df$diff_to_TSS[idx])
-    abs_tts <- abs(df$diff_to_TTS[idx])
-    genomic_total <- abs_tss + abs_tts
-    five_prime_share <- ifelse(genomic_total > 0, abs_tss / genomic_total, 0.5)
-    df$start_frac[idx] <- pmin(1, total_gap * five_prime_share / df$ref_length[idx])
-    df$end_frac[idx] <- pmin(1, df$start_frac[idx] + cov_ratio[idx])
-
-    # ISM: neither truncated (rare, but handle: full coverage)
-    idx <- is_ism & !tss_neg & !tts_neg
-    df$start_frac[idx] <- 0
-    df$end_frac[idx] <- pmin(1, cov_ratio[idx])
+    # Compute coverage fractions (fraction of ref body covered by each read).
+    # diff_to_TSS/diff_to_TTS are now transcript-level (spliced) distances from
+    # SQANTI3, so the same formula applies to both FSM and ISM:
+    #   start_frac = -diff_to_TSS / ref_length   (positive diff = upstream overshoot)
+    #   end_frac   = 1 + diff_to_TTS / ref_length (negative diff = early termination)
+    df$start_frac <- pmax(0, pmin(1, -df$diff_to_TSS / df$ref_length))
+    df$end_frac   <- pmax(0, pmin(1, 1 + df$diff_to_TTS / df$ref_length))
 
     # Safety: keep only rows where end > start
     df <- df[df$end_frac > df$start_frac, ]
@@ -1128,7 +1080,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     dataset_levels <- c("Reference Transcriptome", sample_label)
     plot_df$Dataset <- factor(plot_df$Dataset, levels = dataset_levels)
     pal <- setNames(c("#1fa291", "#f5c05d"), dataset_levels)
-    y_axis_label <- if (mode == "isoforms") paste(entity_label_plural, "Length (bp, log10)") else "Feature Length (bp, log10)"
+    y_axis_label <- "Length, bp"
     plot_subtitle <- if (mode == "isoforms") "Reference transcriptome vs. Sample transcriptome" else "Reference transcriptome vs. Sample reads"
 
     p <- ggplot(plot_df, aes(x = Dataset, y = length, fill = Dataset)) +
@@ -1335,7 +1287,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     columns = c("Annotated_genes", "Novel_genes"),
     title = "Number of Known/Novel Genes Across Cells",
     x_labels = c("Annotated Genes", "Novel Genes"),
-    y_label = paste(entity_label_plural, ", counts", sep = ""),
+    y_label = paste(entity_label_plural, ", count", sep = ""),
     fill_map = c("Annotated_genes" = fill_color_orange, "Novel_genes" = fill_color_orange),
     plot_args = c(pivot_defaults, list(log_scale = TRUE))
   ))
@@ -1844,8 +1796,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     coord_cartesian(clip = "off") +
     labs(
       title = paste("All", entity_label, "Lengths Distribution"),
-      x = paste(entity_label, "length (bp)"),
-      y = paste(entity_label_plural, ", counts", sep = "")
+      x = "Length, bp",
+      y = paste(entity_label_plural, ", count", sep = "")
     ) +
     theme_classic() +
     theme(
@@ -1905,8 +1857,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     geom_freqpoly(bins = 80, linewidth = 1.2, na.rm = TRUE) +
     labs(
       title = paste("All", entity_label, "Lengths Distribution by Structural Category"),
-      x = paste(entity_label, "length (bp)"),
-      y = paste(entity_label_plural, ", counts", sep = ""),
+      x = "Length, bp",
+      y = paste(entity_label_plural, ", count", sep = ""),
       color = NULL
     ) +
     theme_classic(base_size = 16) +
@@ -1937,8 +1889,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     geom_freqpoly(bins = 80, linewidth = 1.2, na.rm = TRUE) +
     labs(
       title = paste("Mono- vs Multi- Exon", entity_label, "Lengths Distribution"),
-      x = paste(entity_label, "length (bp)"),
-      y = paste(entity_label_plural, ", counts", sep = ""),
+      x = "Length, bp",
+      y = paste(entity_label_plural, ", count", sep = ""),
       color = NULL
     ) +
     theme_classic(base_size = 16) +
@@ -2355,7 +2307,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # Determine which bad feature columns are actually present in SQANTI_cell_summary
   # This implicitly handles include_ORF, as NMD_prop_in_cell won't be in SQANTI_cell_summary if include_ORF is FALSE
   bad_feature_cols_present <- intersect(names(all_bad_features_map), colnames(SQANTI_cell_summary))
-  bad_feature_cols_present <- bad_feature_cols_present[sapply(bad_feature_cols_present, function(col) any(!is.na(SQANTI_cell_summary[[col]])) && sum(SQANTI_cell_summary[[col]], na.rm = TRUE) > 0)] # keep only if data exists
+  bad_feature_cols_present <- bad_feature_cols_present[sapply(bad_feature_cols_present, function(col) any(!is.na(SQANTI_cell_summary[[col]])))]
 
   # Order them as originally intended, if present
   ordered_bad_feature_cols <- c("Intrapriming_prop_in_cell", "RTS_prop_in_cell", "Non_canonical_prop_in_cell", "NMD_prop_in_cell")
@@ -2909,10 +2861,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     p3 <- p_novel_canon_by_category + theme(axis.text.x = element_blank(), axis.title.x = element_blank(), axis.ticks.x = element_blank())
     p4 <- p_novel_noncanon_by_category # Keep x-axis for bottom plot
 
-    # Create the static stack
     gg_sj_type_by_category_stack <<- gridExtra::arrangeGrob(
       p1, p2, p3, p4,
       ncol = 1,
+      heights = unit(c(1, 1, 1, 1.25), "null"),
       top = textGrob("Splice Junctions Distribution by Structural Category Across Cells", gp = gpar(fontsize = 18, fontface = "bold"))
     )
   }
@@ -2998,56 +2950,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       box_outline_default = "grey20"
     )
 
-    # Unique-junction RTS plot: only meaningful in reads mode.
-    # In isoforms mode with FL weighting, grouping by junction position and summing FL
-    # gives the same total as "All Junctions", making this figure redundant.
-    if (mode != "isoforms") {
-      # Build a robust unique junction label if possible
-      if (!("junctionLabel" %in% colnames(junc_rt))) {
-        if (all(c("chrom", "strand", "genomic_start_coord", "genomic_end_coord") %in% colnames(junc_rt))) {
-          junc_rt$junctionLabel <- with(junc_rt, paste(chrom, strand, genomic_start_coord, genomic_end_coord, sep = "_"))
-        } else if (all(c("chrom", "strand", "genomic_start", "genomic_end") %in% colnames(junc_rt))) {
-          junc_rt$junctionLabel <- with(junc_rt, paste(chrom, strand, genomic_start, genomic_end, sep = "_"))
-        } else if ("junction_id" %in% colnames(junc_rt)) {
-          junc_rt$junctionLabel <- junc_rt$junction_id
-        } else {
-          # Fallback to row index within CB as unique proxy
-          junc_rt$junctionLabel <- paste0("jl_", seq_len(nrow(junc_rt)))
-        }
-      }
-
-      # Per-cell percentages for UNIQUE junctions (deduplicate by genomic coordinates per cell & SJ type).
-      # "Unique" means: count each distinct junction site once per cell, regardless of FL count.
-      # The FL-weighted explode already gave us per-cell rows, so junctionLabel dedup collapses duplicates.
-      uniq_junc_by_cell <- junc_rt %>%
-        group_by(CB, SJ_type, junctionLabel) %>%
-        summarise(rts_any = any(RTS_bool, na.rm = TRUE), .groups = "drop") %>%
-        group_by(CB, SJ_type) %>%
-        summarise(total = dplyr::n(), rts = sum(rts_any), .groups = "drop") %>%
-        mutate(perc = ifelse(total > 0, 100 * rts / total, NA_real_)) %>%
-        tidyr::complete(CB, SJ_type = sj_levels)
-
-      df_long_uniq <- data.frame(
-        Variable = factor(uniq_junc_by_cell$SJ_type, levels = sj_levels),
-        Value = uniq_junc_by_cell$perc
-      )
-
-      gg_rts_unique_by_sjtype <<- build_violin_plot(
-        df_long = df_long_uniq,
-        title = "RT-switching Unique Junctions by Splice Junction Type Across Cells",
-        x_labels = sj_labels,
-        fill_map = sj_fill_map,
-        y_label = "Junctions, %",
-        legend = FALSE,
-        ylim = c(0, 100),
-        violin_alpha = 0.7,
-        box_alpha = 0.3,
-        box_width = 0.05,
-        x_tickangle = 45,
-        violin_outline_fill = TRUE,
-        box_outline_default = "grey20"
-      )
-    }
   } else {
     message("RTS_junction column not found in Junctions. Skipping RT-switching by SJ type plots.")
   }
@@ -3812,7 +3714,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     print(p_novel_noncan)
     render_pdf_plot("gg_allcanon_by_category")
     if (exists("gg_rts_all_by_sjtype")) render_pdf_plot("gg_rts_all_by_sjtype")
-    if (exists("gg_rts_unique_by_sjtype")) render_pdf_plot("gg_rts_unique_by_sjtype")
 
     # Features of Bad Quality section
     section_page("Features of Bad Quality")
