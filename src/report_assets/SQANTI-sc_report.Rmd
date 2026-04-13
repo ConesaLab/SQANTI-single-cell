@@ -561,7 +561,6 @@ if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") 
     setupDropdown("monoexon-length-dropdown");
     // New dropdowns for unified SJ characterization section
     setupDropdown("sjchar-dist-dropdown");
-    setupDropdown("sjchar-rts-dropdown");
     // New section dropdowns
     setupDropdown("readdist-dropdown");
     setupDropdown("exoncounts-dropdown");
@@ -1033,7 +1032,7 @@ if (exists("gg_genic_intron_read_distr")) {
 
 <div id="monoexon-length-all" class="toggle-pane" style="display:block;">
 
-```{r monoexon-length-all-plot, fig.height=8, fig.width=10}
+```{r monoexon-length-all-plot, fig.height=8, fig.width=12}
 if (exists("gg_read_distr_mono")) {
   print(gg_read_distr_mono)
 }
@@ -1043,7 +1042,7 @@ if (exists("gg_read_distr_mono")) {
 
 <div id="monoexon-length-fsm" class="toggle-pane hidden-pane" style="display:block;">
 
-```{r monoexon-length-fsm-plot, fig.height=8, fig.width=10}
+```{r monoexon-length-fsm-plot, fig.height=8, fig.width=12}
 if (exists("gg_FSM_mono_read_distr")) {
   print(gg_FSM_mono_read_distr)
 }
@@ -1053,7 +1052,7 @@ if (exists("gg_FSM_mono_read_distr")) {
 
 <div id="monoexon-length-ism" class="toggle-pane hidden-pane" style="display:block;">
 
-```{r monoexon-length-ism-plot, fig.height=8, fig.width=10}
+```{r monoexon-length-ism-plot, fig.height=8, fig.width=12}
 if (exists("gg_ISM_mono_read_distr")) {
   print(gg_ISM_mono_read_distr)
 }
@@ -1063,7 +1062,7 @@ if (exists("gg_ISM_mono_read_distr")) {
 
 <div id="monoexon-length-nic" class="toggle-pane hidden-pane" style="display:block;">
 
-```{r monoexon-length-nic-plot, fig.height=8, fig.width=10}
+```{r monoexon-length-nic-plot, fig.height=8, fig.width=12}
 if (exists("gg_NIC_mono_read_distr")) {
   print(gg_NIC_mono_read_distr)
 }
@@ -1073,7 +1072,7 @@ if (exists("gg_NIC_mono_read_distr")) {
 
 <div id="monoexon-length-genic" class="toggle-pane hidden-pane" style="display:block;">
 
-```{r monoexon-length-genic-plot, fig.height=8, fig.width=10}
+```{r monoexon-length-genic-plot, fig.height=8, fig.width=12}
 if (exists("gg_genic_mono_read_distr")) {
   print(gg_genic_mono_read_distr)
 }
@@ -1083,7 +1082,7 @@ if (exists("gg_genic_mono_read_distr")) {
 
 <div id="monoexon-length-antisense" class="toggle-pane hidden-pane" style="display:block;">
 
-```{r monoexon-length-antisense-plot, fig.height=8, fig.width=10}
+```{r monoexon-length-antisense-plot, fig.height=8, fig.width=12}
 if (exists("gg_antisense_mono_read_distr")) {
   print(gg_antisense_mono_read_distr)
 }
@@ -1093,7 +1092,7 @@ if (exists("gg_antisense_mono_read_distr")) {
 
 <div id="monoexon-length-intergenic" class="toggle-pane hidden-pane" style="display:block;">
 
-```{r monoexon-length-intergenic-plot, fig.height=8, fig.width=10}
+```{r monoexon-length-intergenic-plot, fig.height=8, fig.width=12}
 if (exists("gg_intergenic_mono_read_distr")) {
   print(gg_intergenic_mono_read_distr)
 }
@@ -1103,7 +1102,7 @@ if (exists("gg_intergenic_mono_read_distr")) {
 
 <div id="monoexon-length-genicintron" class="toggle-pane hidden-pane" style="display:block;">
 
-```{r monoexon-length-genicintron-plot, fig.height=8, fig.width=10}
+```{r monoexon-length-genicintron-plot, fig.height=8, fig.width=12}
 if (exists("gg_genic_intron_mono_read_distr")) {
   print(gg_genic_intron_mono_read_distr)
 }
@@ -1151,7 +1150,7 @@ if (exists("gg_meta_transcript_coverage") && !is.null(gg_meta_transcript_coverag
 
 ## Reference Transcriptome
 
-```{r isoforms-ref-lengths-plot, fig.height=8, fig.width=10}
+```{r isoforms-ref-lengths-plot, fig.height=8, fig.width=12}
 if (exists("gg_isoforms_ref_vs_sample_lengths") && !is.null(gg_isoforms_ref_vs_sample_lengths)) {
   print(gg_isoforms_ref_vs_sample_lengths)
 }
@@ -1520,37 +1519,9 @@ if (exists("gg_allcanon_by_category")) {
 
 ## RT-switching
 
-```{r sjchar-rts-section, results='asis'}
-if (exists("mode") && mode == "isoforms") {
-  # Isoforms mode: only one figure, show directly without dropdown
-  cat("\n")
-} else {
-  # Reads mode: show full two-option dropdown
-  htmltools::HTML(paste0(
-    '<div id="sjchar-rts-dropdown" class="dropdown-toolbar">\n',
-    '  <div class="btn-group">\n',
-    '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
-    '      <span class="label">RT-Switching All Junctions</span> <span class="caret"></span>\n',
-    '    </button>\n',
-    '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
-    '      <li><a href="#" data-target="#sj-rts-all">RT-Switching All Junctions</a></li>\n',
-    '      <li><a href="#" data-target="#sj-rts-uniq">RT-Switching Unique Junctions</a></li>\n',
-    '    </ul>\n',
-    '  </div>\n',
-    '</div>\n'
-  ))
-}
-```
-
 ```{r sj-rts-all, fig.height=8, fig.width=12}
 if (exists("gg_rts_all_by_sjtype")) {
   print(gg_rts_all_by_sjtype)
-}
-```
-
-```{r sj-rts-uniq, fig.height=8, fig.width=12, eval=(!exists('mode') || mode != 'isoforms')}
-if (exists("gg_rts_unique_by_sjtype")) {
-  print(gg_rts_unique_by_sjtype)
 }
 ```
 
@@ -1566,61 +1537,67 @@ if (exists("gg_bad_feature")) {
 
 ## Across Structural Categories
 
-```{=html}
-<div id="badq-across-dropdown" class="dropdown-toolbar">
-  <div class="btn-group">
-    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-      <span class="label">Intra-Priming</span> <span class="caret"></span>
-    </button>
-    <ul class="dropdown-menu dropdown-menu-right" role="menu">
-      <li><a href="#" data-target="#badfeatures-intrapriming">% Intra-priming</a></li>
-      <li><a href="#" data-target="#badfeatures-rts">% RT-Switching</a></li>
-      <li><a href="#" data-target="#badfeatures-noncanon">% Non-Canonical</a></li>
-      <li><a href="#" data-target="#badfeatures-nmd">% Predicted NMD</a></li>
-    </ul>
-  </div>
-</div>
+```{r render-badq-dropdown, echo=FALSE, results='asis'}
+badq_features <- list(
+  list(id = "badfeatures-intrapriming", label = "% Intra-priming", obj = "gg_intrapriming_by_category"),
+  list(id = "badfeatures-rts", label = "% RT-Switching", obj = "gg_RTS_by_category"),
+  list(id = "badfeatures-noncanon", label = "% Non-Canonical", obj = "gg_noncanon_by_category"),
+  list(id = "badfeatures-nmd", label = "% Predicted NMD", obj = "gg_nmd_by_category")
+)
+badq_available <- Filter(function(f) exists(f$obj), badq_features)
+
+if (length(badq_available) > 0) {
+  default_label <- badq_available[[1]]$label
+  dropdown_items <- paste0(
+    '      <li><a href="#" data-target="#', sapply(badq_available, `[[`, "id"),
+    '">', sapply(badq_available, `[[`, "label"), '</a></li>'
+  )
+  cat(paste0(
+    '<div id="badq-across-dropdown" class="dropdown-toolbar">\n',
+    '  <div class="btn-group">\n',
+    '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
+    '      <span class="label">', default_label, '</span> <span class="caret"></span>\n',
+    '    </button>\n',
+    '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
+    paste(dropdown_items, collapse = "\n"), '\n',
+    '    </ul>\n',
+    '  </div>\n',
+    '</div>\n'
+  ))
+}
 ```
 
-<div id="badfeatures-intrapriming" class="toggle-pane" style="display:block;">
-
-```{r badfeatures-intrapriming, fig.height=8, fig.width=12}
+```{r badfeatures-intrapriming, fig.height=8, fig.width=12, results='asis'}
 if (exists("gg_intrapriming_by_category")) {
+  cat('<div id="badfeatures-intrapriming" class="toggle-pane" style="display:block;">\n')
   print(gg_intrapriming_by_category)
+  cat('\n</div>\n')
 }
 ```
 
-</div>
-
-<div id="badfeatures-rts" class="toggle-pane hidden-pane" style="display:block;">
-
-```{r badfeatures-rts, fig.height=8, fig.width=12}
+```{r badfeatures-rts, fig.height=8, fig.width=12, results='asis'}
 if (exists("gg_RTS_by_category")) {
+  cat('<div id="badfeatures-rts" class="toggle-pane hidden-pane" style="display:block;">\n')
   print(gg_RTS_by_category)
+  cat('\n</div>\n')
 }
 ```
 
-</div>
-
-<div id="badfeatures-noncanon" class="toggle-pane hidden-pane" style="display:block;">
-
-```{r badfeatures-noncanon, fig.height=8, fig.width=12}
+```{r badfeatures-noncanon, fig.height=8, fig.width=12, results='asis'}
 if (exists("gg_noncanon_by_category")) {
+  cat('<div id="badfeatures-noncanon" class="toggle-pane hidden-pane" style="display:block;">\n')
   print(gg_noncanon_by_category)
+  cat('\n</div>\n')
 }
 ```
 
-</div>
-
-<div id="badfeatures-nmd" class="toggle-pane hidden-pane" style="display:block;">
-
-```{r badfeatures-nmd, fig.height=8, fig.width=12}
+```{r badfeatures-nmd, fig.height=8, fig.width=12, results='asis'}
 if (exists("gg_nmd_by_category")) {
+  cat('<div id="badfeatures-nmd" class="toggle-pane hidden-pane" style="display:block;">\n')
   print(gg_nmd_by_category)
+  cat('\n</div>\n')
 }
 ```
-
-</div>
 
 # Features of Good Quality {.tabset .tabset-fade}
 
