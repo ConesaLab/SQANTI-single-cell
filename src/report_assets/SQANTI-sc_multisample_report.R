@@ -838,13 +838,26 @@ main <- function() {
 
   multi_pca_loading_distribution_plots_local <- list()
 
-  # -------- PCA (all numeric features, per-sample medians) --------
-  # 1) Select all numeric columns from the cell summary
+  # -------- PCA (all numeric features present in every sample, per-sample medians) --------
+  # 1) Select numeric columns from the merged summary.
   num_cols <- names(multi)[sapply(multi, function(x) is.numeric(x) && !all(is.na(x)))]
-  # 2) Aggregate per-sample medians across all numeric features
+  # 2) Keep only features present in all original sample summaries.
+  # Missing columns can reflect different run flags rather than true zero values,
+  # so they are excluded from cross-sample PCA comparisons.
+  common_cols <- if (length(lst) >= 1) Reduce(intersect, lapply(lst, colnames)) else character(0)
+  pca_cols <- intersect(num_cols, common_cols)
+  excluded_cols <- setdiff(num_cols, pca_cols)
+  if (length(excluded_cols) > 0) {
+    message(sprintf(
+      "[INFO] Excluding %d numeric feature(s) from PCA because they are not present in all samples: %s",
+      length(excluded_cols),
+      paste(sort(excluded_cols), collapse = ", ")
+    ))
+  }
+  # 3) Aggregate per-sample medians across retained numeric features
   agg_median <- multi %>%
     group_by(sampleID) %>%
-    summarise(across(all_of(num_cols), ~ median(., na.rm = TRUE)), .groups = "drop")
+    summarise(across(all_of(pca_cols), ~ median(., na.rm = TRUE)), .groups = "drop")
 
   if (nrow(agg_median) >= 2 && ncol(agg_median) >= 2) {
     # 3) Drop features with zero variance across samples
