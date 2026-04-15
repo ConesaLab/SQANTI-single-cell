@@ -2304,10 +2304,16 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     "NMD_prop_in_cell" = list(label = "Predicted NMD", color = "#969696")
   )
 
-  # Determine which bad feature columns are actually present in SQANTI_cell_summary
-  # This implicitly handles include_ORF, as NMD_prop_in_cell won't be in SQANTI_cell_summary if include_ORF is FALSE
+  # Determine which bad feature columns are actually present in SQANTI_cell_summary.
+  # RTS/intrapriming/non-canonical are shown even when all-zero (0 detected is informative).
+  # NMD requires at least one non-zero value: all-zero means --include_ORF was not passed
+  # and the column carries no real information.
   bad_feature_cols_present <- intersect(names(all_bad_features_map), colnames(SQANTI_cell_summary))
-  bad_feature_cols_present <- bad_feature_cols_present[sapply(bad_feature_cols_present, function(col) any(!is.na(SQANTI_cell_summary[[col]])))]
+  bad_feature_cols_present <- bad_feature_cols_present[sapply(bad_feature_cols_present, function(col) {
+    if (!any(!is.na(SQANTI_cell_summary[[col]]))) return(FALSE)
+    if (col == "NMD_prop_in_cell") return(sum(SQANTI_cell_summary[[col]], na.rm = TRUE) > 0)
+    return(TRUE)
+  })]
 
   # Order them as originally intended, if present
   ordered_bad_feature_cols <- c("Intrapriming_prop_in_cell", "RTS_prop_in_cell", "Non_canonical_prop_in_cell", "NMD_prop_in_cell")
