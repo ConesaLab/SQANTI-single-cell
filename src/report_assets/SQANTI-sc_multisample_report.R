@@ -909,6 +909,16 @@ main <- function() {
     group_by(sampleID) %>%
     summarise(across(all_of(pca_cols), ~ median(., na.rm = TRUE)), .groups = "drop")
 
+  # Write the per-sample feature medians table so users can inspect / reuse PCA input
+  medians_out <- file.path(out_dir, paste0(params$prefix, "_pca_feature_medians.tsv"))
+  tryCatch(
+    {
+      write.table(agg_median, file = medians_out, sep = "\t", row.names = FALSE, quote = FALSE)
+      message(sprintf("[INFO] PCA feature medians written to: %s", medians_out))
+    },
+    error = function(e) message(sprintf("[WARNING] Could not write PCA feature medians: %s", e$message))
+  )
+
   if (nrow(agg_median) >= 2 && ncol(agg_median) >= 2) {
     # 3) Drop features with zero variance across samples
     feat_sds <- sapply(agg_median %>% select(-sampleID), function(x) stats::sd(x, na.rm = TRUE))
