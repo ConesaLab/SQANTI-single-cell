@@ -40,13 +40,18 @@ if (!requireNamespace("RColorConesa", quietly = TRUE)) {
 parse_args <- function() {
   args <- commandArgs(trailingOnly = TRUE)
   # Simple flag parser: expects --key value pairs, and a single string for --files (comma-separated)
-  res <- list(files = NULL, class_files = NULL, out_dir = ".", mode = "reads", report = "pdf", prefix = "SQANTI_sc_multi_report")
+  res <- list(
+    files = NULL, class_files = NULL, out_dir = ".", mode = "reads",
+    report = "pdf", prefix = "SQANTI_sc_multi_report",
+    color_group = NULL, shape_group = NULL, shade_group = NULL
+  )
   i <- 1
   while (i <= length(args)) {
     key <- args[i]
     if (startsWith(key, "--")) {
       k <- substring(key, 3)
-      if (k %in% c("files", "class_files", "out_dir", "mode", "report", "prefix")) {
+      if (k %in% c("files", "class_files", "out_dir", "mode", "report", "prefix",
+                    "color_group", "shape_group", "shade_group")) {
         if (i + 1 <= length(args)) {
           res[[k]] <- args[i + 1]
           i <- i + 2
@@ -68,6 +73,27 @@ parse_args <- function() {
     stop("--report must be one of: pdf, html, both")
   }
   res
+}
+
+# Helper: lighten a hex color toward white by a given amount (0 = unchanged, 1 = white)
+lighten_hex <- function(hex, amount) {
+  rgb_vals <- grDevices::col2rgb(hex) / 255
+  new_rgb  <- rgb_vals + amount * (1 - rgb_vals)
+  grDevices::rgb(new_rgb[1, ], new_rgb[2, ], new_rgb[3, ])
+}
+
+# Helper: parse a comma-separated group vector from a CLI arg; returns NULL if absent/mismatched
+parse_group_vec <- function(param_val, n_files) {
+  if (is.null(param_val) || !nzchar(param_val)) return(NULL)
+  vec <- trimws(unlist(strsplit(param_val, ",", fixed = TRUE)))
+  if (length(vec) != n_files) {
+    message(sprintf(
+      "[WARNING] Group vector length (%d) does not match number of files (%d). Ignoring.",
+      length(vec), n_files
+    ))
+    return(NULL)
+  }
+  vec
 }
 
 safe_read_summary <- function(fpath) {
@@ -451,13 +477,35 @@ main <- function() {
     quit(status = 0)
   }
 
-  # Read all summaries
-  lst <- lapply(files, safe_read_summary)
-  lst <- Filter(Negate(is.null), lst)
+  # Derive sample IDs from filenames before loading (needed to align group vectors)
+  all_sample_ids <- sub("_SQANTI_cell_summary\\.txt(\\.gz)?$", "", basename(files))
+
+  # Parse optional group vectors (parallel to files)
+  color_groups_vec <- parse_group_vec(params$color_group, length(files))
+  shape_groups_vec <- parse_group_vec(params$shape_group, length(files))
+  shade_groups_vec  <- parse_group_vec(params$shade_group,  length(files))
+
+  # Read all summaries, tracking which files loaded successfully
+  raw_lst <- lapply(files, safe_read_summary)
+  valid_mask <- !sapply(raw_lst, is.null)
+  lst <- raw_lst[valid_mask]
+
+  # Apply the same mask to sample IDs and group vectors
+  all_sample_ids   <- all_sample_ids[valid_mask]
+  if (!is.null(color_groups_vec)) color_groups_vec <- color_groups_vec[valid_mask]
+  if (!is.null(shape_groups_vec)) shape_groups_vec <- shape_groups_vec[valid_mask]
+  if (!is.null(shade_groups_vec))  shade_groups_vec  <- shade_groups_vec[valid_mask]
+
   if (length(lst) < 2) {
     message("[INFO] Fewer than 2 valid summaries after reading. Skipping.")
     quit(status = 0)
   }
+
+  # Build sample group map for PCA annotation
+  sample_group_map <- data.frame(sampleID = all_sample_ids, stringsAsFactors = FALSE)
+  if (!is.null(color_groups_vec)) sample_group_map$color_group <- color_groups_vec
+  if (!is.null(shape_groups_vec)) sample_group_map$shape_group <- shape_groups_vec
+  if (!is.null(shade_groups_vec))  sample_group_map$shade_group  <- shade_groups_vec
 
   # Harmonize columns: union of all names; fill missing with 0 for numeric, "" otherwise
   all_cols <- Reduce(union, lapply(lst, colnames))
@@ -546,19 +594,19 @@ main <- function() {
     transmute(
       Sample = sampleID,
       `Cell\nBarcodes` = cells,
-      `Median\nReads` = median_reads,
-      `Median\nUMIs` = median_umis,
-      `Median\nAnnotated\nGenes` = median_annotated,
-      `Median\nUJCs` = median_ujc,
+      `Median\nReads/Cell` = median_reads,
+      `Median\nUMIs/Cell` = median_umis,
+      `Median Annotated\nGenes/Cell` = median_annotated,
+      `Median\nUJCs/Cell` = median_ujc,
       `Median\nLength\n(bp)` = median_length,
       `Length\nIQR\n(bp)` = iqr_length
     )
 
-  # Rename columns dynamically
-  colnames(summary_tbl)[colnames(summary_tbl) == "Median\nReads"] <- paste0("Median\n", entity_label_plural)
+  # Rename reads/transcripts column dynamically to match the mode
+  colnames(summary_tbl)[colnames(summary_tbl) == "Median\nReads/Cell"] <- paste0("Median\n", entity_label_plural, "/Cell")
 
   if (params$mode == "isoforms") {
-    summary_tbl <- summary_tbl %>% select(-`Median\nUMIs`, -`Median\nUJCs`)
+    summary_tbl <- summary_tbl %>% select(-`Median\nUMIs/Cell`, -`Median\nUJCs/Cell`)
   }
 
   # Drop length columns if no classification files were provided
@@ -832,19 +880,44 @@ main <- function() {
 
   multi_pca_scores_plot_local <- NULL
 
+  multi_pca_group_plot_local <- NULL
+
   multi_pca_scree_plot_local <- NULL
 
   multi_pca_top_loadings_plots_local <- NULL
 
   multi_pca_loading_distribution_plots_local <- list()
 
-  # -------- PCA (all numeric features, per-sample medians) --------
-  # 1) Select all numeric columns from the cell summary
+  # -------- PCA (all numeric features present in every sample, per-sample medians) --------
+  # 1) Select numeric columns from the merged summary.
   num_cols <- names(multi)[sapply(multi, function(x) is.numeric(x) && !all(is.na(x)))]
-  # 2) Aggregate per-sample medians across all numeric features
+  # 2) Keep only features present in all original sample summaries.
+  # Missing columns can reflect different run flags rather than true zero values,
+  # so they are excluded from cross-sample PCA comparisons.
+  common_cols <- if (length(lst) >= 1) Reduce(intersect, lapply(lst, colnames)) else character(0)
+  pca_cols <- intersect(num_cols, common_cols)
+  excluded_cols <- setdiff(num_cols, pca_cols)
+  if (length(excluded_cols) > 0) {
+    message(sprintf(
+      "[INFO] Excluding %d numeric feature(s) from PCA because they are not present in all samples: %s",
+      length(excluded_cols),
+      paste(sort(excluded_cols), collapse = ", ")
+    ))
+  }
+  # 3) Aggregate per-sample medians across retained numeric features
   agg_median <- multi %>%
     group_by(sampleID) %>%
-    summarise(across(all_of(num_cols), ~ median(., na.rm = TRUE)), .groups = "drop")
+    summarise(across(all_of(pca_cols), ~ median(., na.rm = TRUE)), .groups = "drop")
+
+  # Write the per-sample feature medians table so users can inspect / reuse PCA input
+  medians_out <- file.path(out_dir, paste0(params$prefix, "_pca_feature_medians.tsv"))
+  tryCatch(
+    {
+      write.table(agg_median, file = medians_out, sep = "\t", row.names = FALSE, quote = FALSE)
+      message(sprintf("[INFO] PCA feature medians written to: %s", medians_out))
+    },
+    error = function(e) message(sprintf("[WARNING] Could not write PCA feature medians: %s", e$message))
+  )
 
   if (nrow(agg_median) >= 2 && ncol(agg_median) >= 2) {
     # 3) Drop features with zero variance across samples
@@ -862,7 +935,7 @@ main <- function() {
         scores <- as.data.frame(pca_fit$x)
         scores$sampleID <- rownames(scores)
         gp_scores <- ggplot(scores, aes(x = PC1, y = PC2, colour = sampleID, label = sampleID)) +
-          geom_point(size = 3.8, alpha = 0.95, shape = 19, stroke = 0) +
+          geom_point(size = 4.5, alpha = 0.95, shape = 19, stroke = 0) +
           scale_color_conesa(palette = "complete") +
           theme_classic(base_size = 14) +
           labs(
@@ -886,6 +959,139 @@ main <- function() {
           guides(colour = guide_legend(override.aes = list(size = 5, alpha = 0.95, stroke = 0)))
         multi_pca_scores_plot_local <- gp_scores
         assign("multi_pca_scores_plot", gp_scores, envir = .GlobalEnv)
+
+        # A2) Group-annotated PCA (only when group columns are present)
+        has_color_grp <- "color_group" %in% colnames(sample_group_map) &&
+                         any(nzchar(sample_group_map$color_group))
+        has_shape_grp <- "shape_group" %in% colnames(sample_group_map) &&
+                         any(nzchar(sample_group_map$shape_group))
+        has_shade_grp <- "shade_group"  %in% colnames(sample_group_map) &&
+                         any(nzchar(sample_group_map$shade_group))
+
+        if (has_color_grp || has_shape_grp || has_shade_grp) {
+          scores_grp <- dplyr::left_join(scores, sample_group_map, by = "sampleID")
+
+          # If color_group was not supplied, use a single placeholder so that
+          # color_is_trivial = TRUE fires and suppresses the uninformative legend.
+          if (!has_color_grp) scores_grp$color_group <- "group"
+
+          unique_color_vals <- sort(unique(scores_grp$color_group))
+          n_color_vals      <- length(unique_color_vals)
+          base_hues         <- get_conesa_palette_colors(n_color_vals)
+          names(base_hues)  <- unique_color_vals
+
+          shape_palette <- c(19L, 17L, 15L, 18L, 8L, 10L, 13L)
+
+          pca_x_label <- sprintf("PC1 (%.1f%%)", 100 * var_expl[1])
+          pca_y_label <- sprintf("PC2 (%.1f%%)", 100 * var_expl[2])
+
+          pca_group_theme <- list(
+            theme_classic(base_size = 14),
+            scale_x_continuous(labels = function(x) sprintf("%.2f", x)),
+            scale_y_continuous(labels = function(x) sprintf("%.2f", x)),
+            labs(title = "PCA Plot — Group Annotation",
+                 x = pca_x_label, y = pca_y_label),
+            theme(
+              legend.position  = "bottom",
+              legend.text      = element_text(size = 12),
+              legend.key       = element_blank(),
+              legend.margin    = margin(t = 12),
+              plot.title       = element_text(size = 18, face = "bold", hjust = 0.5),
+              axis.title       = element_text(size = 15),
+              axis.text.x      = element_text(size = 13),
+              axis.text.y      = element_text(size = 13)
+            )
+          )
+
+          # When color_group has only 1 unique value the colour channel carries no
+          # information: suppress its legend so only the informative channels show.
+          color_is_trivial <- (n_color_vals == 1)
+          color_guide <- guide_legend(override.aes = list(size = 5, shape = 15, stroke = 0))
+
+          if (has_shade_grp) {
+            shade_levels    <- sort(unique(scores_grp$shade_group))
+            n_shades        <- length(shade_levels)
+            lighten_amounts <- seq(0.45, 0, length.out = n_shades)
+
+            if (color_is_trivial) {
+              # Shade alone distinguishes — drop the colour prefix from legend keys
+              color_map <- setNames(
+                vapply(lighten_amounts, function(a) lighten_hex(base_hues[[1]], a), character(1)),
+                shade_levels
+              )
+              scores_grp$color_shade_key <- factor(scores_grp$shade_group, levels = shade_levels)
+              color_scale <- scale_colour_manual(values = color_map, name = "Shade group", drop = FALSE)
+            } else {
+              color_map <- character(0)
+              for (cg in unique_color_vals) {
+                for (si in seq_along(shade_levels)) {
+                  key <- paste(cg, shade_levels[si], sep = " | ")
+                  color_map[key] <- lighten_hex(base_hues[[cg]], lighten_amounts[si])
+                }
+              }
+              legend_key_order <- unlist(lapply(unique_color_vals, function(cg) {
+                paste(cg, shade_levels, sep = " | ")
+              }))
+              scores_grp$color_shade_key <- factor(
+                paste(scores_grp$color_group, scores_grp$shade_group, sep = " | "),
+                levels = legend_key_order
+              )
+              color_scale <- scale_colour_manual(values = color_map, name = "Group | Shade",
+                                                 drop = FALSE)
+            }
+
+            if (has_shape_grp) {
+              unique_shape_vals <- sort(unique(scores_grp$shape_group))
+              shape_map <- setNames(shape_palette[seq_len(min(length(unique_shape_vals), length(shape_palette)))],
+                                    unique_shape_vals)
+              scores_grp$shape_group <- factor(scores_grp$shape_group, levels = unique_shape_vals)
+              gp_grp <- ggplot(scores_grp,
+                aes(x = PC1, y = PC2, colour = color_shade_key, shape = shape_group)) +
+                geom_point(size = 4.5, alpha = 0.95, stroke = 0.5) +
+                color_scale +
+                scale_shape_manual(values = shape_map, name = "Shape group") +
+                guides(colour = color_guide,
+                       shape  = guide_legend(override.aes = list(size = 5, colour = "grey20")))
+            } else {
+              gp_grp <- ggplot(scores_grp,
+                aes(x = PC1, y = PC2, colour = color_shade_key)) +
+                geom_point(size = 4.5, alpha = 0.95, shape = 19L, stroke = 0) +
+                color_scale +
+                guides(colour = color_guide)
+            }
+
+          } else {
+            # No shade — plain hues only
+            scores_grp$color_group <- factor(scores_grp$color_group, levels = unique_color_vals)
+            color_scale <- scale_colour_manual(values = base_hues, name = "Color group", drop = FALSE)
+
+            if (has_shape_grp) {
+              unique_shape_vals <- sort(unique(scores_grp$shape_group))
+              shape_map <- setNames(shape_palette[seq_len(min(length(unique_shape_vals), length(shape_palette)))],
+                                    unique_shape_vals)
+              scores_grp$shape_group <- factor(scores_grp$shape_group, levels = unique_shape_vals)
+              gp_grp <- ggplot(scores_grp,
+                aes(x = PC1, y = PC2, colour = color_group, shape = shape_group)) +
+                geom_point(size = 4.5, alpha = 0.95, stroke = 0.5) +
+                color_scale +
+                scale_shape_manual(values = shape_map, name = "Shape group") +
+                guides(
+                  colour = if (color_is_trivial) "none" else color_guide,
+                  shape  = guide_legend(override.aes = list(size = 5, colour = "grey20"))
+                )
+            } else {
+              gp_grp <- ggplot(scores_grp,
+                aes(x = PC1, y = PC2, colour = color_group)) +
+                geom_point(size = 4.5, alpha = 0.95, shape = 19L, stroke = 0) +
+                color_scale +
+                guides(colour = if (color_is_trivial) "none" else color_guide)
+            }
+          }
+
+          gp_grp <- Reduce(`+`, c(list(gp_grp), pca_group_theme))
+          multi_pca_group_plot_local <- gp_grp
+          assign("multi_pca_group_plot", gp_grp, envir = .GlobalEnv)
+        }
 
       }
 
@@ -1038,6 +1244,9 @@ main <- function() {
 
     if (!is.null(multi_pca_scores_plot_local)) {
       print(multi_pca_scores_plot_local)
+    }
+    if (!is.null(multi_pca_group_plot_local)) {
+      print(multi_pca_group_plot_local)
     }
     if (!is.null(multi_pca_scree_plot_local)) {
       print(multi_pca_scree_plot_local)

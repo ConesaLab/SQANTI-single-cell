@@ -69,6 +69,14 @@ def generate_multisample_report(args, df):
 
     cell_summaries = []
     class_files = []
+    color_groups = []
+    shape_groups = []
+    shade_groups = []
+
+    has_color_col = 'color_group' in df.columns
+    has_shape_col = 'shape_group' in df.columns
+    has_shade_col = 'shade_group' in df.columns
+
     for _, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
@@ -76,6 +84,12 @@ def generate_multisample_report(args, df):
         cell_summary = f"{outputPathPrefix}_SQANTI_cell_summary.txt.gz"
         if os.path.isfile(cell_summary):
             cell_summaries.append(os.path.abspath(cell_summary))
+            if has_color_col:
+                color_groups.append(str(row.get('color_group', '')))
+            if has_shape_col:
+                shape_groups.append(str(row.get('shape_group', '')))
+            if has_shade_col:
+                shade_groups.append(str(row.get('shade_group', '')))
         else:
             print(f"[INFO] Cell summary not found for {file_acc} ({sampleID}). Skipping this sample.",
                   file=sys.stdout)
@@ -99,11 +113,19 @@ def generate_multisample_report(args, df):
     if len(class_files) >= 2:
         class_files_flag = f' --class_files "{",".join(class_files)}"'
 
+    group_flags = ""
+    if color_groups and any(v for v in color_groups):
+        group_flags += f' --color_group "{",".join(color_groups)}"'
+    if shape_groups and any(v for v in shape_groups):
+        group_flags += f' --shape_group "{",".join(shape_groups)}"'
+    if shade_groups and any(v for v in shade_groups):
+        group_flags += f' --shade_group "{",".join(shade_groups)}"'
+
     cmd = (
         f"Rscript {reportAssetsPath}/SQANTI-sc_multisample_report.R "
         f"--files \"{files_arg}\" --out_dir \"{out_dir}\" "
         f"--mode {mode} --report {report_fmt} --prefix \"{prefix}\""
-        f"{class_files_flag}"
+        f"{class_files_flag}{group_flags}"
     )
 
     print("**** Generating multisample SQANTI-sc report...", file=sys.stdout)

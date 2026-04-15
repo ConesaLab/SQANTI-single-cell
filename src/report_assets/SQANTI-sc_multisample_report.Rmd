@@ -21,14 +21,14 @@ library(dplyr)
 library(htmltools)
 ```
 
-# Samples Per-Cell Summary
+# Samples Summary
 
 ```{r summary-table}
 if (exists("multi_summary_tbl_html", envir = .GlobalEnv)) {
   summary_tbl <- get("multi_summary_tbl_html", envir = .GlobalEnv)
   knitr::kable(summary_tbl, format = "html", escape = FALSE, align = "c")
 } else {
-  cat("No Samples Per-Cell Summary table available.")
+  cat("No Samples Summary table available.")
 }
 ```
 
@@ -300,17 +300,60 @@ if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
 
 ## PCA Plot
 
-<div id="pca-scores" class="pca-pane">
-
-```{r pca-scores, fig.width=12, fig.height=8}
-if (exists("multi_pca_scores_plot", envir = .GlobalEnv)) {
-  print(get("multi_pca_scores_plot", envir = .GlobalEnv))
-} else {
-  cat("PCA score plot is not available.")
+```{r pca-scores-dropdown}
+if (exists("multi_pca_group_plot", envir = .GlobalEnv)) {
+  htmltools::HTML(paste0(
+    '<div id="pca-sample-group-dropdown" class="dropdown-toolbar">\n',
+    '  <div class="btn-group">\n',
+    '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
+    '      <span class="label">By Sample</span> <span class="caret"></span>\n',
+    '    </button>\n',
+    '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
+    '      <li><a href="#" data-target="#pca-plot-by-sample">By Sample</a></li>\n',
+    '      <li><a href="#" data-target="#pca-plot-by-group">By Group</a></li>\n',
+    '    </ul>\n',
+    '  </div>\n',
+    '</div>\n'
+  ))
 }
 ```
 
-</div>
+```{r pca-plot-panes, results='asis'}
+if (exists("multi_pca_group_plot", envir = .GlobalEnv)) {
+  res1 <- knitr::knit_child(text = c(
+    '<div id="pca-plot-by-sample" class="toggle-pane" style="display:block;">',
+    '',
+    '```{r pca-by-sample-inner, fig.width=12, fig.height=8, echo=FALSE, warning=FALSE, message=FALSE}',
+    'if (exists("multi_pca_scores_plot", envir = .GlobalEnv)) {',
+    '  print(get("multi_pca_scores_plot", envir = .GlobalEnv))',
+    '} else { cat("PCA score plot is not available.") }',
+    '```',
+    '',
+    '</div>'
+  ), envir = globalenv(), quiet = TRUE)
+  cat(res1, sep = '\n')
+
+  res2 <- knitr::knit_child(text = c(
+    '<div id="pca-plot-by-group" class="toggle-pane hidden-pane" style="display:none;">',
+    '',
+    '```{r pca-by-group-inner, fig.width=12, fig.height=8, echo=FALSE, warning=FALSE, message=FALSE}',
+    'print(get("multi_pca_group_plot", envir = .GlobalEnv))',
+    '```',
+    '',
+    '</div>'
+  ), envir = globalenv(), quiet = TRUE)
+  cat(res2, sep = '\n')
+} else {
+  res <- knitr::knit_child(text = c(
+    '```{r pca-scores-plain, fig.width=12, fig.height=8, echo=FALSE, warning=FALSE, message=FALSE}',
+    'if (exists("multi_pca_scores_plot", envir = .GlobalEnv)) {',
+    '  print(get("multi_pca_scores_plot", envir = .GlobalEnv))',
+    '} else { cat("PCA score plot is not available.") }',
+    '```'
+  ), envir = globalenv(), quiet = TRUE)
+  cat(res, sep = '\n')
+}
+```
 
 ## Scree Plot
 
@@ -482,6 +525,7 @@ if (exists("multi_pca_loading_distribution_plots", envir = .GlobalEnv)) {
     setupDropdown("libsize-dropdown");
     setupDropdown("genechar-dropdown");
     setupDropdown("structcat-dropdown");
+    setupDropdown("pca-sample-group-dropdown");
     setupDropdown("pcaload-dropdown");
     setupDropdown("pcafeat-dropdown");
   });
