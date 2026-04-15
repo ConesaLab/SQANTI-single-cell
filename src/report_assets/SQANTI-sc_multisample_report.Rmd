@@ -21,14 +21,14 @@ library(dplyr)
 library(htmltools)
 ```
 
-# Samples Per-Cell Summary
+# Samples Summary
 
 ```{r summary-table}
 if (exists("multi_summary_tbl_html", envir = .GlobalEnv)) {
   summary_tbl <- get("multi_summary_tbl_html", envir = .GlobalEnv)
   knitr::kable(summary_tbl, format = "html", escape = FALSE, align = "c")
 } else {
-  cat("No Samples Per-Cell Summary table available.")
+  cat("No Samples Summary table available.")
 }
 ```
 

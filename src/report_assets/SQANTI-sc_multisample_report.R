@@ -594,19 +594,19 @@ main <- function() {
     transmute(
       Sample = sampleID,
       `Cell\nBarcodes` = cells,
-      `Median\nReads` = median_reads,
-      `Median\nUMIs` = median_umis,
-      `Median\nAnnotated\nGenes` = median_annotated,
-      `Median\nUJCs` = median_ujc,
+      `Median\nReads/Cell` = median_reads,
+      `Median\nUMIs/Cell` = median_umis,
+      `Median Annotated\nGenes/Cell` = median_annotated,
+      `Median\nUJCs/Cell` = median_ujc,
       `Median\nLength\n(bp)` = median_length,
       `Length\nIQR\n(bp)` = iqr_length
     )
 
-  # Rename columns dynamically
-  colnames(summary_tbl)[colnames(summary_tbl) == "Median\nReads"] <- paste0("Median\n", entity_label_plural)
+  # Rename reads/transcripts column dynamically to match the mode
+  colnames(summary_tbl)[colnames(summary_tbl) == "Median\nReads/Cell"] <- paste0("Median\n", entity_label_plural, "/Cell")
 
   if (params$mode == "isoforms") {
-    summary_tbl <- summary_tbl %>% select(-`Median\nUMIs`, -`Median\nUJCs`)
+    summary_tbl <- summary_tbl %>% select(-`Median\nUMIs/Cell`, -`Median\nUJCs/Cell`)
   }
 
   # Drop length columns if no classification files were provided
