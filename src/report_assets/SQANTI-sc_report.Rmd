@@ -1537,65 +1537,50 @@ if (exists("gg_bad_feature")) {
 
 ## Across Structural Categories
 
-```{r render-badq-dropdown, echo=FALSE, results='asis'}
+```{r render-badq-dropdown, echo=FALSE}
 badq_features <- list(
-  list(id = "badfeatures-intrapriming", label = "% Intra-priming", obj = "gg_intrapriming_by_category"),
-  list(id = "badfeatures-rts", label = "% RT-Switching", obj = "gg_RTS_by_category"),
-  list(id = "badfeatures-noncanon", label = "% Non-Canonical", obj = "gg_noncanon_by_category"),
-  list(id = "badfeatures-nmd", label = "% Predicted NMD", obj = "gg_nmd_by_category")
+  list(id = "badfeatures-intrapriming", label = "% Intra-priming",  obj = "gg_intrapriming_by_category"),
+  list(id = "badfeatures-rts",          label = "% RT-Switching",   obj = "gg_RTS_by_category"),
+  list(id = "badfeatures-noncanon",     label = "% Non-Canonical",  obj = "gg_noncanon_by_category"),
+  list(id = "badfeatures-nmd",          label = "% Predicted NMD",  obj = "gg_NMD_by_category")
 )
 badq_available <- Filter(function(f) exists(f$obj), badq_features)
 
 if (length(badq_available) > 0) {
   default_label <- badq_available[[1]]$label
-  dropdown_items <- paste0(
-    '      <li><a href="#" data-target="#', sapply(badq_available, `[[`, "id"),
-    '">', sapply(badq_available, `[[`, "label"), '</a></li>'
-  )
-  cat(paste0(
-    '<div id="badq-across-dropdown" class="dropdown-toolbar">\n',
-    '  <div class="btn-group">\n',
-    '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
-    '      <span class="label">', default_label, '</span> <span class="caret"></span>\n',
-    '    </button>\n',
-    '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
-    paste(dropdown_items, collapse = "\n"), '\n',
-    '    </ul>\n',
-    '  </div>\n',
-    '</div>\n'
+  items_html <- paste(sapply(badq_available, function(f) {
+    sprintf('<li><a href="#" data-target="#%s">%s</a></li>', f$id, htmltools::htmlEscape(f$label))
+  }), collapse = "\n")
+  htmltools::HTML(paste0(
+    '<div id="badq-across-dropdown" class="dropdown-toolbar">',
+    '<div class="btn-group">',
+    '<button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">',
+    '<span class="label">', htmltools::htmlEscape(default_label), '</span> <span class="caret"></span>',
+    '</button>',
+    '<ul class="dropdown-menu dropdown-menu-right" role="menu">',
+    items_html,
+    '</ul></div></div>'
   ))
 }
 ```
 
-```{r badfeatures-intrapriming, fig.height=8, fig.width=12, results='asis'}
-if (exists("gg_intrapriming_by_category")) {
-  cat('<div id="badfeatures-intrapriming" class="toggle-pane" style="display:block;">\n')
-  print(gg_intrapriming_by_category)
-  cat('\n</div>\n')
-}
-```
-
-```{r badfeatures-rts, fig.height=8, fig.width=12, results='asis'}
-if (exists("gg_RTS_by_category")) {
-  cat('<div id="badfeatures-rts" class="toggle-pane hidden-pane" style="display:block;">\n')
-  print(gg_RTS_by_category)
-  cat('\n</div>\n')
-}
-```
-
-```{r badfeatures-noncanon, fig.height=8, fig.width=12, results='asis'}
-if (exists("gg_noncanon_by_category")) {
-  cat('<div id="badfeatures-noncanon" class="toggle-pane hidden-pane" style="display:block;">\n')
-  print(gg_noncanon_by_category)
-  cat('\n</div>\n')
-}
-```
-
-```{r badfeatures-nmd, fig.height=8, fig.width=12, results='asis'}
-if (exists("gg_nmd_by_category")) {
-  cat('<div id="badfeatures-nmd" class="toggle-pane hidden-pane" style="display:block;">\n')
-  print(gg_nmd_by_category)
-  cat('\n</div>\n')
+```{r badfeatures-intrapriming-panes, results='asis'}
+first_badq <- TRUE
+for (f in badq_features) {
+  if (!exists(f$obj)) next
+  css_class <- if (first_badq) "toggle-pane" else "toggle-pane hidden-pane"
+  css_style <- if (first_badq) "display:block;" else "display:none;"
+  first_badq <- FALSE
+  res <- knitr::knit_child(text = c(
+    sprintf('<div id="%s" class="%s" style="%s">', f$id, css_class, css_style),
+    '',
+    sprintf('```{r %s-plot, fig.height=8, fig.width=12, echo=FALSE, warning=FALSE, message=FALSE}', f$id),
+    sprintf('print(get("%s"))', f$obj),
+    '```',
+    '',
+    '</div>'
+  ), envir = globalenv(), quiet = TRUE)
+  cat(res, sep = '\n')
 }
 ```
 
