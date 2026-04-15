@@ -5,10 +5,15 @@ generate_multisample_report.py
 This script generates SQANTI-sc multisample reports from existing per-sample outputs,
 without rerunning the full SQANTI-sc pipeline.
 
-It reads a tab-separated input file (FOFN) listing one sample per line. The first column
-is the path to a *_SQANTI_cell_summary.txt.gz file (required). The second column is the
-path to a *_classification.txt file (optional, enables length distribution plots).
-Lines starting with '#' are ignored.
+It reads a tab-separated input file (FOFN) listing one sample per line. Columns:
+  Col 1 (required): path to *_SQANTI_cell_summary.txt.gz
+  Col 2 (optional): path to *_classification.txt (enables length distribution plots)
+  Col 3 (optional): color_group — condition used to color PCA dots by hue (e.g. technology)
+  Col 4 (optional): shape_group — condition used to encode PCA dot shape (e.g. tissue)
+  Col 5 (optional): shade_group — condition used to lighten/darken the color hue (e.g. cell count)
+
+Lines starting with '#' are ignored. If col 2 is absent but col 3+ are present, leave col 2
+empty (i.e. use a tab with nothing between it and the next tab).
 
 Usage:
     python generate_multisample_report.py --mode reads --fofn samples.txt [-o ./results]
@@ -17,9 +22,9 @@ Usage:
         --report both -o ./multisample -p my_comparison
 
 FOFN Format (tab-separated text file):
-    # cell_summary                                            classification (optional)
-    /results/SRX123/pb_brain_SQANTI_cell_summary.txt.gz       /results/SRX123/pb_brain_classification.txt
-    /results/SRX456/pb_lung_SQANTI_cell_summary.txt.gz        /results/SRX456/pb_lung_classification.txt
+    # col1: cell_summary                              col2: classification (opt)               col3: color  col4: shape  col5: shade
+    /results/SRX123/pb_brain_5k_SQANTI_cell_summary.txt.gz  /results/SRX123/pb_brain_5k_classification.txt  PacBio  brain  5k
+    /results/SRX456/ont_lung_500_SQANTI_cell_summary.txt.gz /results/SRX456/ont_lung_500_classification.txt ONT     lung   500
     /results/SRX789/pb_heart_SQANTI_cell_summary.txt.gz
 """
 
@@ -71,9 +76,17 @@ def parse_args():
 
 
 def parse_fofn(fofn_path):
-    """Read the FOFN and return validated cell summary and classification file lists."""
+    """Read the FOFN and return validated cell summary, classification, and group lists.
+
+    Returns a tuple of five parallel lists:
+        (cell_summaries, class_files, color_groups, shape_groups, shade_groups)
+    Group lists are empty strings for rows where the corresponding column is absent.
+    """
     cell_summaries = []
     class_files = []
+    color_groups = []
+    shape_groups = []
+    shade_groups = []
 
     try:
         with open(fofn_path, "r") as f:
@@ -95,6 +108,7 @@ def parse_fofn(fofn_path):
 
                 cell_summaries.append(os.path.abspath(cell_summary))
 
+                # Col 2: classification file (optional)
                 if len(fields) > 1:
                     class_file = fields[1].strip()
                     if class_file and os.path.isfile(class_file):
@@ -105,17 +119,22 @@ def parse_fofn(fofn_path):
                             file=sys.stderr,
                         )
 
+                # Cols 3–5: group annotation (optional)
+                color_groups.append(fields[2].strip() if len(fields) > 2 else "")
+                shape_groups.append(fields[3].strip() if len(fields) > 3 else "")
+                shade_groups.append(fields[4].strip() if len(fields) > 4 else "")
+
     except Exception as e:
         print(f"[ERROR] Failed to read FOFN: {e}", file=sys.stderr)
         sys.exit(1)
 
-    return cell_summaries, class_files
+    return cell_summaries, class_files, color_groups, shape_groups, shade_groups
 
 
 def main():
     args = parse_args()
 
-    cell_summaries, class_files = parse_fofn(args.fofn)
+    cell_summaries, class_files, color_groups, shape_groups, shade_groups = parse_fofn(args.fofn)
 
     if len(cell_summaries) < 2:
         print(
@@ -146,10 +165,24 @@ def main():
     if len(class_files) >= 2:
         cmd.extend(["--class_files", ",".join(class_files)])
 
+    # Pass group annotation vectors if any non-empty values were provided
+    if any(v for v in color_groups):
+        cmd.extend(["--color_group", ",".join(color_groups)])
+    if any(v for v in shape_groups):
+        cmd.extend(["--shape_group", ",".join(shape_groups)])
+    if any(v for v in shade_groups):
+        cmd.extend(["--shade_group", ",".join(shade_groups)])
+
     print("**** Generating multisample SQANTI-sc report...", file=sys.stdout)
     print(f"[INFO] Samples included: {len(cell_summaries)}", file=sys.stdout)
     if len(class_files) >= 2:
         print(f"[INFO] Classification files included for length plots: {len(class_files)}", file=sys.stdout)
+    if any(v for v in color_groups):
+        print(f"[INFO] Group annotation: color_group provided.", file=sys.stdout)
+    if any(v for v in shape_groups):
+        print(f"[INFO] Group annotation: shape_group provided.", file=sys.stdout)
+    if any(v for v in shade_groups):
+        print(f"[INFO] Group annotation: shade_group provided.", file=sys.stdout)
 
     try:
         subprocess.run(cmd, check=True)

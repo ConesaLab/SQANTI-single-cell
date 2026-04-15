@@ -27,6 +27,9 @@ Table of Contents:
     - [1. SQANTI3-based Outputs](#1-sqanti3-based-outputs)
     - [2. SQANTI-reads-based Outputs](#2-sqanti-reads-based-outputs)
     - [3. SQANTI-sc Specific Outputs](#3-sqanti-sc-specific-outputs)
+- [Exporting to Scanpy / Seurat](#exporting-to-scanpy--seurat)
+- [Regenerate multisample reports from existing outputs](#regenerate-multisample-reports-from-existing-outputs)
+- [Citation](#citation)
 
 <a name="prerequisites--installation"></a>
 
@@ -268,6 +271,11 @@ A comma-separated values (CSV) file containing the metadata for your samples.
 | `sampleID` | **Required**. A unique descriptive identifier for the sample (e.g., `pb_brain`). This will be used as the prefix for output files and the display name in reports. |
 | `file_acc` | **Required**. The identifier used to name the output directory where this sample's results will be stored entirely separate from others. <br> *Fallback Logic:* If you do not provide an `input_file` column, SQANTI-sc will use this as a prefix to search the `--input_dir` for input files (e.g., `SRX123456` will match `--input_dir/SRX123456*.bam`). |
 | `cell_association` | **Required**. Path to the file linking reads to cell barcodes for each sample. <br> There are 2 options for this file: <br> 1. A **TSV file** mapping Read IDs to Cell Barcodes. The minimum columns required are `id` (identifier of the read) and `cb` (cell barcode of the read).  <br> 2. A **uBAM/BAM file** containing `CB` (Cell Barcode) and `XM`/`UB` (UMI) tags. Easier to give if your input reads are already in uBAM format (the uBAM file can be the same as the one used as input reads).|
+| `color_group` | **Optional**. Group label for PCA color encoding in multisample reports (`--multisample_report`). |
+| `shape_group` | **Optional**. Group label for PCA shape encoding in multisample reports (`--multisample_report`). |
+| `shade_group` | **Optional**. Group label for PCA shade/lightness encoding in multisample reports (`--multisample_report`). |
+
+*Each group column can be used independently or in any combination. See [Regenerate multisample reports from existing outputs](#regenerate-multisample-reports-from-existing-outputs) for details.*
 
 **Example `design_reads.csv`:**
 ```csv
@@ -322,6 +330,11 @@ A comma-separated values (CSV) file containing the metadata for your samples.
 | `abundance` | **Conditional**. Path to a folder containing quantification data in **Market Exchange (MEX) format**. The folder **MUST** contain three files: `matrix.mtx`, `features.tsv` (with the transcript model IDs used in the input), and `barcodes.tsv`.|
 | `coverage` | **Optional**. Path to STAR splice junction output(s). Used to validate splice junctions. Can be a single file, a directory, a comma-separated list, a wildcard pattern, or a File of File Names (FOFN). |
 | `SR_bam` | **Optional**. Path to short-read BAM file(s). Used to validate TSS. Can be a single BAM file or a File of File Names (FOFN) containing paths to multiple BAMs. |
+| `color_group` | **Optional**. Group label for PCA color encoding in multisample reports (`--multisample_report`). |
+| `shape_group` | **Optional**. Group label for PCA shape encoding in multisample reports (`--multisample_report`). |
+| `shade_group` | **Optional**. Group label for PCA shade/lightness encoding in multisample reports (`--multisample_report`). |
+
+*Each group column can be used independently or in any combination. See [Regenerate multisample reports from existing outputs](#regenerate-multisample-reports-from-existing-outputs) for details.*
 
 *Note*: You can provide either a `cell_association` file or `abundance` directory as your cell barcode-isoform association file. If you want to perform quality control with the quantification of the expression of the isoforms (recommended) you will need the count matrix, but is not mandatory to run the isoforms mode.
 
@@ -490,6 +503,8 @@ The output `_SQANTI_cell_summary.txt.gz` has the following possible fields:
 * **`PolyA_motif_support_prop`** : Proportion of reads with identified PolyA motifs (if provided).  
 * **`[Category]_PolyA_motif_support_prop`** : Proportion of PolyA support within each structural category.  
 
+<a name="exporting-to-scanpy--seurat"></a>
+
 ## Exporting to Scanpy / Seurat
 
 SQANTI-sc provides a standalone utility script (`scripts/export_scanpy_seurat.py`) to convert pipeline outputs into an AnnData `.h5ad` file for downstream analysis with Scanpy or Seurat. This script can be run independently on any existing SQANTI-sc output without re-running the pipeline.
@@ -516,18 +531,30 @@ The resulting `.h5ad` file contains:
 | `.var` | Gene/feature metadata |
 | `.uns["isoform_features"]` | Isoform-to-gene mapping (isoforms mode only) |
 
+<a name="regenerate-multisample-reports-from-existing-outputs"></a>
+
 ## Regenerate multisample reports from existing outputs
 
 SQANTI-sc provides a standalone utility script (`scripts/generate_multisample_report.py`) to create multisample reports from previously generated per-sample outputs. This is useful when you want to compare only a subset of samples or conditions without rerunning the full pipeline.
 
-The script takes a tab-separated **FOFN** (File of File Names) listing one sample per line. The first column is the path to a `*_SQANTI_cell_summary.txt.gz` file (required). The second column is the path to a `*_classification.txt` file (optional, enables length distribution plots). Lines starting with `#` are ignored.
+The script takes a tab-separated **FOFN** (File of File Names) listing one sample per line. Lines starting with `#` are ignored.
+
+FOFN columns (tab-separated, positional):
+
+| Col | Required | Description |
+| :--- | :--- | :--- |
+| 1 | Yes | Path to `*_SQANTI_cell_summary.txt.gz` |
+| 2 | No | Path to `*_classification.txt` (enables length distribution plots when ≥ 2 provided) |
+| 3 | No | `color_group` — PCA color/hue grouping |
+| 4 | No | `shape_group` — PCA shape grouping |
+| 5 | No | `shade_group` — PCA shade/lightness grouping |
 
 **Example `multisample_inputs.txt`:**
 ```text
-# cell_summary	classification
-/results/SRX123/pb_brain_SQANTI_cell_summary.txt.gz	/results/SRX123/pb_brain_classification.txt
-/results/SRX456/pb_lung_SQANTI_cell_summary.txt.gz	/results/SRX456/pb_lung_classification.txt
-/results/SRX789/pb_heart_SQANTI_cell_summary.txt.gz
+# cell_summary	classification	color_group	shape_group	shade_group
+/results/SRX123/pb_brain_5k_SQANTI_cell_summary.txt.gz	/results/SRX123/pb_brain_5k_classification.txt	PacBio	brain	5k
+/results/SRX456/pb_lung_500_SQANTI_cell_summary.txt.gz	/results/SRX456/pb_lung_500_classification.txt	PacBio	lung	500
+/results/SRX789/ont_brain_5k_SQANTI_cell_summary.txt.gz	/results/SRX789/ont_brain_5k_classification.txt	ONT	brain	5k
 ```
 
 ```bash
@@ -543,8 +570,17 @@ To compare a different subset of samples, simply edit the FOFN file.
 
 Notes:
 - At least 2 valid `*_SQANTI_cell_summary.txt.gz` files are required.
-- The classification column is optional, but providing at least 2 enables multisample length distribution plots.
+- The classification column (col 2) is optional, but providing at least 2 enables multisample length distribution plots.
+- Any combination of `color_group`, `shape_group`, and `shade_group` triggers a grouped PCA alongside the default sampleID PCA. Each column is fully independent:
+  - `color_group` only → color encoding, fixed circle shape;
+  - `shape_group` only → shape encoding, all points the same color;
+  - `shade_group` only → shade/lightness encoding, all points the same hue;
+  - any two or all three → combined encoding.
+- When running via `sqanti_sc.py --multisample_report`, the same grouped PCA behavior is available through the optional `color_group`, `shape_group`, and `shade_group` columns in the design CSV.
+- In the HTML multisample report, when grouped PCA is available, the **PCA Plot** tab includes a dropdown with **By Sample** (default) and **By Group** options.
 - The script reuses the same R multisample report generator used by `--multisample_report` in `sqanti_sc.py`.
+
+<a name="citation"></a>
 
 ## Citation
 
