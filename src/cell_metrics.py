@@ -98,10 +98,22 @@ def calculate_metrics_per_cell(args, df):
         
         reads_no_mono = cls_valid[cls_valid['exons'] != 1].groupby('CB')['_count'].sum().rename('total_reads_no_monoexon')
         
-        if args.mode == 'isoforms':
-             summary = pd.DataFrame(total_reads).join(reads_no_mono, how='outer').fillna(0)
+        if 'length' in cls_valid.columns:
+            length_df = cls_valid[['CB', 'length', '_count']].dropna(subset=['length']).copy()
+            length_df['_count'] = pd.to_numeric(length_df['_count'], errors='coerce').fillna(1).astype(int)
+            length_df = length_df[length_df['_count'] > 0]
+            if not length_df.empty:
+                weighted_length = length_df.loc[length_df.index.repeat(length_df['_count'])]
+                median_length = weighted_length.groupby('CB')['length'].median().rename('Median_length_per_cell')
+            else:
+                median_length = pd.Series(dtype=float, name='Median_length_per_cell')
         else:
-             summary = pd.DataFrame(total_reads).join(total_umi, how='outer').join(reads_no_mono, how='outer').fillna(0)
+            median_length = pd.Series(dtype=float, name='Median_length_per_cell')
+
+        if args.mode == 'isoforms':
+             summary = pd.DataFrame(total_reads).join(reads_no_mono, how='outer').join(median_length, how='outer').fillna(0)
+        else:
+             summary = pd.DataFrame(total_reads).join(total_umi, how='outer').join(reads_no_mono, how='outer').join(median_length, how='outer').fillna(0)
 
         cat_counts = cls_valid.groupby(['CB','structural_category'])['_count'].sum().unstack(fill_value=0)
         for c in structural_categories:
