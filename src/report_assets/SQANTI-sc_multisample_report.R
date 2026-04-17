@@ -641,6 +641,7 @@ main <- function() {
     )
   }
 
+
   multi_library_size_plots <- list()
   for (nm in names(library_size_specs)) {
     spec <- library_size_specs[[nm]]
@@ -683,8 +684,8 @@ main <- function() {
     assign("multi_gene_char_plots", multi_gene_char_plots, envir = .GlobalEnv)
   }
 
-  # -------- Bulk-level Length Distribution --------
-  multi_length_distribution_plot_local <- NULL
+  # -------- Length Distribution plots --------
+  multi_length_plots_local <- list()
   if (!is.null(params$class_files) && nzchar(params$class_files)) {
     class_file_paths <- trimws(unlist(strsplit(params$class_files, ",", fixed = TRUE)))
     class_file_paths <- class_file_paths[nchar(class_file_paths) > 0 & file.exists(class_file_paths)]
@@ -748,11 +749,26 @@ main <- function() {
             axis.text.y = element_text(size = 13),
             plot.margin = margin(t = 5, r = 5, b = 5, l = 10, unit = "pt")
           )
-        multi_length_distribution_plot_local <- gp_len
-        assign("multi_length_distribution_plot", gp_len, envir = .GlobalEnv)
+        multi_length_plots_local[["Bulk Length Distribution"]] <- gp_len
       }
     }
   }
+
+  if ("Median_length_per_cell" %in% colnames(multi)) {
+    gp <- build_sample_comparison_plot(
+      multi, "Median_length_per_cell",
+      title = paste0("Per Sample Median Length per Cell Distribution"),
+      y_label = "Length, bp",
+      sample_levels = sample_levels_global,
+      log_scale = TRUE
+    )
+    if (!is.null(gp)) multi_length_plots_local[["Median Length per Cell"]] <- gp
+  }
+
+  if (length(multi_length_plots_local) > 0) {
+    assign("multi_length_plots", multi_length_plots_local, envir = .GlobalEnv)
+  }
+
 
   # Output path
   out_dir <- params$out_dir
@@ -1231,8 +1247,8 @@ main <- function() {
     if (length(multi_gene_char_plots) > 0) {
       for (plt in multi_gene_char_plots) print(plt)
     }
-    if (!is.null(multi_length_distribution_plot_local)) {
-      print(multi_length_distribution_plot_local)
+    if (length(multi_length_plots_local) > 0) {
+      for (plt in multi_length_plots_local) print(plt)
     }
 
     if (have_cats) {

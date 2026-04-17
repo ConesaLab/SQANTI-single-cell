@@ -156,11 +156,58 @@ if (exists("multi_gene_char_plots", envir = .GlobalEnv)) {
 
 # Samples `r entity_label_plural` Length Distribution
 
-```{r length-dist-plot, fig.width=12, fig.height=7}
-if (exists("multi_length_distribution_plot", envir = .GlobalEnv)) {
-  print(get("multi_length_distribution_plot", envir = .GlobalEnv))
+```{r length-dropdown}
+if (exists("multi_length_plots", envir = .GlobalEnv)) {
+  lplots <- get("multi_length_plots", envir = .GlobalEnv)
+  len_names <- names(lplots)
+
+  if (length(len_names) > 0) {
+    items_html <- paste(sapply(len_names, function(name) {
+      target_id <- paste0("length-", gsub("[^A-Za-z0-9]", "-", tolower(name)))
+      sprintf('      <li><a href="#" data-target="#%s">%s</a></li>', target_id, htmltools::htmlEscape(name))
+    }), collapse = "\n")
+
+    htmltools::HTML(paste0(
+      '<div id="length-dropdown" class="dropdown-toolbar">\n',
+      '  <div class="btn-group">\n',
+      '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
+      '      <span class="label">', htmltools::htmlEscape(len_names[1]), '</span> <span class="caret"></span>\n',
+      '    </button>\n',
+      '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
+      items_html, '\n',
+      '    </ul>\n',
+      '  </div>\n',
+      '</div>\n'
+    ))
+  }
 } else {
-  cat("Length distribution plot is not available (classification files were not provided).")
+  cat("Length distribution plots are not available.")
+}
+```
+
+```{r length-panes, results='asis'}
+if (exists("multi_length_plots", envir = .GlobalEnv)) {
+  lplots <- get("multi_length_plots", envir = .GlobalEnv)
+  first <- TRUE
+  for (i in seq_along(names(lplots))) {
+    plot_name <- names(lplots)[i]
+    target_id <- paste0("length-", gsub("[^A-Za-z0-9]", "-", tolower(plot_name)))
+    css_class <- if (first) "toggle-pane" else "toggle-pane hidden-pane"
+    css_style <- if (first) "display:block;" else "display:none;"
+    first <- FALSE
+
+    res <- knitr::knit_child(text = c(
+      sprintf('<div id="%s" class="%s" style="%s">', target_id, css_class, css_style),
+      '',
+      sprintf('```{r length-plot-%d, fig.width=12, fig.height=7, echo=FALSE, warning=FALSE, message=FALSE}', i),
+      'lp <- get("multi_length_plots", envir = .GlobalEnv)',
+      sprintf('print(lp[["%s"]])', plot_name),
+      '```',
+      '',
+      '</div>'
+    ), envir = globalenv(), quiet = TRUE)
+    cat(res, sep = '\n')
+  }
 }
 ```
 
@@ -523,6 +570,7 @@ if (exists("multi_pca_loading_distribution_plots", envir = .GlobalEnv)) {
 
   document.addEventListener("DOMContentLoaded",function(){
     setupDropdown("libsize-dropdown");
+    setupDropdown("length-dropdown");
     setupDropdown("genechar-dropdown");
     setupDropdown("structcat-dropdown");
     setupDropdown("pca-sample-group-dropdown");
