@@ -410,11 +410,11 @@ build_loading_feature_plot <- function(multi, feature_info, sample_levels) {
     theme_classic(base_size = 14) +
     theme(
       legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-      plot.subtitle = element_text(size = 13, hjust = 0.5),
-      axis.title = element_text(size = 15),
-      axis.text.x = element_text(size = 13, angle = 35, hjust = 1),
-      axis.text.y = element_text(size = 13)
+      plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 18, hjust = 0.5),
+      axis.title = element_text(size = 18),
+      axis.text.x = element_text(size = 15, angle = 35, hjust = 1),
+      axis.text.y = element_text(size = 15)
     )
   if (use_log) {
     gp <- gp + scale_y_log10(labels = scales::comma)
@@ -455,10 +455,10 @@ build_sample_comparison_plot <- function(data, col_name, title, y_label,
     theme_classic(base_size = 14) +
     theme(
       legend.position = "none",
-      plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-      axis.title = element_text(size = 15),
-      axis.text.x = element_text(size = 13, angle = 35, hjust = 1),
-      axis.text.y = element_text(size = 13)
+      plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+      axis.title = element_text(size = 18),
+      axis.text.x = element_text(size = 15, angle = 35, hjust = 1),
+      axis.text.y = element_text(size = 15)
     )
   if (isTRUE(log_scale)) {
     gp <- gp + scale_y_log10(labels = scales::comma)
@@ -743,10 +743,10 @@ main <- function() {
           theme_classic(base_size = 14) +
           theme(
             legend.position = "none",
-            plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-            axis.title = element_text(size = 15),
-            axis.text.x = element_text(size = 13, angle = 35, hjust = 1),
-            axis.text.y = element_text(size = 13),
+            plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+            axis.title = element_text(size = 18),
+            axis.text.x = element_text(size = 15, angle = 35, hjust = 1),
+            axis.text.y = element_text(size = 15),
             plot.margin = margin(t = 5, r = 5, b = 5, l = 10, unit = "pt")
           )
         multi_length_plots_local[["Bulk Length Distribution"]] <- gp_len

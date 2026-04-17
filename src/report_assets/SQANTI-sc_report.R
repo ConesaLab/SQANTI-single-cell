@@ -164,11 +164,11 @@ if (file.exists(clustering_output)) {
         theme_classic() +
         labs(title = "UMAP Projection", x = "UMAP 1", y = "UMAP 2") +
         theme(
-          plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-          axis.title = element_text(size = 16),
-          axis.text.x = element_text(size = 14),
-          axis.text.y = element_text(size = 14),
-          legend.title = element_text(face = "bold"),
+          plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+          axis.title = element_text(size = 18),
+          axis.text.x = element_text(size = 15),
+          axis.text.y = element_text(size = 15),
+          legend.title = element_text(size = 16, face = "bold"),
           legend.position = "right"
         ) +
         guides(color = guide_legend(override.aes = list(size = 3, alpha = 1)))
@@ -240,10 +240,10 @@ build_violin_plot <- function(df_long,
     labs(title = title, x = x_title, y = y_label) +
     theme_classic(base_size = 11) +
     theme(
-      plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
-      axis.title = element_text(size = 12),
-      axis.text.y = element_text(size = 11),
-      axis.text.x = element_text(size = 11, angle = x_tickangle, hjust = ifelse(x_tickangle == 0, 0.5, 1)),
+      plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+      axis.title = element_text(size = 18),
+      axis.text.y = element_text(size = 15),
+      axis.text.x = element_text(size = 15, angle = x_tickangle, hjust = ifelse(x_tickangle == 0, 0.5, 1)),
       legend.position = if (legend) "bottom" else "none"
     )
 
@@ -332,11 +332,11 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
                 theme_classic() +
                 labs(title = paste("UMAP - %", cat_label), x = "UMAP 1", y = "UMAP 2", color = paste0(entity_label_plural, ", %")) +
                 theme(
-                  plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-                  axis.title = element_text(size = 16),
-                  axis.text.x = element_text(size = 14),
-                  axis.text.y = element_text(size = 14),
-                  legend.title = element_text(face = "bold"),
+                  plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+                  axis.title = element_text(size = 18),
+                  axis.text.x = element_text(size = 15),
+                  axis.text.y = element_text(size = 15),
+                  legend.title = element_text(size = 16, face = "bold"),
                   legend.position = "right",
                   legend.key.height = unit(3, "cm"),
                   legend.key.width = unit(1, "cm") # Thicker legend bar
@@ -449,10 +449,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
                   ) +
                   theme_classic(base_size = 11) +
                   theme(
-                    plot.title      = element_text(size = 12, face = "bold", hjust = 0.5),
-                    axis.title      = element_text(size = 12),
-                    axis.text.y     = element_text(size = 11),
-                    axis.text.x     = element_text(size = 11),
+                    plot.title      = element_text(size = 22, face = "bold", hjust = 0.5),
+                    axis.title      = element_text(size = 18),
+                    axis.text.y     = element_text(size = 15),
+                    axis.text.x     = element_text(size = 15),
                     legend.position = "none"
                   )
               }
@@ -663,12 +663,12 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       labs(title = title, x = "UMAP 1", y = "UMAP 2", color = paste0(entity_label_plural, ", %")) +
       theme_classic() +
       theme(
-        plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
-        axis.title = element_text(size = 16),
-        axis.text.x = element_text(size = 14),
-        axis.text.y = element_text(size = 14),
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 22),
+        axis.title = element_text(size = 18),
+        axis.text.x = element_text(size = 15),
+        axis.text.y = element_text(size = 15),
         legend.position = "right",
-        legend.title = element_text(face = "bold"),
+        legend.title = element_text(size = 16, face = "bold"),
         legend.key.height = unit(3, "cm"),
         legend.key.width = unit(1, "cm")
       )
@@ -794,11 +794,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       labs(title = title, x = "", y = y_label) +
       theme_classic(base_size = 11) +
       theme(
-        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
-        axis.title = element_text(size = 12),
-        axis.text.y = element_text(size = 11),
-        axis.text.x = element_text(
-          size = 11,
+        plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 18),
+        axis.text.y = element_text(size = 15),
+        axis.text.x = element_text(size = 15, 
           angle = if (!is.null(x_tickangle) && x_tickangle != 0) x_tickangle else 0,
           hjust = ifelse(!is.null(x_tickangle) && x_tickangle == 0, 0.5, 1)
         ),
@@ -980,12 +979,12 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       ) +
       theme_classic(base_size = 14) +
       theme(
-        plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-        axis.title = element_text(size = 14),
-        axis.text = element_text(size = 12),
+        plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 15),
         legend.position = "bottom",
-        legend.title = element_text(face = "bold", size = 11),
-        legend.text = element_text(size = 10)
+        legend.title = element_text(face = "bold", size = 16),
+        legend.text = element_text(size = 14)
       ) +
       guides(color = guide_legend(nrow = 2, byrow = TRUE))
     return(p)
@@ -1097,10 +1096,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       ) +
       theme_classic(base_size = 11) +
       theme(
-        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
-        axis.title = element_text(size = 12),
-        axis.text.y = element_text(size = 11),
-        axis.text.x = element_text(size = 11, angle = 45, hjust = 1)
+        plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 18),
+        axis.text.y = element_text(size = 15),
+        axis.text.x = element_text(size = 15, angle = 45, hjust = 1)
       )
 
     return(p)
@@ -1147,8 +1146,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         labs(title = title, subtitle = "No data available for this category") +
         theme_minimal(base_size = 14) +
         theme(
-          plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-          plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray")
+          plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+          plot.subtitle = element_text(size = 18, hjust = 0.5, color = "gray")
         )
       return(p_empty)
     }
@@ -1182,10 +1181,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       labs(title = title, x = "Number of exons", y = y_label) +
       theme_classic(base_size = 14) +
       theme(
-        plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-        axis.title = element_text(size = 14),
-        axis.text.x = element_text(size = 12),
-        axis.text.y = element_text(size = 12),
+        plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 18),
+        axis.text.x = element_text(size = 15),
+        axis.text.y = element_text(size = 15),
         legend.position = "bottom"
       )
 
@@ -1802,11 +1801,11 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     theme_classic() +
     theme(
       legend.position = "none",
-      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
       plot.margin = margin(t = 40, r = 20, b = 5, l = 5, unit = "pt"),
-      axis.title = element_text(size = 16),
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 14, angle = 35, hjust = 1)
+      axis.title = element_text(size = 18),
+      axis.text.y = element_text(size = 15),
+      axis.text.x = element_text(size = 15, angle = 35, hjust = 1)
     )
 
   # Bulk read length distribution by structural category
@@ -1870,12 +1869,12 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       legend.position = "bottom",
       legend.title = element_blank(),
       legend.key.size = unit(0.8, "cm"),
-      legend.text = element_text(size = 12),
-      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      legend.text = element_text(size = 14),
+      plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
       plot.margin = margin(t = 40, r = 20, b = 5, l = 5, unit = "pt"),
-      axis.title = element_text(size = 16),
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 14, angle = 35, hjust = 1)
+      axis.title = element_text(size = 18),
+      axis.text.y = element_text(size = 15),
+      axis.text.x = element_text(size = 15, angle = 35, hjust = 1)
     ) +
     guides(color = guide_legend(nrow = 2))
 
@@ -1905,11 +1904,11 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       legend.title = element_blank(),
       legend.key.size = unit(1, "cm"),
       legend.text = element_text(size = 14),
-      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
       plot.margin = margin(t = 40, r = 20, b = 5, l = 5, unit = "pt"),
-      axis.title = element_text(size = 16),
-      axis.text.y = element_text(size = 14),
-      axis.text.x = element_text(size = 14, angle = 35, hjust = 1)
+      axis.title = element_text(size = 18),
+      axis.text.y = element_text(size = 15),
+      axis.text.x = element_text(size = 15, angle = 35, hjust = 1)
     )
 
   # Cell-level length distributions (all + mono)
