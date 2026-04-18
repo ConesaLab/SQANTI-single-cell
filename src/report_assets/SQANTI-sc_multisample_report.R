@@ -524,7 +524,10 @@ main <- function() {
   })
   multi <- bind_rows(norm_list)
 
-  sample_levels_global <- unique(multi$sampleID[!is.na(multi$sampleID)])
+  # Sample order for tables and plots: same as design / --files order (cell summary path order),
+  # not alphabetical. dplyr::summarise() group order can differ from row order.
+  ids_in_data <- unique(multi$sampleID[!is.na(multi$sampleID)])
+  sample_levels_global <- all_sample_ids[all_sample_ids %in% ids_in_data]
 
   render_pdf <- params$report %in% c("pdf", "both")
   render_html <- params$report %in% c("html", "both")
@@ -586,6 +589,12 @@ main <- function() {
     per_sample_stats$median_length <- NA_real_
     per_sample_stats$iqr_length <- NA_real_
   }
+
+  # Match Samples Summary row order to sample_levels_global (figures use the same levels)
+  per_sample_stats <- per_sample_stats %>%
+    mutate(sampleID = factor(.data$sampleID, levels = sample_levels_global)) %>%
+    dplyr::arrange(.data$sampleID) %>%
+    mutate(sampleID = as.character(.data$sampleID))
 
   entity_label_plural <- if (params$mode == "isoforms") "Transcripts" else "Reads"
 
@@ -789,7 +798,7 @@ main <- function() {
       select(all_of(c("sampleID", cat_cols))) %>%
       pivot_longer(cols = all_of(cat_cols), names_to = "category", values_to = "prop") %>%
       mutate(
-        sampleID = factor(sampleID, levels = unique(multi$sampleID)),
+        sampleID = factor(sampleID, levels = sample_levels_global),
         category = factor(category,
           levels = c(
             "FSM_prop", "ISM_prop", "NIC_prop", "NNC_prop",

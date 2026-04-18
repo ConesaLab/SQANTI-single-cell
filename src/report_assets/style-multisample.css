@@ -174,6 +174,27 @@ table tbody tr:hover {
   display: none !important;
 }
 
+/* DataTables (Samples Summary): full width like single-sample reports */
+.dataTables_wrapper {
+  width: 100% !important;
+}
+
+table.dataTable {
+  margin-left: 0 !important;
+  margin-right: auto !important;
+  width: 100% !important;
+}
+
+table.dataTable td.dt-left,
+table.dataTable th.dt-left {
+  text-align: left !important;
+}
+
+table.dataTable td.dt-right,
+table.dataTable th.dt-right {
+  text-align: right !important;
+}
+
 /* Dropdown toolbar */
 .dropdown-toolbar {
   display: block;
