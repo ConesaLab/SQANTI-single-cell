@@ -1014,7 +1014,7 @@ main <- function() {
             theme_classic(base_size = 14),
             scale_x_continuous(labels = function(x) sprintf("%.2f", x)),
             scale_y_continuous(labels = function(x) sprintf("%.2f", x)),
-            labs(title = "PCA Plot — Group Annotation",
+            labs(title = "PCA Plot - Group Annotation",
                  x = pca_x_label, y = pca_y_label),
             theme(
               legend.position  = "bottom",
@@ -1277,6 +1277,14 @@ main <- function() {
       print(multi_pca_scree_plot_local)
     }
     if (!is.null(multi_pca_top_loadings_plots_local)) {
+      # PDF only: smaller type so the two-panel loadings figure fits (HTML keeps full-size plots)
+      theme_pca_loadings_pdf <- theme(
+        plot.title = element_text(size = 10, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 11),
+        axis.text.x = element_text(size = 9),
+        axis.text.y = element_text(size = 7.5),
+        legend.position = "none"
+      )
       gp_load1 <- multi_pca_top_loadings_plots_local[["PC1"]]
       gp_load2 <- multi_pca_top_loadings_plots_local[["PC2"]]
       if (!is.null(gp_load1) && !is.null(gp_load2)) {
@@ -1288,14 +1296,22 @@ main <- function() {
         legend_plot <- ggplot(legend_df, aes(x = variable, y = abs_loading, fill = sign)) +
           geom_col() +
           scale_fill_manual(values = c("Positive" = "#78C679", "Negative" = "#EE6A50"), name = "Sign", limits = c("Positive", "Negative"), drop = FALSE) +
-          theme_void(base_size = 14) +
-          theme(legend.position = "bottom")
+          theme_void(base_size = 10) +
+          theme(
+            legend.position = "bottom",
+            legend.text = element_text(size = 9),
+            legend.title = element_text(size = 9, face = "bold")
+          )
         legend_grob <- gtable::gtable_filter(ggplotGrob(legend_plot), "guide-box")
-        row_plots <- arrangeGrob(gp_load1 + theme(legend.position = "none"), gp_load2 + theme(legend.position = "none"), ncol = 2)
+        row_plots <- arrangeGrob(
+          gp_load1 + theme_pca_loadings_pdf,
+          gp_load2 + theme_pca_loadings_pdf,
+          ncol = 2
+        )
         grid.arrange(row_plots, legend_grob, ncol = 1, heights = c(0.86, 0.14))
       } else {
         for (plt in multi_pca_top_loadings_plots_local) {
-          print(plt)
+          print(plt + theme_pca_loadings_pdf)
         }
       }
     }
