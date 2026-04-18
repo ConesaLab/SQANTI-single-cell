@@ -214,6 +214,13 @@ table tbody tr:hover {
   border: none !important;
 }
 
+.narrow-plot img {
+  display: block;
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .html-widget,
 
 /* Optional: neutral grey icons for readability */

@@ -410,11 +410,11 @@ build_loading_feature_plot <- function(multi, feature_info, sample_levels) {
     theme_classic(base_size = 14) +
     theme(
       legend.position = "none",
-      plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
-      plot.subtitle = element_text(size = 18, hjust = 0.5),
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 13, hjust = 0.5),
       axis.title = element_text(size = 18),
-      axis.text.x = element_text(size = 15, angle = 35, hjust = 1),
-      axis.text.y = element_text(size = 15)
+      axis.text.x = element_text(size = 16, angle = 35, hjust = 1),
+      axis.text.y = element_text(size = 16)
     )
   if (use_log) {
     gp <- gp + scale_y_log10(labels = scales::comma)
@@ -455,10 +455,10 @@ build_sample_comparison_plot <- function(data, col_name, title, y_label,
     theme_classic(base_size = 14) +
     theme(
       legend.position = "none",
-      plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
       axis.title = element_text(size = 18),
-      axis.text.x = element_text(size = 15, angle = 35, hjust = 1),
-      axis.text.y = element_text(size = 15)
+      axis.text.x = element_text(size = 16, angle = 35, hjust = 1),
+      axis.text.y = element_text(size = 16)
     )
   if (isTRUE(log_scale)) {
     gp <- gp + scale_y_log10(labels = scales::comma)
@@ -743,10 +743,10 @@ main <- function() {
           theme_classic(base_size = 14) +
           theme(
             legend.position = "none",
-            plot.title = element_text(size = 22, face = "bold", hjust = 0.5),
+            plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
             axis.title = element_text(size = 18),
-            axis.text.x = element_text(size = 15, angle = 35, hjust = 1),
-            axis.text.y = element_text(size = 15),
+            axis.text.x = element_text(size = 16, angle = 35, hjust = 1),
+            axis.text.y = element_text(size = 16),
             plot.margin = margin(t = 5, r = 5, b = 5, l = 10, unit = "pt")
           )
         multi_length_plots_local[["Bulk Length Distribution"]] <- gp_len
@@ -846,10 +846,10 @@ main <- function() {
       ) +
       theme(
         legend.position = "bottom",
-        axis.text.x = element_text(angle = 45, hjust = 1, size = 13),
-        axis.title = element_text(size = 15),
-        axis.text.y = element_text(size = 13),
-        plot.title = element_text(size = 18, face = "bold", hjust = 0.5)
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 16),
+        axis.title = element_text(size = 18),
+        axis.text.y = element_text(size = 16),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5)
       )
 
     category_levels <- levels(cats_long$category)
@@ -881,10 +881,10 @@ main <- function() {
         labs(title = paste0("Per Sample ", cat_lab, " Reads Distribution Across Cells"), x = "Sample", y = "Reads, %") +
         theme(
           legend.position = "none",
-          axis.text.x = element_text(angle = 35, hjust = 1, size = 13),
-          plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-          axis.title = element_text(size = 15),
-          axis.text.y = element_text(size = 13)
+          axis.text.x = element_text(angle = 35, hjust = 1, size = 16),
+          plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+          axis.title = element_text(size = 18),
+          axis.text.y = element_text(size = 16)
         )
     })
     names(category_plots) <- as.character(category_levels)
@@ -967,10 +967,10 @@ main <- function() {
             legend.text = element_text(size = 13),
             legend.key = element_blank(),
             legend.margin = margin(t = 16),
-            plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-            axis.title = element_text(size = 15),
-            axis.text.x = element_text(size = 13),
-            axis.text.y = element_text(size = 13)
+            plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+            axis.title = element_text(size = 18),
+            axis.text.x = element_text(size = 16),
+            axis.text.y = element_text(size = 16)
           ) +
           guides(colour = guide_legend(override.aes = list(size = 5, alpha = 0.95, stroke = 0)))
         multi_pca_scores_plot_local <- gp_scores
@@ -1012,10 +1012,10 @@ main <- function() {
               legend.text      = element_text(size = 12),
               legend.key       = element_blank(),
               legend.margin    = margin(t = 12),
-              plot.title       = element_text(size = 18, face = "bold", hjust = 0.5),
-              axis.title       = element_text(size = 15),
-              axis.text.x      = element_text(size = 13),
-              axis.text.y      = element_text(size = 13)
+              plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+              axis.title = element_text(size = 18),
+              axis.text.x = element_text(size = 16),
+              axis.text.y = element_text(size = 16)
             )
           )
 
@@ -1127,10 +1127,10 @@ main <- function() {
         theme_classic(base_size = 14) +
         labs(title = "PCA scree plot", y = "Variance explained", x = "Principal component") +
         theme(
-          plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-          axis.title = element_text(size = 15),
-          axis.text.x = element_text(size = 13),
-          axis.text.y = element_text(size = 13),
+          plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+          axis.title = element_text(size = 18),
+          axis.text.x = element_text(size = 16),
+          axis.text.y = element_text(size = 16),
           legend.position = "bottom",
           legend.margin = margin(t = 20)
         )
@@ -1172,10 +1172,10 @@ main <- function() {
           theme_classic(base_size = 14) +
           labs(title = "Top 10 loadings: PC1", x = "Feature", y = "Absolute loading") +
           theme(
-            plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-            axis.title = element_text(size = 15),
-            axis.text.x = element_text(size = 13),
-            axis.text.y = element_text(size = 13),
+            plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+            axis.title = element_text(size = 18),
+            axis.text.x = element_text(size = 16),
+            axis.text.y = element_text(size = 16),
             legend.position = "bottom"
           )
         gp_load2 <- ggplot(top_pc2_plot, aes(x = variable, y = abs_loading, fill = sign)) +
@@ -1185,10 +1185,10 @@ main <- function() {
           theme_classic(base_size = 14) +
           labs(title = "Top 10 loadings: PC2", x = "Feature", y = "Absolute loading") +
           theme(
-            plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-            axis.title = element_text(size = 15),
-            axis.text.x = element_text(size = 13),
-            axis.text.y = element_text(size = 13),
+            plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+            axis.title = element_text(size = 18),
+            axis.text.x = element_text(size = 16),
+            axis.text.y = element_text(size = 16),
             legend.position = "bottom"
           )
         loadings_plots <- list(PC1 = gp_load1, PC2 = gp_load2)

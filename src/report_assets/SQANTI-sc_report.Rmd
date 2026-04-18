@@ -1,4 +1,4 @@
-﻿---
+---
 title: "SQANTI-single cell `r if (exists('mode') && mode == 'isoforms') 'isoforms' else 'reads'` report"
 date: "`r paste0('Date: ', format(Sys.time(), '%d %B %Y'))`"
 output:
@@ -602,7 +602,7 @@ if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") 
 <div class="narrow-plot">
 ```
 
-```{r cells-reads-plot, fig.height=6, fig.width=4}
+```{r cells-reads-plot, fig.height=7, fig.width=5}
 if (exists("gg_reads_in_cells")) {
   print(gg_reads_in_cells)
 }
@@ -626,7 +626,7 @@ show_umis <- (mode != "isoforms" && exists("gg_umis_in_cells"))
 if (show_umis) cat('<div class="narrow-plot">\n')
 ```
 
-```{r depth-umis, fig.height=6, fig.width=4, eval=show_umis}
+```{r depth-umis, fig.height=7, fig.width=5, eval=show_umis}
 print(gg_umis_in_cells)
 ```
 
@@ -648,7 +648,7 @@ show_ujcs <- (mode != "isoforms" && exists("gg_JCs_in_cell"))
 if (show_ujcs) cat('<div class="narrow-plot">\n')
 ```
 
-```{r depth-ujcs, fig.height=6, fig.width=4, eval=show_ujcs}
+```{r depth-ujcs, fig.height=7, fig.width=5, eval=show_ujcs}
 print(gg_JCs_in_cell)
 ```
 
@@ -677,7 +677,7 @@ if (show_ujcs) cat("</div>\n")
 
 <div id="genesacross-genes" class="toggle-pane" style="display:block;">
 
-```{r cells-genes-plot, fig.height=6, fig.width=4}
+```{r cells-genes-plot, fig.height=7, fig.width=5}
 if (exists("gg_genes_in_cells")) {
   print(gg_genes_in_cells)
 }
@@ -825,7 +825,7 @@ if (exists("gg_ujc_bins")) {
 <div class="narrow-plot">
 ```
 
-```{r genechar-mt, fig.height=6, fig.width=4}
+```{r genechar-mt, fig.height=7, fig.width=5}
 if (exists("gg_MT_perc")) {
   print(gg_MT_perc)
 }
@@ -1793,63 +1793,63 @@ if (show_cat_cluster) {
 
 <!-- Distribution panes for each category -->
 <div id="cat-cluster-FSM" class="toggle-pane" style="display:block;">
-```{r cat-cluster-FSM, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+```{r cat-cluster-FSM, fig.height=8, fig.width=12, eval=show_cat_cluster, out.width="100%"}
 if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["FSM"]])) {
   print(gg_cat_cluster_plots[["FSM"]])
 }
 ```
 </div>
 <div id="cat-cluster-ISM" class="toggle-pane hidden-pane" style="display:block;">
-```{r cat-cluster-ISM, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+```{r cat-cluster-ISM, fig.height=8, fig.width=12, eval=show_cat_cluster, out.width="100%"}
 if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["ISM"]])) {
   print(gg_cat_cluster_plots[["ISM"]])
 }
 ```
 </div>
 <div id="cat-cluster-NIC" class="toggle-pane hidden-pane" style="display:block;">
-```{r cat-cluster-NIC, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+```{r cat-cluster-NIC, fig.height=8, fig.width=12, eval=show_cat_cluster, out.width="100%"}
 if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["NIC"]])) {
   print(gg_cat_cluster_plots[["NIC"]])
 }
 ```
 </div>
 <div id="cat-cluster-NNC" class="toggle-pane hidden-pane" style="display:block;">
-```{r cat-cluster-NNC, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+```{r cat-cluster-NNC, fig.height=8, fig.width=12, eval=show_cat_cluster, out.width="100%"}
 if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["NNC"]])) {
   print(gg_cat_cluster_plots[["NNC"]])
 }
 ```
 </div>
 <div id="cat-cluster-GenicGenomic" class="toggle-pane hidden-pane" style="display:block;">
-```{r cat-cluster-Genic_Genomic_cat, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+```{r cat-cluster-Genic_Genomic_cat, fig.height=8, fig.width=12, eval=show_cat_cluster, out.width="100%"}
 if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["Genic Genomic"]])) {
   print(gg_cat_cluster_plots[["Genic Genomic"]])
 }
 ```
 </div>
 <div id="cat-cluster-Antisense" class="toggle-pane hidden-pane" style="display:block;">
-```{r cat-cluster-Antisense, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+```{r cat-cluster-Antisense, fig.height=8, fig.width=12, eval=show_cat_cluster, out.width="100%"}
 if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["Antisense"]])) {
   print(gg_cat_cluster_plots[["Antisense"]])
 }
 ```
 </div>
 <div id="cat-cluster-Fusion" class="toggle-pane hidden-pane" style="display:block;">
-```{r cat-cluster-Fusion, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+```{r cat-cluster-Fusion, fig.height=8, fig.width=12, eval=show_cat_cluster, out.width="100%"}
 if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["Fusion"]])) {
   print(gg_cat_cluster_plots[["Fusion"]])
 }
 ```
 </div>
 <div id="cat-cluster-Intergenic" class="toggle-pane hidden-pane" style="display:block;">
-```{r cat-cluster-Intergenic, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+```{r cat-cluster-Intergenic, fig.height=8, fig.width=12, eval=show_cat_cluster, out.width="100%"}
 if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["Intergenic"]])) {
   print(gg_cat_cluster_plots[["Intergenic"]])
 }
 ```
 </div>
 <div id="cat-cluster-GenicIntron" class="toggle-pane hidden-pane" style="display:block;">
-```{r cat-cluster-Genic_Intron_cat, fig.height=6, fig.width=10, eval=show_cat_cluster, out.width="100%"}
+```{r cat-cluster-Genic_Intron_cat, fig.height=8, fig.width=12, eval=show_cat_cluster, out.width="100%"}
 if (show_cat_cluster && !is.null(gg_cat_cluster_plots[["Genic Intron"]])) {
   print(gg_cat_cluster_plots[["Genic Intron"]])
 }
@@ -2038,7 +2038,7 @@ if (show_len_cluster) {
 ```
 
 <div id="len-cluster-All" class="toggle-pane" style="display:block;">
-```{r len-cluster-All, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+```{r len-cluster-All, fig.height=8, fig.width=12, eval=show_len_cluster, out.width="100%"}
 all_lbl <- if (mode == "isoforms") "All Transcripts" else "All Reads"
 if (show_len_cluster && !is.null(gg_len_cluster_plots[[all_lbl]])) {
   print(gg_len_cluster_plots[[all_lbl]])
@@ -2046,63 +2046,63 @@ if (show_len_cluster && !is.null(gg_len_cluster_plots[[all_lbl]])) {
 ```
 </div>
 <div id="len-cluster-FSM" class="toggle-pane hidden-pane" style="display:block;">
-```{r len-cluster-FSM, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+```{r len-cluster-FSM, fig.height=8, fig.width=12, eval=show_len_cluster, out.width="100%"}
 if (show_len_cluster && !is.null(gg_len_cluster_plots[["FSM"]])) {
   print(gg_len_cluster_plots[["FSM"]])
 }
 ```
 </div>
 <div id="len-cluster-ISM" class="toggle-pane hidden-pane" style="display:block;">
-```{r len-cluster-ISM, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+```{r len-cluster-ISM, fig.height=8, fig.width=12, eval=show_len_cluster, out.width="100%"}
 if (show_len_cluster && !is.null(gg_len_cluster_plots[["ISM"]])) {
   print(gg_len_cluster_plots[["ISM"]])
 }
 ```
 </div>
 <div id="len-cluster-NIC" class="toggle-pane hidden-pane" style="display:block;">
-```{r len-cluster-NIC, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+```{r len-cluster-NIC, fig.height=8, fig.width=12, eval=show_len_cluster, out.width="100%"}
 if (show_len_cluster && !is.null(gg_len_cluster_plots[["NIC"]])) {
   print(gg_len_cluster_plots[["NIC"]])
 }
 ```
 </div>
 <div id="len-cluster-NNC" class="toggle-pane hidden-pane" style="display:block;">
-```{r len-cluster-NNC, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+```{r len-cluster-NNC, fig.height=8, fig.width=12, eval=show_len_cluster, out.width="100%"}
 if (show_len_cluster && !is.null(gg_len_cluster_plots[["NNC"]])) {
   print(gg_len_cluster_plots[["NNC"]])
 }
 ```
 </div>
 <div id="len-cluster-GenicGenomic" class="toggle-pane hidden-pane" style="display:block;">
-```{r len-cluster-GenicGenomic, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+```{r len-cluster-GenicGenomic, fig.height=8, fig.width=12, eval=show_len_cluster, out.width="100%"}
 if (show_len_cluster && !is.null(gg_len_cluster_plots[["Genic Genomic"]])) {
   print(gg_len_cluster_plots[["Genic Genomic"]])
 }
 ```
 </div>
 <div id="len-cluster-Antisense" class="toggle-pane hidden-pane" style="display:block;">
-```{r len-cluster-Antisense, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+```{r len-cluster-Antisense, fig.height=8, fig.width=12, eval=show_len_cluster, out.width="100%"}
 if (show_len_cluster && !is.null(gg_len_cluster_plots[["Antisense"]])) {
   print(gg_len_cluster_plots[["Antisense"]])
 }
 ```
 </div>
 <div id="len-cluster-Fusion" class="toggle-pane hidden-pane" style="display:block;">
-```{r len-cluster-Fusion, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+```{r len-cluster-Fusion, fig.height=8, fig.width=12, eval=show_len_cluster, out.width="100%"}
 if (show_len_cluster && !is.null(gg_len_cluster_plots[["Fusion"]])) {
   print(gg_len_cluster_plots[["Fusion"]])
 }
 ```
 </div>
 <div id="len-cluster-Intergenic" class="toggle-pane hidden-pane" style="display:block;">
-```{r len-cluster-Intergenic, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+```{r len-cluster-Intergenic, fig.height=8, fig.width=12, eval=show_len_cluster, out.width="100%"}
 if (show_len_cluster && !is.null(gg_len_cluster_plots[["Intergenic"]])) {
   print(gg_len_cluster_plots[["Intergenic"]])
 }
 ```
 </div>
 <div id="len-cluster-GenicIntron" class="toggle-pane hidden-pane" style="display:block;">
-```{r len-cluster-GenicIntron, fig.height=6, fig.width=10, eval=show_len_cluster, out.width="100%"}
+```{r len-cluster-GenicIntron, fig.height=8, fig.width=12, eval=show_len_cluster, out.width="100%"}
 if (show_len_cluster && !is.null(gg_len_cluster_plots[["Genic Intron"]])) {
   print(gg_len_cluster_plots[["Genic Intron"]])
 }
@@ -2154,70 +2154,70 @@ if (show_sr_cluster) {
 ```
 
 <div id="sr-cluster-Global" class="toggle-pane" style="display:block;">
-```{r sr-cluster-Global, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+```{r sr-cluster-Global, fig.height=8, fig.width=12, eval=show_sr_cluster, out.width="100%"}
 if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["All Transcripts"]])) {
   print(gg_sr_cluster_plots[["All Transcripts"]])
 }
 ```
 </div>
 <div id="sr-cluster-FSM" class="toggle-pane hidden-pane" style="display:block;">
-```{r sr-cluster-FSM, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+```{r sr-cluster-FSM, fig.height=8, fig.width=12, eval=show_sr_cluster, out.width="100%"}
 if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["FSM"]])) {
   print(gg_sr_cluster_plots[["FSM"]])
 }
 ```
 </div>
 <div id="sr-cluster-ISM" class="toggle-pane hidden-pane" style="display:block;">
-```{r sr-cluster-ISM, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+```{r sr-cluster-ISM, fig.height=8, fig.width=12, eval=show_sr_cluster, out.width="100%"}
 if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["ISM"]])) {
   print(gg_sr_cluster_plots[["ISM"]])
 }
 ```
 </div>
 <div id="sr-cluster-NIC" class="toggle-pane hidden-pane" style="display:block;">
-```{r sr-cluster-NIC, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+```{r sr-cluster-NIC, fig.height=8, fig.width=12, eval=show_sr_cluster, out.width="100%"}
 if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["NIC"]])) {
   print(gg_sr_cluster_plots[["NIC"]])
 }
 ```
 </div>
 <div id="sr-cluster-NNC" class="toggle-pane hidden-pane" style="display:block;">
-```{r sr-cluster-NNC, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+```{r sr-cluster-NNC, fig.height=8, fig.width=12, eval=show_sr_cluster, out.width="100%"}
 if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["NNC"]])) {
   print(gg_sr_cluster_plots[["NNC"]])
 }
 ```
 </div>
 <div id="sr-cluster-Genic_Genomic" class="toggle-pane hidden-pane" style="display:block;">
-```{r sr-cluster-Genic_Genomic, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+```{r sr-cluster-Genic_Genomic, fig.height=8, fig.width=12, eval=show_sr_cluster, out.width="100%"}
 if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["Genic Genomic"]])) {
   print(gg_sr_cluster_plots[["Genic Genomic"]])
 }
 ```
 </div>
 <div id="sr-cluster-Antisense" class="toggle-pane hidden-pane" style="display:block;">
-```{r sr-cluster-Antisense, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+```{r sr-cluster-Antisense, fig.height=8, fig.width=12, eval=show_sr_cluster, out.width="100%"}
 if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["Antisense"]])) {
   print(gg_sr_cluster_plots[["Antisense"]])
 }
 ```
 </div>
 <div id="sr-cluster-Fusion" class="toggle-pane hidden-pane" style="display:block;">
-```{r sr-cluster-Fusion, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+```{r sr-cluster-Fusion, fig.height=8, fig.width=12, eval=show_sr_cluster, out.width="100%"}
 if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["Fusion"]])) {
   print(gg_sr_cluster_plots[["Fusion"]])
 }
 ```
 </div>
 <div id="sr-cluster-Intergenic" class="toggle-pane hidden-pane" style="display:block;">
-```{r sr-cluster-Intergenic, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+```{r sr-cluster-Intergenic, fig.height=8, fig.width=12, eval=show_sr_cluster, out.width="100%"}
 if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["Intergenic"]])) {
   print(gg_sr_cluster_plots[["Intergenic"]])
 }
 ```
 </div>
 <div id="sr-cluster-Genic_Intron" class="toggle-pane hidden-pane" style="display:block;">
-```{r sr-cluster-Genic_Intron, fig.height=6, fig.width=10, eval=show_sr_cluster, out.width="100%"}
+```{r sr-cluster-Genic_Intron, fig.height=8, fig.width=12, eval=show_sr_cluster, out.width="100%"}
 if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["Genic Intron"]])) {
   print(gg_sr_cluster_plots[["Genic Intron"]])
 }
@@ -2411,7 +2411,7 @@ if (show_tss_cluster) {
 ```
 
 <div id="tss-cluster-Global" class="toggle-pane" style="display:block;">
-```{r tss-cluster-Global, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+```{r tss-cluster-Global, fig.height=8, fig.width=12, eval=show_tss_cluster, out.width="100%"}
 if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["All Transcripts"]])) {
   print(gg_tss_cluster_plots[["All Transcripts"]])
 }
@@ -2419,7 +2419,7 @@ if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["All Transcripts"]])) {
 </div>
 
 <div id="tss-cluster-FSM" class="toggle-pane hidden-pane" style="display:block;">
-```{r tss-cluster-FSM, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+```{r tss-cluster-FSM, fig.height=8, fig.width=12, eval=show_tss_cluster, out.width="100%"}
 if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["FSM"]])) {
   print(gg_tss_cluster_plots[["FSM"]])
 }
@@ -2427,7 +2427,7 @@ if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["FSM"]])) {
 </div>
 
 <div id="tss-cluster-ISM" class="toggle-pane hidden-pane" style="display:block;">
-```{r tss-cluster-ISM, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+```{r tss-cluster-ISM, fig.height=8, fig.width=12, eval=show_tss_cluster, out.width="100%"}
 if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["ISM"]])) {
   print(gg_tss_cluster_plots[["ISM"]])
 }
@@ -2435,7 +2435,7 @@ if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["ISM"]])) {
 </div>
 
 <div id="tss-cluster-NIC" class="toggle-pane hidden-pane" style="display:block;">
-```{r tss-cluster-NIC, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+```{r tss-cluster-NIC, fig.height=8, fig.width=12, eval=show_tss_cluster, out.width="100%"}
 if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["NIC"]])) {
   print(gg_tss_cluster_plots[["NIC"]])
 }
@@ -2443,7 +2443,7 @@ if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["NIC"]])) {
 </div>
 
 <div id="tss-cluster-NNC" class="toggle-pane hidden-pane" style="display:block;">
-```{r tss-cluster-NNC, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+```{r tss-cluster-NNC, fig.height=8, fig.width=12, eval=show_tss_cluster, out.width="100%"}
 if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["NNC"]])) {
   print(gg_tss_cluster_plots[["NNC"]])
 }
@@ -2451,7 +2451,7 @@ if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["NNC"]])) {
 </div>
 
 <div id="tss-cluster-Genic_Genomic" class="toggle-pane hidden-pane" style="display:block;">
-```{r tss-cluster-Genic_Genomic, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+```{r tss-cluster-Genic_Genomic, fig.height=8, fig.width=12, eval=show_tss_cluster, out.width="100%"}
 if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Genic Genomic"]])) {
   print(gg_tss_cluster_plots[["Genic Genomic"]])
 }
@@ -2459,7 +2459,7 @@ if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Genic Genomic"]])) {
 </div>
 
 <div id="tss-cluster-Antisense" class="toggle-pane hidden-pane" style="display:block;">
-```{r tss-cluster-Antisense, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+```{r tss-cluster-Antisense, fig.height=8, fig.width=12, eval=show_tss_cluster, out.width="100%"}
 if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Antisense"]])) {
   print(gg_tss_cluster_plots[["Antisense"]])
 }
@@ -2467,7 +2467,7 @@ if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Antisense"]])) {
 </div>
 
 <div id="tss-cluster-Fusion" class="toggle-pane hidden-pane" style="display:block;">
-```{r tss-cluster-Fusion, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+```{r tss-cluster-Fusion, fig.height=8, fig.width=12, eval=show_tss_cluster, out.width="100%"}
 if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Fusion"]])) {
   print(gg_tss_cluster_plots[["Fusion"]])
 }
@@ -2475,7 +2475,7 @@ if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Fusion"]])) {
 </div>
 
 <div id="tss-cluster-Intergenic" class="toggle-pane hidden-pane" style="display:block;">
-```{r tss-cluster-Intergenic, fig.height=6, fig.width=10, eval=show_tss_cluster, out.width="100%"}
+```{r tss-cluster-Intergenic, fig.height=8, fig.width=12, eval=show_tss_cluster, out.width="100%"}
 if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Intergenic"]])) {
   print(gg_tss_cluster_plots[["Intergenic"]])
 }
