@@ -2879,6 +2879,14 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # Normalize boolean
     rts_bool_vec <- tolower(as.character(Junctions$RTS_junction)) %in% c("true", "t", "1", "yes")
 
+    # Optional genomic coordinates for collapsing duplicate junctions (same chr + positions)
+    rts_coord_cols <- intersect(
+      c("chrom", "chr", "genomic_start_coord", "genomic_end_coord", "strand"),
+      colnames(Junctions)
+    )
+    has_rts_junc_coords <- all(c("genomic_start_coord", "genomic_end_coord") %in% rts_coord_cols) &&
+      ("chrom" %in% rts_coord_cols || "chr" %in% rts_coord_cols)
+
     # In isoforms mode, Junctions$CB is a comma-separated list — must explode via classification
     if (mode == "isoforms" && !is.null(junc_iso_key) &&
         "FL" %in% colnames(Classification_file) && "CB" %in% colnames(Classification_file) &&
@@ -2895,9 +2903,15 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         filter(CB_clean != "", CB_clean != "unassigned", !is.na(FL_num), FL_num > 0) %>%
         select(all_of(c(junc_iso_key, "CB_clean", "FL_num")))
 
+      junc_rt_cols <- unique(c(
+        junc_iso_key, "junction_category", "canonical", "RTS_junction",
+        rts_coord_cols
+      ))
+      junc_rt_cols <- junc_rt_cols[junc_rt_cols %in% colnames(Junctions)]
+
       # Join junctions (isoform, junction type, RTS flag) to exploded classification
       junc_rt <- Junctions %>%
-        select(all_of(c(junc_iso_key, "junction_category", "canonical", "RTS_junction"))) %>%
+        select(all_of(junc_rt_cols)) %>%
         mutate(SJ_type  = paste(junction_category, canonical, sep = "_"),
                RTS_bool = tolower(as.character(RTS_junction)) %in% c("true", "t", "1", "yes")) %>%
         inner_join(cls_exp_rts, by = junc_iso_key) %>%
@@ -2905,7 +2919,14 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     } else {
       # Reads mode: each junction already has one CB, count = 1
+      junc_rt_cols <- unique(c(
+        "CB", "junction_category", "canonical", "RTS_junction",
+        rts_coord_cols
+      ))
+      junc_rt_cols <- junc_rt_cols[junc_rt_cols %in% colnames(Junctions)]
+
       junc_rt <- Junctions %>%
+        select(all_of(junc_rt_cols)) %>%
         dplyr::filter(!is.na(CB) & CB != "" & CB != "unassigned") %>%
         mutate(SJ_type  = paste(junction_category, canonical, sep = "_"),
                RTS_bool = rts_bool_vec,
@@ -2954,6 +2975,66 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       violin_outline_fill = TRUE,
       box_outline_default = "grey20"
     )
+
+    # Unique junctions per cell: collapse identical genomic introns (reads mode: 1 per junction;
+    # isoforms mode: 1 per junction per cell, FL not used). RTS if any supporting row is RTS.
+    if (has_rts_junc_coords) {
+      uniq_junc_by_cell <- junc_rt %>%
+        mutate(
+          junc_chr = dplyr::coalesce(
+            if ("chrom" %in% names(.)) as.character(.data$chrom) else NA_character_,
+            if ("chr" %in% names(.)) as.character(.data$chr) else NA_character_
+          ),
+          strand_part = if ("strand" %in% names(.)) as.character(.data$strand) else "",
+          junc_key = paste(
+            junc_chr,
+            as.character(.data$genomic_start_coord),
+            as.character(.data$genomic_end_coord),
+            strand_part,
+            sep = ":"
+          )
+        ) %>%
+        dplyr::filter(
+          !is.na(junc_chr), nzchar(junc_chr),
+          !is.na(.data$genomic_start_coord), !is.na(.data$genomic_end_coord)
+        ) %>%
+        group_by(CB, SJ_type, junc_key) %>%
+        summarise(RTS_any = any(RTS_bool, na.rm = TRUE), .groups = "drop") %>%
+        group_by(CB, SJ_type) %>%
+        summarise(
+          total = dplyr::n(),
+          rts   = sum(RTS_any, na.rm = TRUE),
+          .groups = "drop"
+        ) %>%
+        mutate(perc = ifelse(total > 0, 100 * rts / total, NA_real_)) %>%
+        tidyr::complete(CB, SJ_type = sj_levels)
+
+      df_long_unique <- data.frame(
+        Variable = factor(uniq_junc_by_cell$SJ_type, levels = sj_levels),
+        Value = uniq_junc_by_cell$perc
+      )
+
+      gg_rts_unique_by_sjtype <<- build_violin_plot(
+        df_long = df_long_unique,
+        title = "RT-switching Unique Junctions by Splice Junction Type Across Cells",
+        x_labels = sj_labels,
+        fill_map = sj_fill_map,
+        y_label = "Junctions, %",
+        legend = FALSE,
+        ylim = c(0, 100),
+        violin_alpha = 0.7,
+        box_alpha = 0.3,
+        box_width = 0.05,
+        x_tickangle = 45,
+        violin_outline_fill = TRUE,
+        box_outline_default = "grey20"
+      )
+    } else {
+      message(
+        "RT-switching Unique Junctions plot skipped: need chrom (or chr), genomic_start_coord, ",
+        "and genomic_end_coord in junctions file."
+      )
+    }
 
   } else {
     message("RTS_junction column not found in Junctions. Skipping RT-switching by SJ type plots.")
@@ -3719,6 +3800,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     print(p_novel_noncan)
     render_pdf_plot("gg_allcanon_by_category")
     if (exists("gg_rts_all_by_sjtype")) render_pdf_plot("gg_rts_all_by_sjtype")
+    if (exists("gg_rts_unique_by_sjtype")) render_pdf_plot("gg_rts_unique_by_sjtype")
 
     # Features of Bad Quality section
     section_page("Features of Bad Quality")

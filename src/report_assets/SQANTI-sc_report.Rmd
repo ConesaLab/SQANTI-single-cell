@@ -503,11 +503,16 @@ if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") 
     if(!container) return;
     var labelSpan=container.querySelector(".dropdown-toggle .label");
     var links=container.querySelectorAll(".dropdown-menu a");
-    var panesContainer = container.parentElement;
-    while (panesContainer && !panesContainer.querySelector('.toggle-pane')) {
-      panesContainer = panesContainer.parentElement;
+    // Prefer the Bootstrap tab pane so we do not hide sibling tabs' .toggle-pane
+    // (e.g. Splice Junction "Distribution" vs "RT-switching").
+    var panesContainer = container.closest(".tab-pane");
+    if (!panesContainer || !panesContainer.querySelector(".toggle-pane")) {
+      panesContainer = container.parentElement;
+      while (panesContainer && !panesContainer.querySelector(".toggle-pane")) {
+        panesContainer = panesContainer.parentElement;
+      }
     }
-    if (!panesContainer) panesContainer = container.closest('section, div.section') || document;
+    if (!panesContainer) panesContainer = container.closest("section, div.section") || document;
 
     Array.prototype.forEach.call(links,function(link){
       link.addEventListener("click",function(e){
@@ -561,6 +566,7 @@ if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") 
     setupDropdown("monoexon-length-dropdown");
     // New dropdowns for unified SJ characterization section
     setupDropdown("sjchar-dist-dropdown");
+    setupDropdown("sjchar-rts-dropdown");
     // New section dropdowns
     setupDropdown("readdist-dropdown");
     setupDropdown("exoncounts-dropdown");
@@ -1519,10 +1525,32 @@ if (exists("gg_allcanon_by_category")) {
 
 ## RT-switching
 
+```{r rts-dual-mode-flag, echo=FALSE}
+rts_dual_mode <- exists("gg_rts_all_by_sjtype") && exists("gg_rts_unique_by_sjtype")
+```
+
+```{=html}
+`r if (rts_dual_mode) '<div id="sjchar-rts-dropdown" class="dropdown-toolbar">\n  <div class="btn-group">\n    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n      <span class="label">All Junctions</span> <span class="caret"></span>\n    </button>\n    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n      <li><a href="#" data-target="#sj-rts-all">All Junctions</a></li>\n      <li><a href="#" data-target="#sj-rts-unique">Unique Junctions</a></li>\n    </ul>\n  </div>\n</div>\n<div id="sj-rts-all" class="toggle-pane" style="display:block;">\n' else ''`
+```
+
 ```{r sj-rts-all, fig.height=8, fig.width=12}
 if (exists("gg_rts_all_by_sjtype")) {
   print(gg_rts_all_by_sjtype)
 }
+```
+
+```{=html}
+`r if (rts_dual_mode) '</div>\n<div id="sj-rts-unique" class="toggle-pane hidden-pane" style="display:block;">\n' else ''`
+```
+
+```{r sj-rts-unique, fig.height=8, fig.width=12}
+if (exists("gg_rts_unique_by_sjtype")) {
+  print(gg_rts_unique_by_sjtype)
+}
+```
+
+```{=html}
+`r if (rts_dual_mode) '</div>\n' else ''`
 ```
 
 # Features of Bad Quality {.tabset .tabset-fade}
