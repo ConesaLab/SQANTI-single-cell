@@ -212,8 +212,10 @@ infer_feature_metadata <- function(feature, values) {
   if (stringr::str_detect(name_lower, "isoform")) domain <- "Isoforms"
   if (stringr::str_detect(name_lower, "transcript")) domain <- "Transcripts"
   if (stringr::str_detect(name_lower, "gene")) domain <- "Genes"
+  if (stringr::str_detect(name_lower, "^anno_.*_bin") || stringr::str_detect(name_lower, "^novel_.*_bin")) domain <- "Genes"
   if (stringr::str_detect(name_lower, "umi")) domain <- "UMIs"
   if (stringr::str_detect(name_lower, "junction")) domain <- "Junctions"
+  if (name_lower == "ujcs_in_cell") domain <- "UJCs"
   structural_keywords <- c(
     "fsm", "ism", "nic", "nnc",
     "genic_genomic", "genic genomic", "genic",
@@ -221,7 +223,9 @@ infer_feature_metadata <- function(feature, values) {
     "genic_intron", "genic intron"
   )
   if (any(stringr::str_detect(name_lower, structural_keywords))) {
-    if (exists("params") && params$mode == "isoforms") domain <- "Transcripts" else domain <- "Reads"
+    if (domain != "Genes") {
+      if (exists("params") && params$mode == "isoforms") domain <- "Transcripts" else domain <- "Reads"
+    }
   }
   is_prop_keyword <- stringr::str_detect(name_lower, "prop|perc|pct|ratio|fraction")
   finite_vals <- values[is.finite(values)]
@@ -266,6 +270,12 @@ infer_feature_metadata <- function(feature, values) {
 
 infer_junction_display_label <- function(feature_name, current_label) {
   lower_name <- tolower(feature_name)
+  
+  # Gene bin features should not get junction annotations even if they contain "ujc"
+  if (grepl("^anno_.*_bin", lower_name) || grepl("^novel_.*_bin", lower_name)) {
+    return(current_label)
+  }
+
   junction_keywords <- c("junction", "junctions", "splice", "sj", "canonical", "noncanonical", "ujc", "ujcs")
   contains_junction <- any(vapply(junction_keywords, function(kw) grepl(kw, lower_name, fixed = TRUE), logical(1)))
   if (!contains_junction) {
@@ -1177,7 +1187,7 @@ main <- function() {
         gp_load1 <- ggplot(top_pc1_plot, aes(x = variable, y = abs_loading, fill = sign)) +
           geom_col(width = 0.7) +
           coord_flip() +
-          scale_fill_manual(values = c("Positive" = "#78C679", "Negative" = "#EE6A50"), name = "Sign", limits = c("Positive", "Negative"), drop = FALSE) +
+          scale_fill_manual(values = c("Positive" = "#EE446F", "Negative" = "#74CDF0"), name = "Sign", limits = c("Positive", "Negative"), drop = FALSE) +
           theme_classic(base_size = 14) +
           labs(title = "Top 10 loadings: PC1", x = "Feature", y = "Absolute loading") +
           theme(
@@ -1190,7 +1200,7 @@ main <- function() {
         gp_load2 <- ggplot(top_pc2_plot, aes(x = variable, y = abs_loading, fill = sign)) +
           geom_col(width = 0.7) +
           coord_flip() +
-          scale_fill_manual(values = c("Positive" = "#78C679", "Negative" = "#EE6A50"), name = "Sign", limits = c("Positive", "Negative"), drop = FALSE) +
+          scale_fill_manual(values = c("Positive" = "#EE446F", "Negative" = "#74CDF0"), name = "Sign", limits = c("Positive", "Negative"), drop = FALSE) +
           theme_classic(base_size = 14) +
           labs(title = "Top 10 loadings: PC2", x = "Feature", y = "Absolute loading") +
           theme(
@@ -1287,42 +1297,11 @@ main <- function() {
       print(multi_pca_scree_plot_local + theme_pdf_paper)
     }
     if (!is.null(multi_pca_top_loadings_plots_local)) {
-      # PDF only: smaller type so the two-panel loadings figure fits (HTML keeps full-size plots)
-      theme_pca_loadings_pdf <- theme(
-        plot.title = element_text(size = 10, face = "bold", hjust = 0.5),
-        axis.title = element_text(size = 11),
-        axis.text.x = element_text(size = 9),
-        axis.text.y = element_text(size = 7.5),
-        legend.position = "none"
-      )
-      gp_load1 <- multi_pca_top_loadings_plots_local[["PC1"]]
-      gp_load2 <- multi_pca_top_loadings_plots_local[["PC2"]]
-      if (!is.null(gp_load1) && !is.null(gp_load2)) {
-        legend_df <- data.frame(
-          variable = c("pos", "neg"),
-          abs_loading = c(1, 1),
-          sign = factor(c("Positive", "Negative"), levels = c("Positive", "Negative"))
-        )
-        legend_plot <- ggplot(legend_df, aes(x = variable, y = abs_loading, fill = sign)) +
-          geom_col() +
-          scale_fill_manual(values = c("Positive" = "#78C679", "Negative" = "#EE6A50"), name = "Sign", limits = c("Positive", "Negative"), drop = FALSE) +
-          theme_void(base_size = 10) +
-          theme(
-            legend.position = "bottom",
-            legend.text = element_text(size = 9),
-            legend.title = element_text(size = 9, face = "bold")
-          )
-        legend_grob <- gtable::gtable_filter(ggplotGrob(legend_plot), "guide-box")
-        row_plots <- arrangeGrob(
-          gp_load1 + theme_pca_loadings_pdf,
-          gp_load2 + theme_pca_loadings_pdf,
-          ncol = 2
-        )
-        grid.arrange(row_plots, legend_grob, ncol = 1, heights = c(0.86, 0.14))
-      } else {
-        for (plt in multi_pca_top_loadings_plots_local) {
-          print(plt + theme_pca_loadings_pdf)
-        }
+      if (!is.null(multi_pca_top_loadings_plots_local[["PC1"]])) {
+        print(multi_pca_top_loadings_plots_local[["PC1"]] + theme_pdf_paper)
+      }
+      if (!is.null(multi_pca_top_loadings_plots_local[["PC2"]])) {
+        print(multi_pca_top_loadings_plots_local[["PC2"]] + theme_pdf_paper)
       }
     }
     if (length(multi_pca_loading_distribution_plots_local) > 0) {
