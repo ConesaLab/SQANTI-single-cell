@@ -1236,6 +1236,16 @@ main <- function() {
     )
     grid.draw(cover)
 
+    theme_pdf_paper <- theme(
+      plot.title = element_text(size = 24, face = "bold", hjust = 0.5),
+      axis.title = element_text(size = 20),
+      axis.text = element_text(size = 16),
+      axis.text.x = element_text(size = 16),
+      axis.text.y = element_text(size = 16),
+      legend.text = element_text(size = 16),
+      legend.title = element_text(size = 20, face = "bold")
+    )
+
     tbl_theme <- ttheme_default(
       core = list(fg_params = list(cex = 1.4, hjust = 0.5, x = 0.5)),
       colhead = list(fg_params = list(cex = 1.4, fontface = "bold", hjust = 0.5, x = 0.5))
@@ -1251,30 +1261,30 @@ main <- function() {
     popViewport()
 
     if (length(multi_library_size_plots) > 0) {
-      for (plt in multi_library_size_plots) print(plt)
+      for (plt in multi_library_size_plots) print(plt + theme_pdf_paper)
     }
     if (length(multi_gene_char_plots) > 0) {
-      for (plt in multi_gene_char_plots) print(plt)
+      for (plt in multi_gene_char_plots) print(plt + theme_pdf_paper)
     }
     if (length(multi_length_plots_local) > 0) {
-      for (plt in multi_length_plots_local) print(plt)
+      for (plt in multi_length_plots_local) print(plt + theme_pdf_paper)
     }
 
     if (have_cats) {
       for (gp in category_plots) {
-        print(gp)
+        print(gp + theme_pdf_paper)
       }
-      print(p_cats)
+      print(p_cats + theme_pdf_paper)
     }
 
     if (!is.null(multi_pca_scores_plot_local)) {
-      print(multi_pca_scores_plot_local)
+      print(multi_pca_scores_plot_local + theme_pdf_paper)
     }
     if (!is.null(multi_pca_group_plot_local)) {
-      print(multi_pca_group_plot_local)
+      print(multi_pca_group_plot_local + theme_pdf_paper)
     }
     if (!is.null(multi_pca_scree_plot_local)) {
-      print(multi_pca_scree_plot_local)
+      print(multi_pca_scree_plot_local + theme_pdf_paper)
     }
     if (!is.null(multi_pca_top_loadings_plots_local)) {
       # PDF only: smaller type so the two-panel loadings figure fits (HTML keeps full-size plots)
@@ -1317,7 +1327,7 @@ main <- function() {
     }
     if (length(multi_pca_loading_distribution_plots_local) > 0) {
       for (nm in names(multi_pca_loading_distribution_plots_local)) {
-        print(multi_pca_loading_distribution_plots_local[[nm]])
+        print(multi_pca_loading_distribution_plots_local[[nm]] + theme_pdf_paper)
       }
     }
 
