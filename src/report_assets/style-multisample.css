@@ -195,6 +195,15 @@ table.dataTable th.dt-right {
   text-align: right !important;
 }
 
+/* Reduce gap between section headings and DataTables (e.g. Samples Summary) */
+h1 {
+  margin-bottom: 4px;
+}
+
+.section > .datatables {
+  margin-top: 0;
+}
+
 /* Dropdown toolbar */
 .dropdown-toolbar {
   display: block;
