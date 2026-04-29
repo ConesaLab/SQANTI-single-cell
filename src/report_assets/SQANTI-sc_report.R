@@ -847,8 +847,34 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     plot_args <- c(base_args, cfg$plot_args %||% list())
     assign_plot(cfg$name, build_violin_from_long(df_long, plot_args))
   }
+  theme_pdf_paper <- theme(
+    plot.title = element_text(size = 24, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 20),
+    axis.text = element_text(size = 16),
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size = 16),
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 20, face = "bold")
+  )
+
+  # Helper: apply PDF paper theme + auto-wrap long titles
+  apply_pdf_theme <- function(p) {
+    if (inherits(p, "gg")) {
+      ttl <- p$labels$title
+      if (!is.null(ttl) && nchar(ttl) > 55) {
+        p <- p + labs(title = stringr::str_wrap(ttl, width = 55))
+      }
+      p <- p + theme_pdf_paper
+    }
+    p
+  }
+
   render_pdf_plot <- function(name) {
-    if (exists(name)) print(get(name))
+    if (exists(name)) {
+      p <- get(name)
+      p <- apply_pdf_theme(p)
+      if (inherits(p, "gg")) print(p) else print(p)
+    }
   }
 
   render_pdf_plot_centered <- function(name, width_frac = 0.45) {
@@ -856,6 +882,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       return(invisible(NULL))
     }
     p <- get(name)
+    p <- apply_pdf_theme(p)
     g <- if (inherits(p, "grob")) p else ggplotGrob(p)
     left_right <- (1 - width_frac) / 2
     grid.arrange(nullGrob(), g, nullGrob(), widths = c(left_right, width_frac, left_right), newpage = TRUE)
@@ -2801,7 +2828,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       title = "",
       x_labels = x_labels_full,
       fill_map = fill_map_cat,
-      y_label = "Known Canonical Junctions, %",
+      y_label = "Known Canonical\nJunctions, %",
       legend = FALSE,
       override_outline_vars = c("Genic"),
       violin_alpha = 0.7,
@@ -2818,7 +2845,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       title = "",
       x_labels = x_labels_full,
       fill_map = fill_map_cat,
-      y_label = "Known Non-canonical Junctions, %",
+      y_label = "Known Non-canonical\nJunctions, %",
       legend = FALSE,
       override_outline_vars = c("Genic"),
       violin_alpha = 0.7,
@@ -2835,7 +2862,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       title = "",
       x_labels = x_labels_full,
       fill_map = fill_map_cat,
-      y_label = "Novel Canonical Junctions, %",
+      y_label = "Novel Canonical\nJunctions, %",
       legend = FALSE,
       override_outline_vars = c("Genic"),
       violin_alpha = 0.7,
@@ -2852,7 +2879,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       title = "",
       x_labels = x_labels_full,
       fill_map = fill_map_cat,
-      y_label = "Novel Non-canonical Junctions, %",
+      y_label = "Novel Non-canonical\nJunctions, %",
       legend = FALSE,
       override_outline_vars = c("Genic"),
       violin_alpha = 0.7,
@@ -2866,16 +2893,16 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     # Stack the four SJ type-by-category plots into one static figure using gridExtra
     # Remove x-axis labels/titles for top 3 plots to mimic shared axis
-    p1 <- p_known_canon_by_category + theme(axis.text.x = element_blank(), axis.title.x = element_blank(), axis.ticks.x = element_blank())
-    p2 <- p_known_noncanon_by_category + theme(axis.text.x = element_blank(), axis.title.x = element_blank(), axis.ticks.x = element_blank())
-    p3 <- p_novel_canon_by_category + theme(axis.text.x = element_blank(), axis.title.x = element_blank(), axis.ticks.x = element_blank())
-    p4 <- p_novel_noncanon_by_category # Keep x-axis for bottom plot
+    p1 <- p_known_canon_by_category + theme(axis.text.x = element_blank(), axis.title.x = element_blank(), axis.ticks.x = element_blank(), axis.title.y = element_text(size = 14))
+    p2 <- p_known_noncanon_by_category + theme(axis.text.x = element_blank(), axis.title.x = element_blank(), axis.ticks.x = element_blank(), axis.title.y = element_text(size = 14))
+    p3 <- p_novel_canon_by_category + theme(axis.text.x = element_blank(), axis.title.x = element_blank(), axis.ticks.x = element_blank(), axis.title.y = element_text(size = 14))
+    p4 <- p_novel_noncanon_by_category + theme(axis.title.y = element_text(size = 14))
 
     gg_sj_type_by_category_stack <<- gridExtra::arrangeGrob(
       p1, p2, p3, p4,
       ncol = 1,
       heights = unit(c(1, 1, 1, 1.25), "null"),
-      top = textGrob("Splice Junctions Distribution by Structural Category Across Cells", gp = gpar(fontsize = 18, fontface = "bold"))
+      top = textGrob("Splice Junctions Distribution by Structural Category Across Cells", gp = gpar(fontsize = 16, fontface = "bold"))
     )
   }
 
@@ -3632,7 +3659,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       prof_order <- c("FSM", "ISM", "NIC", "NNC", "Genic Genomic", "Antisense", "Fusion", "Intergenic", "Genic Intron")
       for (nm in prof_order) {
         if (!is.null(gg_exon_profile_by_category[[nm]])) {
-          print(gg_exon_profile_by_category[[nm]])
+          print(apply_pdf_theme(gg_exon_profile_by_category[[nm]]))
         }
       }
     }
@@ -3799,10 +3826,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     section_page("Splice Junction Characterization")
     render_pdf_plot("gg_known_novel_canon")
-    print(p_known_can)
-    print(p_known_noncan)
-    print(p_novel_can)
-    print(p_novel_noncan)
+    print(apply_pdf_theme(p_known_can))
+    print(apply_pdf_theme(p_known_noncan))
+    print(apply_pdf_theme(p_novel_can))
+    print(apply_pdf_theme(p_novel_noncan))
     render_pdf_plot("gg_allcanon_by_category")
     if (exists("gg_rts_all_by_sjtype")) render_pdf_plot("gg_rts_all_by_sjtype")
     if (exists("gg_rts_unique_by_sjtype")) render_pdf_plot("gg_rts_unique_by_sjtype")
@@ -3829,19 +3856,18 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # Clustering Analysis
     if (exists("gg_umap") && !is.null(gg_umap)) {
       section_page("Clustering analysis")
-      print(gg_umap)
+      print(apply_pdf_theme(gg_umap))
 
       # Print UMAP by structural category if available (one per page)
       if (exists("gg_umap_by_category") && !is.null(gg_umap_by_category)) {
         for (cat_label in names(gg_umap_by_category)) {
-          # Print the UMAP
-          print(gg_umap_by_category[[cat_label]])
+          print(apply_pdf_theme(gg_umap_by_category[[cat_label]]))
         }
         
         # Then print out ALL the corresponding Structural Categories Violin Plots
         if (exists("gg_cat_cluster_plots") && !is.null(gg_cat_cluster_plots)) {
            for (cat_label in names(gg_cat_cluster_plots)) {
-              print(gg_cat_cluster_plots[[cat_label]])
+              print(apply_pdf_theme(gg_cat_cluster_plots[[cat_label]]))
            }
         }
 
@@ -3849,7 +3875,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         if (exists("gg_len_cluster_plots") && !is.null(gg_len_cluster_plots)) {
           for (len_lbl in names(gg_len_cluster_plots)) {
             if (!is.null(gg_len_cluster_plots[[len_lbl]])) {
-              print(gg_len_cluster_plots[[len_lbl]])
+              print(apply_pdf_theme(gg_len_cluster_plots[[len_lbl]]))
             }
           }
         }
@@ -3859,17 +3885,15 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       if (exists("gg_sr_cluster_plots") && !is.null(gg_sr_cluster_plots)) {
         # UMAPs first (Global then Category-specific if available)
         if (exists("gg_sr_umap_plots") && !is.null(gg_sr_umap_plots)) {
-          if (!is.null(gg_sr_umap_plots[["All Transcripts"]])) print(gg_sr_umap_plots[["All Transcripts"]])
+          if (!is.null(gg_sr_umap_plots[["All Transcripts"]])) print(apply_pdf_theme(gg_sr_umap_plots[["All Transcripts"]]))
           for (label in setdiff(names(gg_sr_umap_plots), "All Transcripts")) {
-            print(gg_sr_umap_plots[[label]])
+            print(apply_pdf_theme(gg_sr_umap_plots[[label]]))
           }
         }
 
         # Violin plots
         for (label in names(gg_sr_cluster_plots)) {
-          # Print ggplot for PDF
-          p_ggplot <- gg_sr_cluster_plots[[label]]
-          print(p_ggplot)
+          print(apply_pdf_theme(gg_sr_cluster_plots[[label]]))
         }
       }
 
@@ -3877,17 +3901,15 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       if (exists("gg_tss_cluster_plots") && !is.null(gg_tss_cluster_plots)) {
         # UMAPs first
         if (exists("gg_tss_umap_plots") && !is.null(gg_tss_umap_plots)) {
-          if (!is.null(gg_tss_umap_plots[["All Transcripts"]])) print(gg_tss_umap_plots[["All Transcripts"]])
+          if (!is.null(gg_tss_umap_plots[["All Transcripts"]])) print(apply_pdf_theme(gg_tss_umap_plots[["All Transcripts"]]))
           for (label in setdiff(names(gg_tss_umap_plots), "All Transcripts")) {
-            print(gg_tss_umap_plots[[label]])
+            print(apply_pdf_theme(gg_tss_umap_plots[[label]]))
           }
         }
 
         # Violin plots
         for (label in names(gg_tss_cluster_plots)) {
-          # Print ggplot for PDF
-          p_ggplot <- gg_tss_cluster_plots[[label]]
-          print(p_ggplot)
+          print(apply_pdf_theme(gg_tss_cluster_plots[[label]]))
         }
       }
     }
