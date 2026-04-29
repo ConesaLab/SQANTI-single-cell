@@ -220,6 +220,11 @@ build_violin_plot <- function(df_long,
     df_long$Value <- pmax(df_long$Value, 0)
   }
 
+  # Percentage violins: fixed 0–100 y-axis so plots are comparable, especially between categories
+  if (is.null(ylim) && !isTRUE(log_scale) && grepl("%", y_label)) {
+    ylim <- c(0, 100)
+  }
+
   if (isTRUE(log_scale)) {
     df_long <- df_long[is.finite(df_long$Value) & df_long$Value > 0, , drop = FALSE]
   }
