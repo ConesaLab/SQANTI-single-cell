@@ -23,7 +23,6 @@ library(DT)
 ```
 
 # Samples Summary
-
 ```{r summary-table}
 if (exists("multi_summary_tbl_html", envir = .GlobalEnv)) {
   summary_tbl <- get("multi_summary_tbl_html", envir = .GlobalEnv)

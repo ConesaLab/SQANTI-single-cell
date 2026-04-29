@@ -16,8 +16,9 @@ h1 {
   color: #2c3e50;
   padding-top: 20px;
   border-bottom: 3px solid #3498db;
-  padding-bottom: 10px;
+  padding-bottom: 5px !important;
   margin-top: 0;
+  margin-bottom: 15px !important;
 }
 
 h2 {
@@ -80,7 +81,7 @@ h4 {
 /* Tables */
 table {
   border-collapse: collapse;
-  margin: 20px 0;
+  margin: 10px 0;
   min-width: 300px;
   font-size: 14px;
   border-radius: 8px;
@@ -177,9 +178,17 @@ table tbody tr:hover {
 /* DataTables (Samples Summary): full width like single-sample reports */
 .dataTables_wrapper {
   width: 100% !important;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+.html-widget, .datatables {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
 }
 
 table.dataTable {
+  margin-top: 0 !important;
   margin-left: 0 !important;
   margin-right: auto !important;
   width: 100% !important;
