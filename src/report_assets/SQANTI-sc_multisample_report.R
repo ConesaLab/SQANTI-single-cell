@@ -206,7 +206,7 @@ infer_feature_metadata <- function(feature, values) {
     if (exists("params") && params$mode == "isoforms") domain <- "Transcripts" else domain <- "Reads"
   }
   if (stringr::str_detect(name_lower, "\\bmt\\b") || stringr::str_detect(name_lower, "^mt_")) domain <- "Reads"
-  if (stringr::str_detect(name_lower, "exon")) domain <- "Exons"
+  if (stringr::str_detect(name_lower, "exon") && !stringr::str_detect(name_lower, "monoexon")) domain <- "Exons"
   if (stringr::str_detect(name_lower, "intron")) domain <- "Introns"
   if (stringr::str_detect(name_lower, "coverage")) domain <- "Coverage"
   if (stringr::str_detect(name_lower, "isoform")) domain <- "Isoforms"
@@ -217,8 +217,9 @@ infer_feature_metadata <- function(feature, values) {
   if (stringr::str_detect(name_lower, "junction")) domain <- "Junctions"
   if (name_lower == "ujcs_in_cell") domain <- "UJCs"
   structural_keywords <- c(
-    "fsm", "ism", "nic", "nnc",
-    "genic_genomic", "genic genomic", "genic",
+    "(?<![a-z])fsm(?![a-z])", "(?<![a-z])ism(?![a-z])",
+    "(?<![a-z])nic(?![a-z])", "(?<![a-z])nnc(?![a-z])",
+    "genic_genomic", "genic genomic", "(?<![a-z])genic(?![a-z])",
     "antisense", "fusion", "intergenic",
     "genic_intron", "genic intron"
   )
