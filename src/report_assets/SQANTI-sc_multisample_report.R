@@ -360,8 +360,69 @@ get_conesa_palette_colors <- function(n, palette = "complete") {
   }
 }
 
+# Helper: embed a small zoomed inset into the top-right whitespace of a fixed 0-100% plot.
+# Conditions: max_val > 0 and max_val < 20 (data stays below 20%, leaving whitespace to fill).
+# Shown in both HTML and PDF. Uses annotation_custom — no extra packages beyond ggplot2 + grid.
+attach_zoom_inset <- function(main_plot, plot_df, x_var, y_var,
+                               max_val, min_val, is_html,
+                               use_violin = TRUE, fill_col = NULL) {
+  if (max_val == 0 || max_val >= 20) return(main_plot)
+  if (!is.factor(plot_df[[x_var]])) plot_df[[x_var]] <- factor(plot_df[[x_var]])
+  n_grps <- nlevels(plot_df[[x_var]])
+
+  gp_inset <- ggplot(plot_df, aes(x = .data[[x_var]], y = .data[[y_var]]))
+
+  if (!is.null(fill_col)) {
+    if (use_violin) {
+      gp_inset <- gp_inset +
+        geom_violin(fill = fill_col, colour = fill_col, alpha = 0.7,
+                    scale = "width", trim = TRUE, linewidth = 0.2)
+    }
+    gp_inset <- gp_inset +
+      geom_boxplot(fill = fill_col, colour = "grey30", width = 0.08,
+                   outlier.shape = NA, alpha = 0.3, lwd = 0.2)
+  } else {
+    if (use_violin) {
+      gp_inset <- gp_inset +
+        geom_violin(aes(fill = .data[[x_var]], colour = .data[[x_var]]),
+                    alpha = 0.7, scale = "width", trim = TRUE, linewidth = 0.2)
+    }
+    gp_inset <- gp_inset +
+      geom_boxplot(aes(fill = .data[[x_var]]), colour = "grey30",
+                   width = 0.08, outlier.shape = NA, alpha = 0.3, lwd = 0.2) +
+      scale_fill_conesa(palette = "complete", drop = FALSE) +
+      scale_color_conesa(palette = "complete", guide = "none", drop = FALSE)
+  }
+
+  gp_inset <- gp_inset +
+    stat_summary(fun = mean, geom = "point", shape = 4, size = 1,
+                 colour = "red", stroke = 0.45) +
+    scale_y_continuous(
+      limits = c(0, 100),
+      labels = function(x) as.integer(x),
+      expand = expansion(mult = c(0.02, 0.05))
+    ) +
+    theme_classic(base_size = 11) +
+    theme(
+      legend.position  = "none",
+      axis.title       = element_blank(),
+      axis.text.x      = element_blank(),
+      axis.ticks.x     = element_blank(),
+      axis.ticks.length = unit(2, "pt"),
+      plot.margin      = margin(2, 3, 2, 2, "pt"),
+      plot.background  = element_rect(fill = "white", colour = "grey60", linewidth = 0.4),
+      panel.background = element_rect(fill = "white")
+    )
+
+  main_plot + annotation_custom(
+    ggplotGrob(gp_inset),
+    xmin = n_grps + 0.6 - n_grps * 0.5, xmax = n_grps + 0.6,
+    ymin = 45,  ymax = 99
+  )
+}
+
 # Helper: build per-feature violin + boxplot for a PCA loading
-build_loading_feature_plot <- function(multi, feature_info, sample_levels) {
+build_loading_feature_plot <- function(multi, feature_info, sample_levels, is_html = FALSE) {
   feature_name <- as.character(feature_info$variable)[1]
   if (!feature_name %in% colnames(multi)) {
     return(NULL)
@@ -429,6 +490,13 @@ build_loading_feature_plot <- function(multi, feature_info, sample_levels) {
     )
   if (use_log) {
     gp <- gp + scale_y_log10(labels = scales::comma)
+  } else if (info$unit == "%") {
+    gp <- gp + coord_cartesian(ylim = c(0, 100))
+    finite_vals <- plot_df$value[is.finite(plot_df$value)]
+    max_val <- if (length(finite_vals) > 0) max(finite_vals) else 0
+    min_val <- if (length(finite_vals) > 0) min(finite_vals) else 0
+    gp <- attach_zoom_inset(gp, plot_df, "sampleID", "value",
+                             max_val, min_val, is_html, use_violin)
   }
   return(gp)
 }
@@ -436,7 +504,7 @@ build_loading_feature_plot <- function(multi, feature_info, sample_levels) {
 # Reusable helper: violin + boxplot comparing a single metric across samples
 build_sample_comparison_plot <- function(data, col_name, title, y_label,
                                          sample_levels, scale_percent = FALSE,
-                                         log_scale = FALSE) {
+                                         log_scale = FALSE, is_html = FALSE) {
   if (!col_name %in% colnames(data)) return(NULL)
   plot_df <- data %>%
     select(sampleID, value = all_of(col_name)) %>%
@@ -471,14 +539,23 @@ build_sample_comparison_plot <- function(data, col_name, title, y_label,
       axis.text.x = element_text(size = 16, angle = 35, hjust = 1),
       axis.text.y = element_text(size = 16)
     )
+  is_pct <- grepl("%", y_label) && !isTRUE(log_scale)
   if (isTRUE(log_scale)) {
     gp <- gp + scale_y_log10(labels = scales::comma)
+  } else if (is_pct) {
+    gp <- gp + coord_cartesian(ylim = c(0, 100))
+    finite_vals <- plot_df$value[is.finite(plot_df$value)]
+    max_val <- if (length(finite_vals) > 0) max(finite_vals) else 0
+    min_val <- if (length(finite_vals) > 0) min(finite_vals) else 0
+    gp <- attach_zoom_inset(gp, plot_df, "sampleID", "value",
+                             max_val, min_val, is_html, use_violin)
   }
   gp
 }
 
 main <- function() {
   params <- parse_args()
+  is_html_output <- params$report %in% c("html", "both")
 
   files <- unlist(strsplit(params$files, ",", fixed = TRUE))
   files <- trimws(files)
@@ -671,7 +748,8 @@ main <- function() {
       y_label = spec$y,
       sample_levels = sample_levels_global,
       scale_percent = isTRUE(spec$scale_pct),
-      log_scale = isTRUE(spec$log)
+      log_scale = isTRUE(spec$log),
+      is_html = is_html_output
     )
     if (!is.null(gp)) multi_library_size_plots[[nm]] <- gp
   }
@@ -696,7 +774,8 @@ main <- function() {
       title = paste0("Per Sample ", nm, " Distribution"),
       y_label = spec$y,
       sample_levels = sample_levels_global,
-      log_scale = isTRUE(spec$log)
+      log_scale = isTRUE(spec$log),
+      is_html = is_html_output
     )
     if (!is.null(gp)) multi_gene_char_plots[[nm]] <- gp
   }
@@ -780,7 +859,8 @@ main <- function() {
       title = paste0("Per Sample Median Length per Cell Distribution"),
       y_label = "Length, bp",
       sample_levels = sample_levels_global,
-      log_scale = TRUE
+      log_scale = TRUE,
+      is_html = is_html_output
     )
     if (!is.null(gp)) multi_length_plots_local[["Median Length per Cell"]] <- gp
   }
@@ -892,7 +972,7 @@ main <- function() {
       if (is.null(cat_col) || is.na(cat_col)) cat_col <- "grey60"
       box_outline_col <- if (as.character(cat_lab) == "Genic Genomic") "grey90" else "grey20"
       violin_fill <- grDevices::adjustcolor(cat_col, alpha.f = 0.7)
-      ggplot(dfp, aes(x = sampleID, y = prop)) +
+      gg <- ggplot(dfp, aes(x = sampleID, y = prop)) +
         geom_violin(fill = violin_fill, color = cat_col, linewidth = 0.3, width = 0.8, trim = TRUE) +
         geom_boxplot(width = 0.05, outlier.shape = NA, fill = cat_col, color = box_outline_col, alpha = 0.3) +
         stat_summary(fun = mean, geom = "point", shape = 4, size = 1, colour = "red", stroke = 0.9) +
@@ -906,6 +986,12 @@ main <- function() {
           axis.title = element_text(size = 18),
           axis.text.y = element_text(size = 16)
         )
+      cat_finite <- dfp$prop[is.finite(dfp$prop)]
+      cat_max <- if (length(cat_finite) > 0) max(cat_finite) else 0
+      cat_min <- if (length(cat_finite) > 0) min(cat_finite) else 0
+      attach_zoom_inset(gg, dfp, "sampleID", "prop",
+                        cat_max, cat_min, is_html_output,
+                        use_violin = TRUE, fill_col = violin_fill)
     })
     names(category_plots) <- as.character(category_levels)
 
@@ -1222,7 +1308,7 @@ main <- function() {
         loading_distribution_plots <- list()
         if (nrow(loading_plot_info) > 0) {
           for (idx in seq_len(nrow(loading_plot_info))) {
-            gp_loading <- build_loading_feature_plot(multi, loading_plot_info[idx, ], sample_levels)
+            gp_loading <- build_loading_feature_plot(multi, loading_plot_info[idx, ], sample_levels, is_html = is_html_output)
             feat_name <- loading_plot_info$variable[idx]
             if (is.null(gp_loading)) {
               message(sprintf("[INFO] Skipping PCA loading feature %s due to missing or constant data.", feat_name))
