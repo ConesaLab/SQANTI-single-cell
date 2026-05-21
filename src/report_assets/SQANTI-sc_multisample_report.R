@@ -1274,7 +1274,7 @@ main <- function() {
         gp_load1 <- ggplot(top_pc1_plot, aes(x = variable, y = abs_loading, fill = sign)) +
           geom_col(width = 0.7) +
           coord_flip() +
-          scale_fill_manual(values = c("Positive" = "#EE446F", "Negative" = "#74CDF0"), name = "Sign", limits = c("Positive", "Negative"), drop = FALSE) +
+          scale_fill_manual(values = c("Positive" = "#E69F00", "Negative" = "#0072B2"), name = "Sign", limits = c("Positive", "Negative"), drop = FALSE) +
           theme_classic(base_size = 14) +
           labs(title = "Top 10 loadings: PC1", x = "Feature", y = "Absolute loading") +
           theme(
@@ -1287,7 +1287,7 @@ main <- function() {
         gp_load2 <- ggplot(top_pc2_plot, aes(x = variable, y = abs_loading, fill = sign)) +
           geom_col(width = 0.7) +
           coord_flip() +
-          scale_fill_manual(values = c("Positive" = "#EE446F", "Negative" = "#74CDF0"), name = "Sign", limits = c("Positive", "Negative"), drop = FALSE) +
+          scale_fill_manual(values = c("Positive" = "#E69F00", "Negative" = "#0072B2"), name = "Sign", limits = c("Positive", "Negative"), drop = FALSE) +
           theme_classic(base_size = 14) +
           labs(title = "Top 10 loadings: PC2", x = "Feature", y = "Absolute loading") +
           theme(
