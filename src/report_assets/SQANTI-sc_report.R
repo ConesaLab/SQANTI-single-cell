@@ -274,6 +274,46 @@ build_violin_plot <- function(df_long,
     p <- p + scale_y_log10(labels = scales::comma)
   }
 
+  # Zoomed inset for % plots (HTML and PDF): embedded in top-right whitespace
+  if (!isTRUE(log_scale) && identical(ylim, c(0, 100))) {
+    finite_vals <- df_long$Value[is.finite(df_long$Value)]
+    max_val_p <- if (length(finite_vals) > 0) max(finite_vals) else 0
+    min_val_p <- if (length(finite_vals) > 0) min(finite_vals) else 0
+    if (max_val_p > 0 && max_val_p < 20) {
+      n_grps <- nlevels(df_long$Variable)
+      if (n_grps == 0) n_grps <- length(unique(df_long$Variable))
+      gp_inset <- ggplot(df_long, aes(x = Variable, y = Value, fill = Variable)) +
+        geom_violin(alpha = violin_alpha, scale = "width", trim = TRUE,
+                    adjust = adjust, linewidth = 0.2) +
+        geom_boxplot(width = 0.08, outlier.shape = NA, alpha = 0.5,
+                     colour = "grey30", lwd = 0.2, show.legend = FALSE) +
+        stat_summary(fun = mean, geom = "point", shape = 4, size = 1,
+                     color = "red", stroke = 1, show.legend = FALSE) +
+        scale_fill_manual(values = fill_map) +
+        scale_y_continuous(
+          limits = c(0, 100),
+          labels = function(x) as.integer(x),
+          expand = expansion(mult = c(0.02, 0.05))
+        ) +
+        theme_classic(base_size = 11) +
+        theme(
+          legend.position  = "none",
+          axis.title       = element_blank(),
+          axis.text.x      = element_blank(),
+          axis.ticks.x     = element_blank(),
+          axis.ticks.length = unit(2, "pt"),
+          plot.margin      = margin(2, 3, 2, 2, "pt"),
+          plot.background  = element_rect(fill = "white", colour = "grey60", linewidth = 0.4),
+          panel.background = element_rect(fill = "white")
+        )
+      p <- p + annotation_custom(
+        ggplotGrob(gp_inset),
+        xmin = n_grps + 0.6 - n_grps * 0.5, xmax = n_grps + 0.6,
+        ymin = 45,  ymax = 99
+      )
+    }
+  }
+
   return(p)
 }
 
