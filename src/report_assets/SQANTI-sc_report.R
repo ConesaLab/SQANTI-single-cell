@@ -3656,7 +3656,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       render_pdf_plot("gg_ujc_bins")
     }
     # Mitochondrial genes
-    render_pdf_plot("gg_MT_perc")
+    render_pdf_plot_centered("gg_MT_perc", width_frac = 0.5)
 
     # Read Length Characterization section
     section_page(paste(entity_label, "Length Characterization"))
