@@ -1,6 +1,6 @@
 import argparse
 
-def build_parser(version_str: str = '1.1.0'):
+def build_parser(version_str: str = '1.2.0'):
     ap = argparse.ArgumentParser(
         description="SQANTI-sc: Structural and Quality Annotation of Novel Transcript Isoforms at the Single-Cell level"
     )
