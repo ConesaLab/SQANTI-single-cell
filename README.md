@@ -22,6 +22,7 @@ Table of Contents:
     - [1. Reads Mode](#1-reads-mode---mode-reads)
     - [2. Isoforms Mode](#2-isoforms-mode---mode-isoforms)
 - [Providing orthogonal data to SQANTI-sc](#providing-orthogonal-data-to-sqanti-sc)
+    - [Short Reads Validation](#short-reads-validation)
 - [Cell clustering](#clustering)
 - [Understanding the output of SQANTI-sc](#understanding-the-output-of-sqanti-sc)
     - [1. SQANTI3-based Outputs](#1-sqanti3-based-outputs)
@@ -356,7 +357,7 @@ python sqanti_sc.py \
     --refGTF /genomes/human/hg38.gtf \
     --input_dir ./isoforms \
     --out_dir ./results \
-    --CAGE_peak ./SQANTI3/data/ref_TSS_annotation/human.refTSS_v3.1.hg38.bed \
+    --CAGE_peak ./SQANTI3/data/ref_TSS_annotation/human.refTSS_v4.1.hg38.bed \
     --polyA_motif_list ./SQANTI3/data/polyA_motifs/mouse_and_human.polyA_motif.txt \
     --report both \
     --run_clustering \
@@ -372,25 +373,72 @@ SQANTI-sc accepts orthogonal data to assist in the quality control and filtering
 * PolyA information (`--polyA_motif_list`, `--polyA_peak`) for Transcription Termination Site (TTS) validation. 
 * Short Reads data (Splice Junctions and alignment BAMs) provided via the **Design File**.
 
+<a name="short-reads-validation"></a>
+
 ### Short Reads Validation
 
-SQANTI-sc supports orthogonal validation of Splice Junctions and TSS using short reads. However, unlike SQANTI3, it does **not** accept raw FASTQ inputs (`--short_reads`). Instead, users must perform the short-read alignment externally (e.g., using [STAR](https://github.com/alexdobin/STAR)) and provide the resulting files via new columns in the **Design File**. You can use the script `run_STAR.py` stored in the scripts/ directory to automatically run this alignment with the SQANTI3 parameters. 
+SQANTI-sc supports orthogonal validation of splice junctions and TSS using bulk-like short reads as a population-level proxy. Unlike SQANTI3, it does **not** accept raw FASTQ inputs (`--short_reads`). Pre-processed files must be provided via the **Design File**.
 
-This strategy treats short-read data as a "bulk proxy" to validate the single-cell long-read isoforms. We recommend using deeper bulk RNA-seq data from the same tissue/condition to validate the single-cell library. To learn more about the metrics related to short-reads validation, visit [SQANTI3 documentation](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-Quality-Control#SR).
+Two validation types are supported, each requiring a different input:
+
+| Column | Validates | Required input |
+| :--- | :--- | :--- |
+| `coverage` | Splice junctions (`min_cov`) | STAR `SJ.out.tab` file |
+| `SR_bam` | TSS ratio (`ratio_TSS`) | STAR-aligned BAM file |
+
+Both inputs require **bulk short-read RNA-seq** data — from your own experiment or downloaded from public repositories such as [SRA](https://www.ncbi.nlm.nih.gov/sra/) or [GTEx](https://gtexportal.org/). Align the reads with STAR using the `run_STAR.py` script in `scripts/`, which applies SQANTI3-compatible parameters.
+
+For **splice junction validation** only, SQANTI-sc also provides `scripts/make_recount3_sj.R`, a convenience script that downloads pre-computed junction counts from [recount3](https://rna.recount.bio/) (GTEx for human, SRA for mouse) and converts them directly to `SJ.out.tab` format — no raw data download or alignment required. TSS ratio validation (`SR_bam`) is not available through recount3 as it requires a BAM file, which recount3 does not provide.
+
+To learn more about the underlying metrics, visit the [SQANTI3 documentation](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-Quality-Control#SR).
+
+> **Why are single-cell short reads (e.g. 10x Genomics) not supported?**
+>
+> SQANTI-sc requires full-transcript short-read coverage to validate internal splice junctions. Single-cell short-read assays (e.g. 10x Genomics 3') generate 3'-end-biased reads that do not cover the full transcript body and are therefore unsuitable for this validation step.
 
 **Design File Columns for Short Reads:**
 
 | Column | Description |
 | :--- | :--- |
-| `coverage` | **Optional**. Path to the STAR splice junction output file (usually `SJ.out.tab`). Used to validate splice junctions. <br> **Replicates**: You can provide multiple files using any of these methods: <br> 1. **Directory**: Path to a directory containing `*SJ.out.tab` files. <br> 2. **Comma-separated list**: Absolute paths separated by commas (e.g., `/path/to/rep1_SJ.out.tab,/path/to/rep2_SJ.out.tab`). <br> 3. **Wildcard pattern**: A pattern matching multiple files (e.g., `/path/to/*SJ.out.tab`). <br> 4. **FOFN (File of File Names)**: A text file containing the absolute path to each junction file on a new line. |
-| `SR_bam` | **Optional**. Path to a sorted and indexed BAM file of short reads. Used to calculate the TSS ratio and validate 5' ends. <br> **Replicates**: You can provide a **FOFN (File of File Names)**: A text file containing the absolute path to each BAM file on a new line. SQANTI-sc will pass this list to SQANTI3, which will process all BAMs and aggregate the results. |
+| `coverage` | **Optional**. Path to a STAR splice junction file (`SJ.out.tab`). Used to validate splice junctions. Multiple files accepted via: directory, comma-separated list, wildcard pattern, or FOFN (one path per line). |
+| `SR_bam` | **Optional**. Path to a sorted and indexed bulk RNA-seq BAM file. Used to calculate `ratio_TSS` and validate 5' ends. Multiple BAMs accepted via FOFN (one path per line). |
 
-> NOTE:
-> **Why matching 10x Short Reads are not supported?**
->
-> SQANTI-sc relies on "bulk-like" short read coverage to validate splice junctions across the full length of transcripts. Common single-cell short-read application (e.g., 10x Genomics) typically generate end-biased reads that do not cover the full transcript body, making them unsuitable for validating internal splice junctions.
-> 
-> Therefore, we recommend using **Bulk RNA-seq** samples (condition or tissue-comparable) for this validation step.
+#### Downloading public junction data with `make_recount3_sj.R`
+
+The script `scripts/make_recount3_sj.R` downloads pre-computed junction counts from [recount3](https://rna.recount.bio/) and converts them to STAR `SJ.out.tab` format. **Column 7 encodes the number of independent samples** in which each junction was observed — making `--min_cov` directly interpretable as a sample-support threshold rather than a raw read count.
+
+**Human (GTEx):** 54 tissue types available, up to 1,000+ samples per tissue, uniformly processed. This is the recommended path for human data.
+
+**Mouse (SRA):** Individual SRA studies from the recount3 catalogue (~10,000 projects). Requires identifying the right project ID for your tissue using `--list_tissues` and cross-referencing with [SRA](https://www.ncbi.nlm.nih.gov/sra) or [recount3](https://rna.recount.bio/). Note that SRA projects may mix tissue types or RNA-seq protocols within the same study.
+
+```bash
+# List available human GTEx tissues
+Rscript scripts/make_recount3_sj.R --list_tissues
+
+# List top mouse SRA projects by sample count
+Rscript scripts/make_recount3_sj.R --list_tissues --organism mouse
+
+# Export full mouse project list to a file
+Rscript scripts/make_recount3_sj.R --list_tissues --organism mouse --n_projects 0 > projects.txt
+
+# Download human GTEx junctions (e.g. blood/PBMC)
+Rscript scripts/make_recount3_sj.R \
+    --organism human --tissue BLOOD \
+    --output blood_gtex.SJ.out.tab.gz
+
+# Download mouse SRA junctions
+Rscript scripts/make_recount3_sj.R \
+    --organism mouse --project SRP150473 \
+    --output mouse_brain.SJ.out.tab.gz
+```
+
+The `--min_samples` argument (default: 1) pre-filters junctions at download time. We recommend keeping the default and controlling stringency via `--min_cov` at runtime instead, so the reference file does not need to be regenerated.
+
+Once generated, provide the file in the `coverage` column of your design CSV:
+```csv
+input_file,sampleID,file_acc,abundance,coverage
+/data/sample.gtf,PBMC_sample,SRX987654,/data/counts/,/path/to/blood_gtex.SJ.out.tab.gz
+```
 
 
 <a name="clustering"></a>
