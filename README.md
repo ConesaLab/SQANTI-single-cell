@@ -403,7 +403,7 @@ To learn more about the underlying metrics, visit the [SQANTI3 documentation](ht
 | `coverage` | **Optional**. Path to a STAR splice junction file (`SJ.out.tab`). Used to validate splice junctions. Multiple files accepted via: directory, comma-separated list, wildcard pattern, or FOFN (one path per line). |
 | `SR_bam` | **Optional**. Path to a sorted and indexed bulk RNA-seq BAM file. Used to calculate `ratio_TSS` and validate 5' ends. Multiple BAMs accepted via FOFN (one path per line). |
 
-#### Downloading public junction data with `make_recount3_sj.R`
+#### Downloading junction data with recount3
 
 The script `scripts/make_recount3_sj.R` downloads pre-computed junction counts from [recount3](https://rna.recount.bio/) and converts them to STAR `SJ.out.tab` format. **Column 7 encodes the number of independent samples** in which each junction was observed — making `--min_cov` directly interpretable as a sample-support threshold rather than a raw read count.
 
@@ -421,7 +421,7 @@ Rscript scripts/make_recount3_sj.R --list_tissues --organism mouse
 # Export full mouse project list to a file
 Rscript scripts/make_recount3_sj.R --list_tissues --organism mouse --n_projects 0 > projects.txt
 
-# Download human GTEx junctions (e.g. blood/PBMC)
+# Download human GTEx junctions
 Rscript scripts/make_recount3_sj.R \
     --organism human --tissue BLOOD \
     --output blood_gtex.SJ.out.tab.gz
