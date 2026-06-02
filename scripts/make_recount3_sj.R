@@ -13,9 +13,9 @@
 #
 # Usage:
 #   Human GTEx:   Rscript make_recount3_sj.R --organism human --tissue BLOOD \
-#                     --output blood_gtex.SJ.out.tab.gz
+#                     --output blood_gtex.SJ.out.tab
 #   Mouse SRA:    Rscript make_recount3_sj.R --organism mouse --project SRP123456 \
-#                     --output mouse_brain.SJ.out.tab.gz
+#                     --output mouse_brain.SJ.out.tab
 #   List tissues: Rscript make_recount3_sj.R --list_tissues [--organism mouse]
 #
 # Requirements:
@@ -36,7 +36,10 @@ option_list <- list(
     make_option("--project", type = "character", default = NULL,
                 help = "SRA project ID for mouse or human SRA data (e.g. SRP123456)."),
     make_option("--output", type = "character", default = NULL,
-                help = "Output file [default: <tissue/project>_recount3.SJ.out.tab.gz]"),
+                help = paste("Output file [default: <tissue/project>_recount3.SJ.out.tab].",
+                             "Written uncompressed (STAR SJ.out.tab format) so it can be",
+                             "passed straight to SQANTI3 --coverage; a .gz extension",
+                             "compresses it but must be decompressed before use.")),
     make_option("--min_samples", type = "integer", default = 1,
                 help = "Min samples a junction must appear in to be kept [default: 1]"),
     make_option("--list_tissues", action = "store_true", default = FALSE,
@@ -89,7 +92,7 @@ if (opt$organism == "mouse" && is.null(opt$project)) {
 }
 
 label      <- if (!is.null(opt$tissue)) opt$tissue else opt$project
-opt$output <- if (is.null(opt$output)) paste0(label, "_recount3.SJ.out.tab.gz") else opt$output
+opt$output <- if (is.null(opt$output)) paste0(label, "_recount3.SJ.out.tab") else opt$output
 
 # ── Load project ──────────────────────────────────────────────────────────────
 message("Fetching available projects...")
@@ -162,11 +165,15 @@ sj <- data.frame(
 sj <- sj[order(sj$chrom, sj$start, sj$end), ]
 
 # ── Write output ──────────────────────────────────────────────────────────────
+# Real STAR SJ.out.tab files are uncompressed, and SQANTI3 reads coverage with a
+# plain open() (no gzip). Write uncompressed by default so the file works as a
+# direct --coverage input; honour an explicit .gz extension for archival only
+# (such a file must be decompressed before use with SQANTI3).
 message("Writing ", nrow(sj), " junctions to ", opt$output)
-gz <- gzfile(opt$output, "w")
-write.table(sj, gz, sep = "\t", quote = FALSE,
+con <- if (grepl("\\.gz$", opt$output)) gzfile(opt$output, "w") else file(opt$output, "w")
+write.table(sj, con, sep = "\t", quote = FALSE,
             row.names = FALSE, col.names = FALSE)
-close(gz)
+close(con)
 
 message("Done.")
 message("Pass to SQANTI-sc with:  --coverage ", opt$output)
