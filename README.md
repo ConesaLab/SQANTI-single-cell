@@ -424,12 +424,12 @@ Rscript scripts/make_recount3_sj.R --list_tissues --organism mouse --n_projects 
 # Download human GTEx junctions
 Rscript scripts/make_recount3_sj.R \
     --organism human --tissue BLOOD \
-    --output blood_gtex.SJ.out.tab.gz
+    --output blood_gtex.SJ.out.tab
 
 # Download mouse SRA junctions
 Rscript scripts/make_recount3_sj.R \
     --organism mouse --project SRP150473 \
-    --output mouse_brain.SJ.out.tab.gz
+    --output mouse_brain.SJ.out.tab
 ```
 
 The `--min_samples` argument (default: 1) pre-filters junctions at download time. We recommend keeping the default and controlling stringency via `--min_cov` at runtime instead, so the reference file does not need to be regenerated.
@@ -437,7 +437,7 @@ The `--min_samples` argument (default: 1) pre-filters junctions at download time
 Once generated, provide the file in the `coverage` column of your design CSV:
 ```csv
 input_file,sampleID,file_acc,abundance,coverage
-/data/sample.gtf,PBMC_sample,SRX987654,/data/counts/,/path/to/blood_gtex.SJ.out.tab.gz
+/data/sample.gtf,PBMC_sample,SRX987654,/data/counts/,/path/to/blood_gtex.SJ.out.tab
 ```
 
 
