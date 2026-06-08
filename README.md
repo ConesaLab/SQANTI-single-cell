@@ -272,6 +272,8 @@ A comma-separated values (CSV) file containing the metadata for your samples.
 | `sampleID` | **Required**. A unique descriptive identifier for the sample (e.g., `pb_brain`). This will be used as the prefix for output files and the display name in reports. |
 | `file_acc` | **Required**. The identifier used to name the output directory where this sample's results will be stored entirely separate from others. <br> *Fallback Logic:* If you do not provide an `input_file` column, SQANTI-sc will use this as a prefix to search the `--input_dir` for input files (e.g., `SRX123456` will match `--input_dir/SRX123456*.bam`). |
 | `cell_association` | **Required**. Path to the file linking reads to cell barcodes for each sample. <br> There are 2 options for this file: <br> 1. A **TSV file** mapping Read IDs to Cell Barcodes. The minimum columns required are `id` (identifier of the read) and `cb` (cell barcode of the read).  <br> 2. A **uBAM/BAM file** containing `CB` (Cell Barcode) and `XM`/`UB` (UMI) tags. Easier to give if your input reads are already in uBAM format (the uBAM file can be the same as the one used as input reads).|
+| `coverage` | **Optional**. Path to STAR splice junction output(s). Used to validate splice junctions. Can be a single file, a directory, a comma-separated list, a wildcard pattern, or a File of File Names (FOFN). |
+| `SR_bam` | **Optional**. Path to short-read BAM file(s). Used to validate TSS. Can be a single BAM file or a File of File Names (FOFN) containing paths to multiple BAMs. |
 | `color_group` | **Optional**. Group label for PCA color encoding in multisample reports (`--multisample_report`). |
 | `shape_group` | **Optional**. Group label for PCA shape encoding in multisample reports (`--multisample_report`). |
 | `shade_group` | **Optional**. Group label for PCA shade/lightness encoding in multisample reports (`--multisample_report`). |
@@ -280,9 +282,9 @@ A comma-separated values (CSV) file containing the metadata for your samples.
 
 **Example `design_reads.csv`:**
 ```csv
-input_file,sampleID,file_acc,cell_association
-/data/pb/SRX123456.bam,pb_brain,SRX123456,/data/pb/SRX123456_barcodes.tsv
-/data/pb/SRX123457.gff,pb_lung,SRX123457,/data/pb/SRX123457.bam
+input_file,sampleID,file_acc,cell_association,coverage,SR_bam
+/data/pb/SRX123456.bam,pb_brain,SRX123456,/data/pb/SRX123456_barcodes.tsv,/data/sr/brain.SJ.out.tab,/data/sr/brain_aligned.bam
+/data/pb/SRX123457.gff,pb_lung,SRX123457,/data/pb/SRX123457.bam,,
 ```
 
 **Example `cell_association` file (barcodes.tsv):**
@@ -405,7 +407,14 @@ To learn more about the underlying metrics, visit the [SQANTI3 documentation](ht
 
 #### Downloading junction data with recount3
 
-The script `scripts/make_recount3_sj.R` downloads pre-computed junction counts from [recount3](https://rna.recount.bio/) and converts them to STAR `SJ.out.tab` format. **Column 7 encodes the number of independent samples** in which each junction was observed — making `--min_cov` directly interpretable as a sample-support threshold rather than a raw read count.
+The script `scripts/make_recount3_sj.R` downloads pre-computed junction counts from [recount3](https://rna.recount.bio/) and converts them to STAR `SJ.out.tab` format. Two complementary metrics are produced:
+
+- **Read depth** (`--min_cov`): column 7 of the SJ.out.tab holds the total read coverage of each junction summed across all samples, so `--min_cov` keeps its standard SQANTI3 meaning — minimum read coverage of an isoform's weakest junction.
+- **Sample support**: a companion `<output>.sample_support.tsv` sidecar is written alongside the SJ.out.tab. SQANTI-sc uses it to populate two fields that SQANTI3 defines but which are otherwise degenerate when a single pre-aggregated file is provided:
+  - **`*_junctions.txt`**: `sample_with_cov` is overwritten with the real number of study samples in which each junction was observed; `sample_pct` (new) gives that as a percentage of the total samples in the study.
+  - **`*_classification.txt`**: `min_sample_cov` and `min_sample_pct` reflect the least-reproducible junction of each isoform (its minimum across all its junctions), giving an isoform-level reproducibility score independent of raw read depth.
+
+Chromosome names are written without the `chr` prefix by default to match Ensembl-style references (e.g. `1`, `2`, `X`). Pass `--keep_chr` if your reference uses UCSC-style names (`chr1`, `chr2`, `chrX`).
 
 **Human (GTEx):** 54 tissue types available, up to 1,000+ samples per tissue, uniformly processed. This is the recommended path for human data.
 
@@ -432,7 +441,7 @@ Rscript scripts/make_recount3_sj.R \
     --output mouse_brain.SJ.out.tab
 ```
 
-The `--min_samples` argument (default: 1) pre-filters junctions at download time. We recommend keeping the default and controlling stringency via `--min_cov` at runtime instead, so the reference file does not need to be regenerated.
+The `--min_samples` argument (default: 1) pre-filters junctions at download time. We recommend keeping the default so that the reference file does not need to be regenerated; read-depth stringency can be controlled at runtime via `--min_cov`, and sample-support stringency via the `min_sample_cov` / `min_sample_pct` columns in the downstream filter step. Keep the generated `<output>.sample_support.tsv` sidecar **next to** the `SJ.out.tab` file — SQANTI-sc looks for it there to populate the sample-support fields (without it, the run still works but those fields are not updated).
 
 Once generated, provide the file in the `coverage` column of your design CSV:
 ```csv

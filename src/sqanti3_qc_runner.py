@@ -115,12 +115,9 @@ def run_sqanti3_qc(args, df):
         file_acc = row['file_acc']
         sampleID = row['sampleID']
         
-        # Extract per-sample short reads orthogonal data (ONLY for Isoforms mode)
-        coverage_file = None
-        sr_bam_file = None
-        if args.mode == 'isoforms':
-            coverage_file = row['coverage'] if 'coverage' in row and pd.notna(row['coverage']) and row['coverage'] else None
-            sr_bam_file = row['SR_bam'] if 'SR_bam' in row and pd.notna(row['SR_bam']) and row['SR_bam'] else None
+        # Extract per-sample short reads orthogonal data (both modes)
+        coverage_file = row['coverage'] if 'coverage' in row and pd.notna(row['coverage']) and row['coverage'] else None
+        sr_bam_file = row['SR_bam'] if 'SR_bam' in row and pd.notna(row['SR_bam']) and row['SR_bam'] else None
 
         file_acc_dir = os.path.join(args.out_dir, file_acc)
         logs_dir = os.path.join(file_acc_dir, "logs")

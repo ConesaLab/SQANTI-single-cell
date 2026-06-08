@@ -4,10 +4,13 @@
 # Download junction data from recount3 and convert to STAR SJ.out.tab format
 # for use as --coverage input to SQANTI-sc.
 #
-# Junction coverage (column 7 of SJ.out.tab) is encoded as the NUMBER OF SAMPLES
-# in which that junction was observed (count > 0), NOT total read counts. This
-# makes the SQANTI-sc --min_cov threshold directly interpretable: --min_cov 10
-# means "junction must appear in at least 10 independent samples."
+# Junction coverage (column 7 of SJ.out.tab) is the TOTAL number of reads
+# supporting that junction, summed across all samples -- standard STAR semantics,
+# so SQANTI3's --min_cov keeps its usual meaning ("minimum read coverage of the
+# weakest junction in an isoform"). The orthogonal SAMPLE support (in how many
+# samples the junction appears, and that as a % of the study) is written to a
+# companion "<output>.sample_support.tsv" sidecar, which SQANTI-sc folds into the
+# classification as the min_sample_cov / min_sample_pct columns.
 #
 # Human data uses GTEx (tissue names). Mouse data uses SRA project IDs.
 #
@@ -45,7 +48,11 @@ option_list <- list(
     make_option("--list_tissues", action = "store_true", default = FALSE,
                 help = "List available GTEx tissues (human) or SRA projects (mouse) and exit"),
     make_option("--n_projects", type = "integer", default = 50L,
-                help = "Max number of mouse SRA projects to show with --list_tissues [default: 50]. Use 0 for all.")
+                help = "Max number of mouse SRA projects to show with --list_tissues [default: 50]. Use 0 for all."),
+    make_option("--keep_chr", action = "store_true", default = FALSE,
+                help = paste("Keep 'chr' prefix on chromosome names (UCSC/GTEx convention).",
+                             "Default: strip the prefix so names match Ensembl-style references",
+                             "(1, 2, X, ...) which SQANTI3 typically uses."))
 )
 
 opt <- parse_args(OptionParser(
@@ -114,17 +121,26 @@ message("Downloading junction data: ", proj$project,
         " (", proj$n_samples, " samples)...")
 rse_jxn <- create_rse(proj, type = "jxn")
 
-# ── Aggregate: number of samples with count > 0 ───────────────────────────────
+# ── Aggregate per junction: total read coverage AND sample support ────────────
+# Two complementary metrics come out of the junction x sample count matrix:
+#   * total_reads : reads summed across all samples  -> SJ.out.tab column 7, so
+#                   SQANTI3's min_cov is the standard "min read coverage".
+#   * n_samples   : number of samples with count > 0  -> written to the sidecar
+#                   and folded into classification (min_sample_cov / _pct) by
+#                   SQANTI-sc, so sample support survives alongside read depth.
 message("Aggregating across ", ncol(rse_jxn), " samples...")
 counts_mat          <- assay(rse_jxn, "counts")
+n_total_samples     <- ncol(counts_mat)
+total_reads_per_jxn <- rowSums(counts_mat)
 n_samples_with_jxn  <- rowSums(counts_mat > 0)
 
 keep <- n_samples_with_jxn >= opt$min_samples
 message(sprintf("Junctions total: %d  |  passing --min_samples %d: %d",
                 length(keep), opt$min_samples, sum(keep)))
 
-rse_jxn            <- rse_jxn[keep, ]
-n_samples_with_jxn <- n_samples_with_jxn[keep]
+rse_jxn             <- rse_jxn[keep, ]
+total_reads_per_jxn <- total_reads_per_jxn[keep]
+n_samples_with_jxn  <- n_samples_with_jxn[keep]
 
 # ── Build SJ.out.tab ──────────────────────────────────────────────────────────
 rr <- rowRanges(rse_jxn)
@@ -149,6 +165,14 @@ motif_code <- ifelse(motif_str %in% names(motif_map),
 
 annotated  <- as.integer(rd$annotated)
 
+# Strip 'chr' prefix by default so chromosome names match Ensembl-style
+# references (1, 2, X, ...) that SQANTI3 typically uses.  Pass --keep_chr
+# for UCSC-style references (chr1, chr2, chrX, ...).
+if (!opt$keep_chr) {
+    chrom       <- sub("^chr", "", chrom)
+    strand_char <- strand_char  # strand is +/-/*, no change needed
+}
+
 sj <- data.frame(
     chrom     = chrom,
     start     = jxn_start,
@@ -156,7 +180,7 @@ sj <- data.frame(
     strand    = strand_code,
     motif     = motif_code,
     annotated = annotated,
-    n_samples = as.integer(n_samples_with_jxn),  # col 7: sample support
+    coverage  = as.integer(total_reads_per_jxn),  # col 7: total reads across samples
     col8      = 0L,  # multi-mapping reads (not available from recount3)
     col9      = 0L,  # max overhang (not available from recount3)
     stringsAsFactors = FALSE
@@ -175,7 +199,40 @@ write.table(sj, con, sep = "\t", quote = FALSE,
             row.names = FALSE, col.names = FALSE)
 close(con)
 
+# ── Sidecar: per-junction sample support ──────────────────────────────────────
+# SJ.out.tab column 7 can only carry one value per junction (read coverage), so
+# sample support (count + percentage) goes to a companion TSV that SQANTI-sc
+# joins onto the SQANTI3 junctions file by genomic coordinate and reduces per
+# isoform into the min_sample_cov / min_sample_pct classification columns.
+# start/end are the SAME 1-based intron coordinates written to SJ.out.tab
+# columns 2-3, which SQANTI3 stores verbatim as genomic_start_coord /
+# genomic_end_coord, so the downstream join needs no offset.
+sidecar <- data.frame(
+    chrom       = chrom,  # already chr-stripped/kept above
+    start       = jxn_start,
+    end         = jxn_end,
+    strand      = strand_char,                                  # '+', '-' or '*'
+    n_samples   = as.integer(n_samples_with_jxn),
+    pct_samples = round(100 * n_samples_with_jxn / n_total_samples, 4),
+    stringsAsFactors = FALSE
+)
+# STAR (and SQANTI3) place undefined-strand junctions on BOTH strands; mirror
+# that so the coordinate join finds them whatever strand the isoform is on.
+und <- sidecar$strand == "*"
+if (any(und)) {
+    sidecar <- rbind(sidecar[!und, ],
+                     transform(sidecar[und, ], strand = "+"),
+                     transform(sidecar[und, ], strand = "-"))
+}
+sidecar <- sidecar[order(sidecar$chrom, sidecar$start, sidecar$end), ]
+
+sidecar_path <- paste0(opt$output, ".sample_support.tsv")
+message("Writing sample-support sidecar (", nrow(sidecar), " rows, ",
+        n_total_samples, " total samples) to ", sidecar_path)
+write.table(sidecar, sidecar_path, sep = "\t", quote = FALSE, row.names = FALSE)
+
 message("Done.")
 message("Pass to SQANTI-sc with:  --coverage ", opt$output)
-message("Note: --min_cov threshold now means 'min number of GTEx/SRA samples",
-        " supporting the junction'.")
+message("Note: SJ.out.tab column 7 is total read coverage (so SQANTI3 --min_cov ",
+        "= min read coverage). Per-junction sample support lives in ",
+        sidecar_path, "; SQANTI-sc folds it into min_sample_cov / min_sample_pct.")
