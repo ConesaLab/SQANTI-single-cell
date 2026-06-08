@@ -363,4 +363,121 @@ def annotate_with_cell_metadata(args, df):
         print(f"**** Cell data added to {file_acc}", file=sys.stdout)
 
 
+def annotate_with_sample_support(args, df):
+    """
+    Fold recount3 per-junction sample support into the classification.
+
+    ``make_recount3_sj.R`` writes a ``<coverage>.sample_support.tsv`` sidecar next
+    to the SJ.out.tab coverage file (columns: chrom, start, end, strand,
+    n_samples, pct_samples). SJ.out.tab column 7 now carries TOTAL READ coverage
+    (so SQANTI3's ``min_cov`` has its standard meaning), and the sidecar restores
+    the orthogonal "in how many samples does this junction appear" signal.
+
+    Here we join the sidecar onto ``*_junctions.txt`` by genomic coordinate and
+    reduce per isoform to its weakest junction:
+
+        min_sample_cov = min(n_samples)   over the isoform's junctions
+        min_sample_pct = min(pct_samples) over the isoform's junctions
+
+    Both go into ``*_classification.txt`` (``min_sample_cov`` overwrites the
+    value SQANTI3 produced, which is degenerate when coverage is a single
+    recount3 file; ``min_sample_pct`` is new). Junctions absent from the sidecar
+    count as 0-sample support -- mirroring how SQANTI3 treats junctions with no
+    read coverage as ``total_coverage_unique`` 0 -- so an isoform is only as
+    supported as its least-reproducible junction.
+
+    No-op when a sample-support sidecar is not found, so non-recount3 runs are
+    unaffected. The sidecar start/end are the 1-based intron coordinates written
+    to SJ.out.tab columns 2-3, which SQANTI3 stores verbatim as
+    genomic_start_coord / genomic_end_coord, so the join needs no offset.
+    """
+    def _norm_chr(s):
+        # Normalise to no-prefix (Ensembl style, the default for make_recount3_sj.R).
+        # This also handles the rare case where the sidecar and junctions.txt use
+        # different conventions -- both sides are normalised before the join.
+        return str(s).removeprefix("chr")
+
+    def _fmt_cov(v):
+        return 'NA' if pd.isna(v) else str(int(v))
+
+    def _fmt_pct(v):
+        return 'NA' if pd.isna(v) else f"{float(v):.4f}"
+
+    if 'coverage' not in df.columns:
+        return
+
+    for _, row in df.iterrows():
+        coverage = row.get('coverage')
+        if pd.isna(coverage) or not coverage:
+            continue
+        sidecar_path = f"{str(coverage)}.sample_support.tsv"
+        if not os.path.isfile(sidecar_path):
+            continue
+
+        file_acc = row['file_acc']
+        sampleID = row['sampleID']
+        prefix = os.path.join(args.out_dir, file_acc, sampleID)
+        junctions_path = f"{prefix}_junctions.txt"
+        class_file = f"{prefix}_classification.txt"
+        if not (os.path.isfile(junctions_path) and os.path.isfile(class_file)):
+            print(f"[INFO] sample-support: junctions/classification missing for {file_acc}; skipping.",
+                  file=sys.stdout)
+            continue
+
+        try:
+            sc = pd.read_csv(sidecar_path, sep='\t', dtype=str)
+            sc['n_samples'] = pd.to_numeric(sc['n_samples'], errors='coerce')
+            sc['pct_samples'] = pd.to_numeric(sc['pct_samples'], errors='coerce')
+            sc['_key'] = (sc['chrom'].map(_norm_chr) + '|' + sc['start'].astype(str)
+                          + '|' + sc['end'].astype(str) + '|' + sc['strand'].astype(str))
+            support = sc.groupby('_key')[['n_samples', 'pct_samples']].max()
+
+            jdf = pd.read_csv(junctions_path, sep='\t', dtype=str)
+            need = {'isoform', 'chrom', 'strand', 'genomic_start_coord', 'genomic_end_coord'}
+            if not need.issubset(jdf.columns):
+                print(f"[WARNING] sample-support: junctions file missing required columns for {file_acc}; skipping.",
+                      file=sys.stderr)
+                continue
+            jkey = (jdf['chrom'].map(_norm_chr) + '|' + jdf['genomic_start_coord'].astype(str)
+                    + '|' + jdf['genomic_end_coord'].astype(str) + '|' + jdf['strand'].astype(str))
+            jdf['_ns'] = jkey.map(support['n_samples'])
+            jdf['_pct'] = jkey.map(support['pct_samples'])
+
+            total = len(jdf)
+            matched = int(jdf['_ns'].notna().sum())
+            if total:
+                print(f"[INFO] sample-support {file_acc}: matched {matched}/{total} junctions "
+                      f"({100 * matched / total:.1f}%) to recount3 sidecar.", file=sys.stdout)
+
+            # Junctions not in the sidecar = seen in 0 reference samples.
+            jdf['_ns'] = jdf['_ns'].fillna(0)
+            jdf['_pct'] = jdf['_pct'].fillna(0.0)
+
+            # Overwrite sample_with_cov with the real recount3 sample count.
+            # SQANTI3's intent for that column is exactly "how many samples had
+            # this junction" -- one coverage file = one sample in normal use.
+            # Passing a single collapsed recount3 file set it to 1 for every
+            # junction, which was wrong. The sidecar restores the correct value.
+            # sample_pct is genuinely new (no existing equivalent).
+            jdf['sample_with_cov'] = jdf['_ns'].map(_fmt_cov)
+            jdf['sample_pct'] = jdf['_pct'].map(_fmt_pct)
+            jdf = jdf.drop(columns=['_ns', '_pct'])
+            jdf.to_csv(junctions_path, sep='\t', index=False)
+
+            per_iso = jdf.groupby('isoform').agg(
+                min_sample_cov=('sample_with_cov', lambda s: s.apply(lambda v: float(v) if v != 'NA' else float('nan')).min()),
+                min_sample_pct=('sample_pct',      lambda s: s.apply(lambda v: float(v) if v != 'NA' else float('nan')).min()),
+            )
+
+            cdf = pd.read_csv(class_file, sep='\t', dtype=str, low_memory=False)
+            cdf['min_sample_cov'] = cdf['isoform'].map(per_iso['min_sample_cov']).map(_fmt_cov)
+            cdf['min_sample_pct'] = cdf['isoform'].map(per_iso['min_sample_pct']).map(_fmt_pct)
+            cdf.to_csv(class_file, sep='\t', index=False)
+            print(f"**** sample-support: updated sample_with_cov/added sample_pct to {file_acc} junctions "
+                  f"and min_sample_cov/min_sample_pct to classification.",
+                  file=sys.stdout)
+        except Exception as e:
+            print(f"[ERROR] sample-support enrichment failed for {file_acc}: {e}", file=sys.stderr)
+
+
 

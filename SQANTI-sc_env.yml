@@ -3,7 +3,7 @@ channels:
   - conda-forge
   - bioconda
 dependencies:
-  - anndata>=0.6.22.post1
+  - anndata>=0.6.22.post1,<0.11
   - argcomplete=3.4.0
   - argh==0.31.3
   - bcbio-gff=0.7.1

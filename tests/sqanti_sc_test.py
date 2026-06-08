@@ -35,7 +35,7 @@ if sqanti_sc_src_path not in sys.path:
 # Now import from the modularized implementation
 from qc_io import fill_design_table
 from sqanti3_qc_runner import run_sqanti3_qc
-from classification_enrichment import annotate_with_ujc_hash, annotate_with_cell_metadata
+from classification_enrichment import annotate_with_ujc_hash, annotate_with_cell_metadata, annotate_with_sample_support
 from qc_reports import generate_report, generate_multisample_report
 from qc_pipeline import main as pipeline_main
 from cell_metrics import calculate_metrics_per_cell
@@ -388,6 +388,97 @@ def test_add_cell_data_isoform_mode_tsv(
     ].iloc[0] == 'TRUE'
 
 
+def test_annotate_with_sample_support(mock_args, tmpdir):
+    """recount3 sidecar sample-support folds into classification correctly.
+
+    Exercises the real (unmocked) coordinate join: sidecar start/end ==
+    junctions.txt genomic_start_coord/genomic_end_coord (zero offset), the
+    per-isoform 'weakest junction' reduction, junctions absent from the sidecar
+    counting as 0-sample support, and monoexon isoforms staying NA.
+    """
+    mock_args.mode = "isoforms"
+
+    # Coverage file + its sidecar sit next to each other; only the sidecar is read.
+    coverage = tmpdir.join("blood_recount3.SJ.out.tab")
+    coverage.write("dummy\n")
+    tmpdir.join("blood_recount3.SJ.out.tab.sample_support.tsv").write(
+        "chrom\tstart\tend\tstrand\tn_samples\tpct_samples\n"
+        "chr1\t100\t200\t+\t40\t80.0\n"
+        "chr1\t300\t400\t+\t10\t20.0\n"
+        "chr1\t500\t600\t+\t30\t60.0\n"
+    )
+
+    # SQANTI3 outputs live under out_dir/<file_acc>/<sampleID>_*.txt
+    sample_dir = tmpdir.join("output_dir", "f1").ensure(dir=True)
+    sample_dir.join("s1_junctions.txt").write(
+        "isoform\tchrom\tstrand\tgenomic_start_coord\tgenomic_end_coord\tsample_with_cov\n"
+        "iso1\tchr1\t+\t100\t200\t1\n"
+        "iso1\tchr1\t+\t300\t400\t1\n"   # iso1 weakest: 10 samples
+        "iso2\tchr1\t+\t100\t200\t1\n"
+        "iso2\tchr1\t+\t500\t600\t1\n"   # iso2 weakest: 30 samples
+        "iso3\tchr1\t+\t700\t800\t1\n"   # absent from sidecar -> 0 samples
+    )
+    class_file = sample_dir.join("s1_classification.txt")
+    class_file.write(
+        "isoform\tstructural_category\tmin_sample_cov\tmin_cov\n"
+        "iso1\tFSM\t1\t5\n"
+        "iso2\tNIC\t1\t3\n"
+        "iso3\tNNC\t1\t2\n"
+        "iso4\tFSM\tNA\tNA\n"          # monoexon: no junctions -> NA
+    )
+
+    design_df = pd.DataFrame({
+        "sampleID": ["s1"], "file_acc": ["f1"], "coverage": [str(coverage)],
+    })
+
+    annotate_with_sample_support(mock_args, design_df)
+
+    # --- junctions.txt: sample_with_cov overwritten, sample_pct added --------
+    jout = pd.read_csv(str(sample_dir.join("s1_junctions.txt")), sep="\t", dtype=str,
+                       keep_default_na=False)
+    assert "sample_with_cov" in jout.columns   # overwritten, not a new column
+    assert "sample_pct" in jout.columns        # genuinely new
+    assert "sample_cov" not in jout.columns    # no redundant alias
+    row_100 = jout[(jout["genomic_start_coord"] == "100") & (jout["isoform"] == "iso1")]
+    assert row_100["sample_with_cov"].iloc[0] == "40"
+    assert row_100["sample_pct"].iloc[0] == "80.0000"
+    row_abs = jout[jout["genomic_start_coord"] == "700"]
+    assert row_abs["sample_with_cov"].iloc[0] == "0"
+
+    # --- classification.txt gets per-isoform min columns --------------------
+    # keep_default_na=False so the literal 'NA' strings the pipeline writes stay strings
+    out = pd.read_csv(str(class_file), sep="\t", dtype=str,
+                      keep_default_na=False).set_index("isoform")
+    assert "min_sample_pct" in out.columns
+    assert out.loc["iso1", "min_sample_cov"] == "10"     # min(40, 10)
+    assert out.loc["iso1", "min_sample_pct"] == "20.0000"
+    assert out.loc["iso2", "min_sample_cov"] == "30"     # min(40, 30)
+    assert out.loc["iso2", "min_sample_pct"] == "60.0000"
+    assert out.loc["iso3", "min_sample_cov"] == "0"      # junction not in sidecar
+    assert out.loc["iso3", "min_sample_pct"] == "0.0000"
+    assert out.loc["iso4", "min_sample_cov"] == "NA"     # monoexon
+    assert out.loc["iso4", "min_sample_pct"] == "NA"
+
+
+def test_annotate_with_sample_support_noop_without_sidecar(mock_args, tmpdir):
+    """No sidecar next to the coverage file -> classification left untouched."""
+    mock_args.mode = "isoforms"
+    coverage = tmpdir.join("star.SJ.out.tab")
+    coverage.write("dummy\n")  # no .sample_support.tsv companion
+
+    sample_dir = tmpdir.join("output_dir", "f1").ensure(dir=True)
+    class_file = sample_dir.join("s1_classification.txt")
+    original = "isoform\tmin_sample_cov\niso1\t1\n"
+    class_file.write(original)
+
+    design_df = pd.DataFrame({
+        "sampleID": ["s1"], "file_acc": ["f1"], "coverage": [str(coverage)],
+    })
+    annotate_with_sample_support(mock_args, design_df)
+
+    assert class_file.read() == original  # unchanged, no min_sample_pct added
+
+
 @patch('qc_reports.subprocess.run')
 @patch('qc_reports.os.path.isfile')
 def test_generate_multisample_report_skips_when_insufficient(mock_isfile, mock_run, mock_args, capsys):
@@ -421,11 +512,13 @@ def test_generate_multisample_report_runs_with_two(mock_isfile, mock_run, mock_a
 @patch('qc_pipeline.run_sqanti3_qc')
 @patch('qc_pipeline.annotate_with_ujc_hash')
 @patch('qc_pipeline.annotate_with_cell_metadata')
+@patch('qc_pipeline.annotate_with_sample_support')
 @patch('qc_pipeline.calculate_metrics_per_cell')
 @patch('qc_pipeline.generate_report')
 def test_pipeline_main_smoke(
         mock_generate_report,
         mock_calc,
+        mock_sample_support,
         mock_add,
         mock_hash,
         mock_get,
@@ -848,6 +941,7 @@ def test_generate_report_with_optional_flags(mock_isfile, mock_run, mock_args):
 @patch('qc_pipeline.run_sqanti3_qc')
 @patch('qc_pipeline.annotate_with_ujc_hash')
 @patch('qc_pipeline.annotate_with_cell_metadata')
+@patch('qc_pipeline.annotate_with_sample_support')
 @patch('qc_pipeline.calculate_metrics_per_cell')
 @patch('qc_pipeline.generate_report')
 @patch('qc_pipeline.run_clustering_analysis')
@@ -855,6 +949,7 @@ def test_pipeline_main_with_clustering(
         mock_clustering,
         mock_generate_report,
         mock_calc,
+        mock_sample_support,
         mock_add,
         mock_hash,
         mock_get,
