@@ -414,11 +414,11 @@ The script `scripts/make_recount3_sj.R` downloads pre-computed junction counts f
   - **`*_junctions.txt`**: `sample_with_cov` is overwritten with the real number of study samples in which each junction was observed; `sample_pct` (new) gives that as a percentage of the total samples in the study.
   - **`*_classification.txt`**: `min_sample_cov` and `min_sample_pct` reflect the least-reproducible junction of each isoform (its minimum across all its junctions), giving an isoform-level reproducibility score independent of raw read depth.
 
-Chromosome names are written without the `chr` prefix by default to match Ensembl-style references (e.g. `1`, `2`, `X`). Pass `--keep_chr` if your reference uses UCSC-style names (`chr1`, `chr2`, `chrX`).
+Chromosome names keep the `chr` prefix by default, matching GENCODE and UCSC-style references (`chr1`, `chr2`, `chrX`). Pass `--strip_chr` if your reference uses Ensembl-style names (`1`, `2`, `X`).
 
 **Human (GTEx):** 54 tissue types available, up to 1,000+ samples per tissue, uniformly processed. This is the recommended path for human data.
 
-**Mouse (SRA):** Individual SRA studies from the recount3 catalogue (~10,000 projects). Requires identifying the right project ID for your tissue using `--list_tissues` and cross-referencing with [SRA](https://www.ncbi.nlm.nih.gov/sra) or [recount3](https://rna.recount.bio/). Note that SRA projects may mix tissue types or RNA-seq protocols within the same study.
+**Mouse (SRA):** Individual SRA studies from the recount3 catalogue (~10,000 projects). Requires identifying the right project ID using `--list_tissues` and cross-referencing with [SRA](https://www.ncbi.nlm.nih.gov/sra) or [recount3](https://rna.recount.bio/). Many SRA projects cover multiple tissues or mixed RNA-seq protocols — use `--list_metadata` and `--filter_col`/`--filter_val` to restrict to the relevant samples before summing (see below).
 
 ```bash
 # List available human GTEx tissues
@@ -435,11 +435,32 @@ Rscript scripts/make_recount3_sj.R \
     --organism human --tissue BLOOD \
     --output blood_gtex.SJ.out.tab
 
-# Download mouse SRA junctions
+# Download mouse SRA junctions (all samples in project)
 Rscript scripts/make_recount3_sj.R \
     --organism mouse --project SRP150473 \
     --output mouse_brain.SJ.out.tab
 ```
+
+**Filtering by tissue or condition (multi-tissue SRA projects)**
+
+Many mouse SRA projects pool multiple tissues. For example, Tabula Muris Senis bulk (SRP199494) covers 17 organs. To build a tissue-matched junction reference, first inspect the available sample metadata, then filter to the samples of interest:
+
+```bash
+# Step 1: discover which metadata columns and values exist for the project
+Rscript scripts/make_recount3_sj.R \
+    --organism mouse --project SRP199494 \
+    --list_metadata
+# prints e.g.:
+#   sra.sample_attributes   [947 unique]  ...tissue;;Heart_40... | ...tissue;;Liver_54... | ...
+
+# Step 2: download junctions filtered to a single tissue
+Rscript scripts/make_recount3_sj.R \
+    --organism mouse --project SRP199494 \
+    --filter_col sra.sample_attributes --filter_val Heart \
+    --output heart_tms.SJ.out.tab
+```
+
+Matching is case-insensitive substring, so partial values work (e.g. `--filter_val heart` matches `Heart` or `Heart - Left Ventricle`). When a filter is active, `pct_samples` in the sidecar is computed relative to the filtered cohort, so `min_sample_pct` correctly reflects reproducibility within the chosen tissue rather than across the whole study.
 
 The `--min_samples` argument (default: 1) pre-filters junctions at download time. We recommend keeping the default so that the reference file does not need to be regenerated; read-depth stringency can be controlled at runtime via `--min_cov`, and sample-support stringency via the `min_sample_cov` / `min_sample_pct` columns in the downstream filter step. Keep the generated `<output>.sample_support.tsv` sidecar **next to** the `SJ.out.tab` file — SQANTI-sc looks for it there to populate the sample-support fields (without it, the run still works but those fields are not updated).
 
