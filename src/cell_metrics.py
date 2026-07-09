@@ -47,6 +47,402 @@ def calculate_metrics_per_cell(args, df):
 
     warnings.simplefilter('ignore', PerformanceWarning)
 
+    def _isoforms_summary(cls, junc):
+        """Isoforms-mode per-cell metrics without exploding the classification frame.
+
+        The comma-separated CB/FL columns ARE a sparse (transcript x cell) matrix.
+        Instead of materialising one row per (transcript, cell) -- which duplicates
+        every attribute column ~110M times and OOMs at >1TB -- we parse CB/FL once
+        into three flat arrays (row=transcript idx, col=cell idx, data=FL weight) and
+        express every per-cell metric as a masked column-sum over those arrays. All
+        transcript-level conditions are evaluated on the small T-row frame, so peak
+        memory is a few GB (the nnz arrays) rather than the exploded frame. Output is
+        byte-identical to the previous explode()-based implementation.
+        """
+        cls = cls.reset_index(drop=True)
+        T = len(cls)
+
+        # ---- parse CB/FL lists into COO arrays (row=transcript, col=cell, data=FL) ----
+        cb_ser = cls['CB'].fillna('') if 'CB' in cls.columns else pd.Series([''] * T)
+        if 'FL' in cls.columns:
+            fl_ser = cls['FL'].fillna('1').astype(str)
+            _tmp = pd.DataFrame({'CB': cb_ser.str.split(','), 'FL': fl_ser.str.split(',')})
+            _tmp = _tmp.explode(['CB', 'FL'])
+            row = _tmp.index.to_numpy()
+            cb_flat = _tmp['CB'].to_numpy()
+            data = pd.to_numeric(pd.Series(_tmp['FL'].to_numpy()), errors='coerce').to_numpy()
+            data = np.where(np.isnan(data), 1.0, data)
+            del _tmp
+        else:
+            _split = cb_ser.str.split(',')
+            _lens = _split.str.len().fillna(0).astype(int).to_numpy()
+            row = np.repeat(np.arange(T), _lens)
+            cb_flat = np.concatenate(_split.to_numpy()) if _lens.sum() > 0 else np.array([], dtype=object)
+            data = np.ones(len(cb_flat))
+
+        keep = pd.notna(cb_flat) & (cb_flat != '')
+        row = row[keep]
+        cb_flat = cb_flat[keep]
+        data = data[keep].astype(np.float64)
+        # sorted unique cells + inverse mapping == searchsorted, matches groupby('CB') order
+        cells, col = np.unique(cb_flat.astype(str), return_inverse=True)
+        col = col.astype(np.int64)
+        Cn = len(cells)
+        cells_index = pd.Index(cells, name='CB')
+        del cb_flat, keep
+
+        # ---- transcript-level attribute arrays / masks (length T) ----
+        def _num(colname):
+            if colname in cls.columns:
+                return pd.to_numeric(cls[colname], errors='coerce').to_numpy()
+            return np.full(T, np.nan)
+
+        def _str(colname):
+            if colname in cls.columns:
+                return cls[colname].astype(str).to_numpy()
+            return np.full(T, 'nan', dtype=object)
+
+        exons = _num('exons')
+        length = _num('length')
+        ref_length = _num('ref_length')
+        percA = _num('perc_A_downstream_TTS')
+        difftss = _num('diff_to_gene_TSS')
+        mincov = np.nan_to_num(_num('min_cov'), nan=0.0)
+        ratiotss = np.nan_to_num(_num('ratio_TSS'), nan=0.0)
+        sc = _str('structural_category')
+        subcat = _str('subcategory')
+        allcanon = _str('all_canonical')
+        chrom = _str('chrom')
+        rts = _str('RTS_stage')
+        nmd = _str('predicted_NMD')
+        cage = _str('within_CAGE_peak')
+        polya = _str('polyA_motif_found')
+        coding = _str('coding')
+        gene_s = cls['associated_gene'].fillna('').astype(str) if 'associated_gene' in cls.columns else pd.Series([''] * T)
+        novel_gene = gene_s.str.startswith('novel').to_numpy()
+        anno_mask = ~novel_gene
+        assoc_tx = cls['associated_transcript'].fillna('').astype(str) if 'associated_transcript' in cls.columns else pd.Series([''] * T)
+        gene_code = pd.factorize(cls['associated_gene'])[0] if 'associated_gene' in cls.columns else np.full(T, -1)
+
+        m_all = np.ones(T, dtype=bool)
+        m_ne1 = exons != 1
+        m_gt1 = exons > 1
+        m_eq1 = exons == 1
+
+        def m_cat(cat):
+            return sc == cat
+
+        # ---- sparse per-cell reducers ----
+        def msum(mask=None):
+            if mask is None:
+                s = np.bincount(col, weights=data, minlength=Cn)
+            else:
+                sel = mask[row]
+                s = np.bincount(col[sel], weights=data[sel], minlength=Cn)
+            return pd.Series(s, index=cells_index)
+
+        def wsum(weight_T):
+            w = weight_T[row].astype(np.float64) * data
+            s = np.bincount(col, weights=w, minlength=Cn)
+            return pd.Series(s, index=cells_index)
+
+        def distinct(codes_T, mask=None):
+            sel = (codes_T[row] >= 0)
+            if mask is not None:
+                sel = sel & mask[row]
+            if not sel.any():
+                return pd.Series(np.zeros(Cn), index=cells_index)
+            g = codes_T[row][sel].astype(np.int64)
+            c = col[sel]
+            key = g * Cn + c
+            uk = np.unique(key)
+            cc = (uk % Cn).astype(np.int64)
+            return pd.Series(np.bincount(cc, minlength=Cn).astype(float), index=cells_index)
+
+        def weighted_median():
+            wint = data.astype(np.int64)
+            sel = np.isfinite(length[row]) & (wint > 0)
+            if not sel.any():
+                return pd.Series(np.zeros(Cn), index=cells_index)
+            c = col[sel]
+            L = length[row][sel].astype(np.float64)
+            w = wint[sel]
+            order = np.lexsort((L, c))
+            c = c[order]; L = L[order]; w = w[order]
+            Gcum = np.cumsum(w)
+            tot = np.bincount(c, weights=w, minlength=Cn).astype(np.int64)
+            Wbefore = np.cumsum(tot) - tot
+            present = tot > 0
+            p1 = (tot - 1) // 2
+            p2 = tot // 2
+            i1 = np.clip(np.searchsorted(Gcum, Wbefore + p1 + 1, side='left'), 0, len(L) - 1)
+            i2 = np.clip(np.searchsorted(Gcum, Wbefore + p2 + 1, side='left'), 0, len(L) - 1)
+            med = (L[i1] + L[i2]) / 2.0
+            out = np.zeros(Cn)
+            out[present] = med[present]
+            return pd.Series(out, index=cells_index)
+
+        if Cn == 0:
+            return pd.DataFrame(index=pd.Index([], name='CB'))
+
+        # ---- assemble summary (same column names/order as explode implementation) ----
+        summary = pd.DataFrame({
+            'total_reads': msum(None),
+            'total_reads_no_monoexon': msum(m_ne1),
+            'Median_length_per_cell': weighted_median(),
+        }).fillna(0)
+
+        for cat in structural_categories:
+            summary[final_count_name(cat)] = msum(m_cat(cat))
+        for cat in structural_categories:
+            tag = final_count_name(cat)
+            summary[f"{tag}_prop"] = safe_prop(summary[tag], summary['total_reads'])
+
+        summary['Genes_in_cell'] = distinct(gene_code)
+
+        mito_chroms = ['MT', 'chrM', 'chrMT', 'mt', 'Mt']
+        mt_mask = pd.Series(chrom).isin(mito_chroms).to_numpy()
+        summary['MT_reads_count'] = msum(mt_mask)
+        summary['MT_perc'] = safe_prop(summary['MT_reads_count'], summary['total_reads'])
+
+        summary['Annotated_genes'] = distinct(gene_code, anno_mask)
+        summary['Novel_genes'] = distinct(gene_code, novel_gene)
+
+        # ---- junctions: per-isoform type counts weighted by per-cell FL ----
+        junc_types = ['known_canonical', 'known_non_canonical', 'novel_canonical', 'novel_non_canonical']
+        junc_rename = {
+            'known_canonical': 'Known_canonical_junctions',
+            'known_non_canonical': 'Known_non_canonical_junctions',
+            'novel_canonical': 'Novel_canonical_junctions',
+            'novel_non_canonical': 'Novel_non_canonical_junctions',
+        }
+        have_junc = (junc is not None and not junc.empty and 'junction_category' in junc.columns
+                     and 'canonical' in junc.columns and 'isoform' in junc.columns and 'isoform' in cls.columns)
+        if have_junc:
+            jt = junc[['isoform', 'junction_category', 'canonical']].copy()
+            jt['jtype'] = jt['junction_category'].astype(str) + '_' + jt['canonical'].astype(str)
+            jt_wide = jt.groupby(['isoform', 'jtype']).size().unstack(fill_value=0)
+            per_tx = jt_wide.reindex(cls['isoform'].to_numpy())
+            for jc in junc_types:
+                w_T = per_tx[jc].fillna(0).to_numpy() if jc in per_tx.columns else np.zeros(T)
+                summary[junc_rename[jc]] = wsum(w_T)
+            summary['total_junctions'] = summary[[junc_rename[j] for j in junc_types]].sum(axis=1)
+            for jc in junc_types:
+                summary[f"{junc_rename[jc]}_prop"] = safe_prop(summary[junc_rename[jc]], summary['total_junctions'])
+        else:
+            for cn in list(junc_rename.values()) + ['total_junctions'] + [f"{v}_prop" for v in junc_rename.values()]:
+                summary[cn] = 0
+
+        # ---- subcategory props ----
+        sublevels = {
+            'full-splice_match': ['alternative_3end', 'alternative_3end5end', 'alternative_5end', 'reference_match', 'mono-exon'],
+            'incomplete-splice_match': ['3prime_fragment', 'internal_fragment', '5prime_fragment', 'intron_retention', 'mono-exon'],
+            'novel_in_catalog': ['combination_of_known_junctions', 'combination_of_known_splicesites', 'intron_retention', 'mono-exon_by_intron_retention', 'mono-exon'],
+            'novel_not_in_catalog': ['at_least_one_novel_splicesite', 'intron_retention'],
+            'genic': ['mono-exon', 'multi-exon'], 'antisense': ['mono-exon', 'multi-exon'],
+            'fusion': ['intron_retention', 'multi-exon'], 'intergenic': ['mono-exon', 'multi-exon'],
+            'genic_intron': ['mono-exon', 'multi-exon'],
+        }
+        for cat in structural_categories:
+            denom = summary[final_count_name(cat)]
+            for lv in sublevels[cat]:
+                numer = msum(m_cat(cat) & (subcat == lv))
+                summary[f"{cat_to_tag[cat]}_{lv.replace('-', '_')}_prop"] = safe_prop(numer, denom).fillna(0)
+
+        # ---- gene read-count bins (per gene type; boundaries 1 / 2-4 / 5-9 / 10+) ----
+        def gene_bins(gene_type_mask, prefix):
+            labels = [(f"{prefix}_bin1_perc", None), (f"{prefix}_bin2_4_perc", None),
+                      (f"{prefix}_bin5_9_perc", None), (f"{prefix}_bin10plus_perc", None)]
+            sel = gene_type_mask[row] & (gene_code[row] >= 0)
+            if not sel.any():
+                for lab, _ in labels:
+                    summary[lab] = 0
+                return
+            g = gene_code[row][sel].astype(np.int64)
+            c = col[sel]
+            w = data[sel]
+            key = g * Cn + c
+            o = np.argsort(key, kind='stable')
+            key = key[o]; w = w[o]
+            first = np.ones(len(key), dtype=bool)
+            first[1:] = key[1:] != key[:-1]
+            idx_start = np.nonzero(first)[0]
+            sums = np.add.reduceat(w, idx_start)
+            cc = (key[idx_start] % Cn).astype(np.int64)
+            total_genes = pd.Series(np.bincount(cc, minlength=Cn).astype(float), index=cells_index)
+
+            def binperc(binmask, lab):
+                b = pd.Series(np.bincount(cc[binmask], minlength=Cn).astype(float), index=cells_index)
+                summary[lab] = safe_prop(b, total_genes).fillna(0)
+
+            binperc(sums == 1, f"{prefix}_bin1_perc")
+            binperc((sums >= 2) & (sums <= 4), f"{prefix}_bin2_4_perc")
+            binperc((sums >= 5) & (sums <= 9), f"{prefix}_bin5_9_perc")
+            binperc(sums >= 10, f"{prefix}_bin10plus_perc")
+
+        gene_bins(anno_mask, 'anno')
+        gene_bins(novel_gene, 'novel')
+
+        # ---- length bins ----
+        def lenbin_masks(base_mask):
+            return {
+                'two_fifty': base_mask & (length <= 250),
+                'five_hund': base_mask & (length > 250) & (length <= 500),
+                'short': base_mask & (length > 500) & (length <= 1000),
+                'mid': base_mask & (length > 1000) & (length <= 2000),
+                'long': base_mask & (length > 2000),
+            }
+
+        lo = lenbin_masks(m_all)
+        for dst, src in [('Total_250b_length_prop', 'two_fifty'), ('Total_500b_length_prop', 'five_hund'),
+                         ('Total_short_length_prop', 'short'), ('Total_mid_length_prop', 'mid'), ('Total_long_length_prop', 'long')]:
+            summary[dst] = safe_prop(msum(lo[src]), summary['total_reads']).fillna(0)
+        lm = lenbin_masks(m_eq1)
+        for dst, src in [('Total_250b_length_mono_prop', 'two_fifty'), ('Total_500b_length_mono_prop', 'five_hund'),
+                         ('Total_short_length_mono_prop', 'short'), ('Total_mid_length_mono_prop', 'mid'), ('Total_long_length_mono_prop', 'long')]:
+            summary[dst] = safe_prop(msum(lm[src]), summary['total_reads']).fillna(0)
+        for cat in structural_categories:
+            tag = cat_to_tag[cat]
+            denom = summary[final_count_name(cat)]
+            lc = lenbin_masks(m_cat(cat))
+            for dst, src in [('250b_length_prop', 'two_fifty'), ('500b_length_prop', 'five_hund'),
+                             ('short_length_prop', 'short'), ('mid_length_prop', 'mid'), ('long_length_prop', 'long')]:
+                summary[f"{tag}_{dst}"] = safe_prop(msum(lc[src]), denom).fillna(0)
+            lcm = lenbin_masks(m_cat(cat) & m_eq1)
+            for dst, src in [('250b_length_mono_prop', 'two_fifty'), ('500b_length_mono_prop', 'five_hund'),
+                             ('short_length_mono_prop', 'short'), ('mid_length_mono_prop', 'mid'), ('long_length_mono_prop', 'long')]:
+                summary[f"{tag}_{dst}"] = safe_prop(msum(lcm[src]), denom).fillna(0)
+
+        # ---- reference body coverage (FSM/ISM only) ----
+        ref_cov_min = float(getattr(args, 'ref_cov_min_pct', 45.0))
+        with np.errstate(divide='ignore', invalid='ignore'):
+            ref_flag = (length / ref_length * 100.0) >= ref_cov_min
+        for cat in ['full-splice_match', 'incomplete-splice_match']:
+            tag = cat_to_tag[cat]
+            denom = summary[final_count_name(cat)]
+            summary[f"{tag}_ref_coverage_prop"] = safe_prop(msum(m_cat(cat) & ref_flag), denom).fillna(0)
+        summary['ref_cov_min_pct'] = ref_cov_min
+
+        # ---- RTS ----
+        rts_true = rts == 'TRUE'
+        summary['RTS_prop_in_cell'] = safe_prop(msum(rts_true), summary['total_reads']).fillna(0)
+        for cat in structural_categories:
+            tag = cat_to_tag[cat]
+            summary[f"{tag}_RTS_prop"] = safe_prop(msum(m_cat(cat) & rts_true), msum(m_cat(cat))).fillna(0)
+        for abbr, cat in abbr_pairs:
+            summary[f"{abbr}_RTS_prop"] = safe_prop(msum(m_cat(cat) & rts_true), msum(m_cat(cat))).fillna(0)
+
+        # ---- non-canonical ----
+        nc_mask = allcanon == 'non_canonical'
+        summary['Non_canonical_prop_in_cell'] = safe_prop(msum(nc_mask), summary['total_reads_no_monoexon']).fillna(0)
+        for cat in structural_categories:
+            tag = cat_to_tag[cat]
+            summary[f"{tag}_noncanon_prop"] = safe_prop(msum(m_cat(cat) & m_gt1 & nc_mask), msum(m_cat(cat) & m_gt1)).fillna(0)
+        for abbr, cat in abbr_pairs:
+            summary[f"{abbr}_noncanon_prop"] = safe_prop(msum(m_cat(cat) & m_gt1 & nc_mask), msum(m_cat(cat) & m_gt1)).fillna(0)
+
+        # ---- intra-priming ----
+        intr_mask = percA >= 60
+        summary['Intrapriming_prop_in_cell'] = safe_prop(msum(intr_mask), summary['total_reads']).fillna(0)
+        for cat in structural_categories:
+            tag = cat_to_tag[cat]
+            summary[f"{tag}_intrapriming_prop"] = safe_prop(msum(m_cat(cat) & intr_mask), msum(m_cat(cat))).fillna(0)
+        for abbr, cat in abbr_pairs:
+            summary[f"{abbr}_intrapriming_prop"] = safe_prop(msum(m_cat(cat) & intr_mask), msum(m_cat(cat))).fillna(0)
+
+        # ---- TSS annotation support ----
+        tss_mask = np.abs(difftss) <= 50
+        summary['TSSAnnotationSupport_prop'] = safe_prop(msum(tss_mask), summary['total_reads']).fillna(0)
+        for cat in structural_categories:
+            tag = cat_to_tag[cat]
+            summary[f"{tag}_TSSAnnotationSupport"] = safe_prop(msum(m_cat(cat) & tss_mask), msum(m_cat(cat))).fillna(0)
+        for abbr, cat in abbr_pairs:
+            summary[f"{abbr}_TSSAnnotationSupport"] = safe_prop(msum(m_cat(cat) & tss_mask), msum(m_cat(cat))).fillna(0)
+
+        summary['Annotated_genes_prop_in_cell'] = safe_prop(summary['Annotated_genes'], summary['Genes_in_cell']).fillna(0)
+        summary['Annotated_juction_strings_prop_in_cell'] = 0
+
+        # ---- canonical ----
+        can_mask = allcanon == 'canonical'
+        summary['Canonical_prop_in_cell'] = safe_prop(msum(can_mask), summary['total_reads_no_monoexon']).fillna(0)
+        for cat in structural_categories:
+            tag = cat_to_tag[cat]
+            summary[f"{tag}_canon_prop"] = safe_prop(msum(m_cat(cat) & m_gt1 & can_mask), msum(m_cat(cat) & m_gt1)).fillna(0)
+        for abbr, cat in abbr_pairs:
+            summary[f"{abbr}_canon_prop"] = safe_prop(msum(m_cat(cat) & m_gt1 & can_mask), msum(m_cat(cat) & m_gt1)).fillna(0)
+
+        # ---- NMD / coding ----
+        if args.include_ORF:
+            nmd_true = nmd == 'TRUE'
+            summary['NMD_prop_in_cell'] = safe_prop(msum(nmd_true), summary['total_reads']).fillna(0)
+            for cat in structural_categories:
+                tag = cat_to_tag[cat]
+                coding_tag = tag if tag in ['FSM', 'ISM', 'NIC', 'NNC'] else tag.lower()
+                summary[f"{coding_tag}_NMD_prop"] = safe_prop(msum(m_cat(cat) & nmd_true), msum(m_cat(cat))).fillna(0)
+            for cat in structural_categories:
+                tag = cat_to_tag[cat]
+                coding_tag = tag if tag in ['FSM', 'ISM', 'NIC', 'NNC'] else tag.lower()
+                denom = msum(m_cat(cat))
+                summary[f"{coding_tag}_coding_prop"] = safe_prop(msum(m_cat(cat) & (coding == 'coding')), denom).fillna(0)
+                summary[f"{coding_tag}_non_coding_prop"] = safe_prop(msum(m_cat(cat) & (coding == 'non_coding')), denom).fillna(0)
+        else:
+            summary['NMD_prop_in_cell'] = 0
+            for cat in structural_categories:
+                tag = cat_to_tag[cat]
+                coding_tag = tag if tag in ['FSM', 'ISM', 'NIC', 'NNC'] else tag.lower()
+                summary[f"{coding_tag}_coding_prop"] = 0
+                summary[f"{coding_tag}_non_coding_prop"] = 100
+
+        # ---- CAGE ----
+        if getattr(args, 'CAGE_peak', None):
+            cage_true = cage == 'TRUE'
+            summary['CAGE_peak_support_prop'] = safe_prop(msum(cage_true), summary['total_reads']).fillna(0)
+            for cat in structural_categories:
+                tag = cat_to_tag[cat]
+                summary[f"{tag}_CAGE_peak_support_prop"] = safe_prop(msum(m_cat(cat) & cage_true), msum(m_cat(cat))).fillna(0)
+            for abbr, cat in abbr_pairs:
+                summary[f"{abbr}_CAGE_peak_support_prop"] = safe_prop(msum(m_cat(cat) & cage_true), msum(m_cat(cat))).fillna(0)
+        else:
+            summary['CAGE_peak_support_prop'] = 0
+            for cat in structural_categories:
+                tag = cat_to_tag[cat]
+                summary[f"{tag}_CAGE_peak_support_prop"] = 0
+
+        # ---- PolyA ----
+        if getattr(args, 'polyA_motif_list', None):
+            pa_true = polya == 'TRUE'
+            summary['PolyA_motif_support_prop'] = safe_prop(msum(pa_true), summary['total_reads']).fillna(0)
+            for cat in structural_categories:
+                tag = cat_to_tag[cat]
+                summary[f"{tag}_PolyA_motif_support_prop"] = safe_prop(msum(m_cat(cat) & pa_true), msum(m_cat(cat))).fillna(0)
+            for abbr, cat in abbr_pairs:
+                summary[f"{abbr}_PolyA_motif_support_prop"] = safe_prop(msum(m_cat(cat) & pa_true), msum(m_cat(cat))).fillna(0)
+        else:
+            summary['PolyA_motif_support_prop'] = 0
+            for cat in structural_categories:
+                tag = cat_to_tag[cat]
+                summary[f"{tag}_PolyA_motif_support_prop"] = 0
+
+        # ---- short-read junction support ----
+        sr_mask = mincov >= args.min_cov
+        summary['srjunctions_support_prop'] = safe_prop(msum(sr_mask), summary['total_reads']).fillna(0)
+        for cat in structural_categories:
+            tag = cat_to_tag[cat]
+            summary[f"{tag}_srjunctions_support_prop"] = safe_prop(msum(m_cat(cat) & sr_mask), msum(m_cat(cat))).fillna(0)
+        for abbr, cat in abbr_pairs:
+            summary[f"{abbr}_srjunctions_support_prop"] = safe_prop(msum(m_cat(cat) & sr_mask), msum(m_cat(cat))).fillna(0)
+
+        # ---- TSS ratio validation ----
+        tss_v = ratiotss >= args.ratio_TSS_threshold
+        summary['TSS_ratio_validated_prop'] = safe_prop(msum(tss_v), summary['total_reads']).fillna(0)
+        for cat in structural_categories:
+            tag = cat_to_tag[cat]
+            summary[f"{tag}_TSS_ratio_validated_prop"] = safe_prop(msum(m_cat(cat) & tss_v), msum(m_cat(cat))).fillna(0)
+        for abbr, cat in abbr_pairs:
+            summary[f"{abbr}_TSS_ratio_validated_prop"] = safe_prop(msum(m_cat(cat) & tss_v), msum(m_cat(cat))).fillna(0)
+
+        return summary
+
     for _, r in df.iterrows():
         file_acc = r['file_acc']
         sampleID = r['sampleID']
@@ -56,12 +452,33 @@ def calculate_metrics_per_cell(args, df):
 
         out_summary = f"{prefix}_SQANTI_cell_summary.txt.gz"
 
+        # Read ONLY the columns the metrics actually use. The classification file has
+        # ~80 columns; in isoforms mode the per-cell explode (below) turns each
+        # transcript's comma-separated CB list into one row per (transcript, cell),
+        # so for collapse (~8.9M transcripts) the frame becomes ~110M rows. Carrying
+        # 80 object/str columns at that height needs >1TB and OOMs; restricting to the
+        # ~23 needed columns is the single biggest memory saving and changes no output.
+        _usecols = {'CB','isoform','associated_gene','structural_category','exons','length','ref_length',
+                    'all_canonical','subcategory','chrom','UMI','jxn_string','associated_transcript',
+                    'RTS_stage','predicted_NMD','within_CAGE_peak','polyA_motif_found','perc_A_downstream_TTS',
+                    'diff_to_gene_TSS','coding','min_cov','ratio_TSS','FL'}
         try:
-            cls = pd.read_csv(class_file, sep='\t', dtype=str, low_memory=False)
+            cls = pd.read_csv(class_file, sep='\t', dtype=str, low_memory=False,
+                              usecols=lambda c: c in _usecols)
         except Exception:
             continue
+        # In isoforms mode the per-cell CB column from junctions is NOT used: junctions
+        # are aggregated per-isoform by (junction_category, canonical) and CB comes from
+        # the classification table. That CB column is the bulk of the per-cell-enriched
+        # junctions file (~70GB for Isosceles, dense EM output), so excluding it from the
+        # read is the difference between OOM and a few GB. Reads mode still needs it.
+        _junc_usecols = {'isoform','readID','read_id','ID','read_name','read',
+                         'junction_category','canonical'}
+        if args.mode != 'isoforms':
+            _junc_usecols.add('CB')
         try:
-            junc = pd.read_csv(junc_file, sep='\t', dtype=str, low_memory=False)
+            junc = pd.read_csv(junc_file, sep='\t', dtype=str, low_memory=False,
+                               usecols=lambda c: c in _junc_usecols)
         except Exception:
             junc = pd.DataFrame()
 
@@ -71,9 +488,36 @@ def calculate_metrics_per_cell(args, df):
             if col not in cls.columns:
                 cls[col] = np.nan
         for c in ['exons','length','ref_length','perc_A_downstream_TTS','diff_to_gene_TSS','min_cov','ratio_TSS']:
-            cls[c] = pd.to_numeric(cls[c], errors='coerce')
+            cls[c] = pd.to_numeric(cls[c], errors='coerce').astype('float32')
+
+        # Downcast low-cardinality string columns to 'category' BEFORE the explode so
+        # the ~110M-row exploded frame stores 1-byte codes instead of full Python str
+        # objects. Only columns that are either pure values (compared with ==/isin) or
+        # tiny-cardinality groupby keys are converted: structural_category (9) and
+        # subcategory (~25) are keys but so small that groupby expansion is negligible.
+        # High-cardinality keys (CB, isoform, associated_gene) stay object to avoid the
+        # categorical-groupby cartesian-product blow-up.
+        for c in ['chrom','all_canonical','coding','RTS_stage','predicted_NMD',
+                  'within_CAGE_peak','polyA_motif_found','structural_category','subcategory']:
+            if c in cls.columns:
+                cls[c] = cls[c].astype('category')
 
         if args.mode == 'isoforms':
+            # Sparse per-cell path: avoids exploding the ~110M-row (transcript x cell)
+            # frame. Produces the same columns as the reads-mode branch below.
+            summary = _isoforms_summary(cls, junc)
+            summary = summary.reset_index()
+            summary = summary.rename(columns={'total_reads': 'Transcripts_in_cell', 'total_reads_no_monoexon': 'total_transcripts_no_monoexon', 'MT_reads_count': 'MT_transcripts_count'})
+            for c in summary.columns[1:]:
+                summary[c] = pd.to_numeric(summary[c], errors='coerce').fillna(0)
+            try:
+                summary.to_csv(out_summary, sep='\t', index=False, compression='gzip')
+                print(f"**** Cell summary written: {out_summary}", file=sys.stdout)
+            except Exception as e:
+                print(f"[ERROR] Failed writing {out_summary}: {e}", file=sys.stderr)
+            continue
+
+        if False and args.mode == 'isoforms':
             cls['CB'] = cls['CB'].fillna('')
             if 'FL' in cls.columns:
                 cls['FL'] = cls['FL'].fillna('1')
@@ -88,6 +532,11 @@ def calculate_metrics_per_cell(args, df):
         else:
             cls['_count'] = 1
 
+        # explode (isoforms mode) leaves DUPLICATE index labels. Any later .loc on a
+        # non-unique index does a cartesian match (e.g. the weighted-median step's
+        # index.repeat(_count) tried to allocate a 312 GiB indexer -> OOM). Reset to a
+        # unique RangeIndex so all downstream positional repeats / lookups stay linear.
+        cls = cls.reset_index(drop=True)
         cls_valid = cls[(cls['CB'].notna()) & (cls['CB'] != '')].copy()
 
         total_reads = cls_valid.groupby('CB')['_count'].sum().rename('total_reads')
@@ -149,21 +598,25 @@ def calculate_metrics_per_cell(args, df):
             }
 
             if args.mode == 'isoforms':
-                # In isoforms mode the junction file's CB column is a comma-separated
-                # list (same as the classification file). cls_valid is already exploded
-                # to one row per (isoform, CB) with _count = FL for that cell.
-                # Join junctions to cls_valid by isoform ID so each junction gets
-                # replicated once per cell, weighted by that cell's FL count.
+                # Each junction gets weighted by the FL of its parent isoform in each
+                # cell. Doing that by merging the raw junction table to the per-(isoform,
+                # cell) table explodes to junctions x cells (tens of billions of rows for
+                # collapse -> OOM). Instead, collapse junctions to per-isoform type COUNTS
+                # first, then many-to-one join those onto the per-cell rows and multiply
+                # by FL -- mathematically identical, no cartesian product.
                 iso_col = next((c for c in ['isoform', 'readID', 'read_id', 'ID', 'read_name', 'read']
                                 if c in junc.columns and c in cls_valid.columns), None)
                 if iso_col is not None and 'junction_category' in junc.columns and 'canonical' in junc.columns:
-                    jv = pd.merge(
-                        junc[[iso_col, 'junction_category', 'canonical']],
-                        cls_valid[[iso_col, 'CB', '_count']].drop_duplicates(),
-                        on=iso_col, how='inner'
-                    )
-                    jv['junction_type'] = jv['junction_category'].astype(str) + '_' + jv['canonical'].astype(str)
-                    counts = jv.groupby(['CB', 'junction_type'])['_count'].sum().unstack(fill_value=0)
+                    jt = junc[[iso_col, 'junction_category', 'canonical']].copy()
+                    jt['junction_type'] = jt['junction_category'].astype(str) + '_' + jt['canonical'].astype(str)
+                    jt_per_iso = jt.groupby([iso_col, 'junction_type']).size().unstack(fill_value=0)
+                    jtype_cols = list(jt_per_iso.columns)
+                    merged = cls_valid[[iso_col, 'CB', '_count']].merge(
+                        jt_per_iso, left_on=iso_col, right_index=True, how='inner')
+                    cnt = merged['_count'].astype('float32')
+                    for jc in jtype_cols:
+                        merged[jc] = merged[jc].astype('float32') * cnt
+                    counts = merged.groupby('CB')[jtype_cols].sum()
                 else:
                     counts = pd.DataFrame(index=summary.index)
             else:
