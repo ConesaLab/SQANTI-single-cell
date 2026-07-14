@@ -1392,68 +1392,14 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     classification_valid <- Classification_file[Classification_file$CB != "unassigned" & !is.na(Classification_file$CB), ]
 
     if (nrow(classification_valid) > 0) {
-      # Function to expand FL and CB columns into a long format for correct counting per cell
-      expand_isoform_counts <- function(df, mode) {
-        if (mode == "reads") {
-          return(df %>% group_by(CB) %>% summarise(count = n(), .groups = "drop"))
-        } else {
-          # Isoforms mode: Each row has comma-separated FL (counts) and CB (barcodes)
-          # We need to split them and sum counts per barcode
-
-          # Initialize lists to store expanded data
-          all_cbs <- character()
-          all_counts <- numeric()
-
-          # Iterate through rows (this might be slow for huge files, but safe)
-          # A vectorised approach would be better if possible, but strsplit returns list
-          fl_list <- strsplit(as.character(df$FL), ",")
-          cb_list <- strsplit(as.character(df$CB), ",")
-
-          # Check if lengths match (they should)
-          if (length(fl_list) != length(cb_list)) {
-            stop("Mismatch in row counts between FL and CB columns")
-          }
-
-          # Use mapply to create a data frame of all counts
-          # This creates a list of data frames, one per isoform
-          expanded_list <- mapply(function(fl, cb) {
-            if (length(fl) != length(cb)) {
-              # Warning or skip? For now, we assume they match as per SQANTI specs
-              return(NULL)
-            }
-            data.frame(CB = cb, count = as.numeric(fl), stringsAsFactors = FALSE)
-          }, fl_list, cb_list, SIMPLIFY = FALSE)
-
-          # Bind all tiny data frames
-          long_df <- do.call(rbind, expanded_list)
-
-          # Now group by CB and sum
-          return(long_df %>% group_by(CB) %>% summarise(count = sum(count, na.rm = TRUE), .groups = "drop"))
-        }
-      }
-
-      annotated_reads_per_cell <- classification_valid %>%
-        filter(!grepl("^novel", associated_gene))
-
-      annotated_reads_per_cell <- expand_isoform_counts(annotated_reads_per_cell, mode) %>%
-        rename(Annotated_genes_reads = count)
-
-      novel_reads_per_cell <- classification_valid %>%
-        filter(grepl("^novel", associated_gene))
-
-      novel_reads_per_cell <- expand_isoform_counts(novel_reads_per_cell, mode) %>%
-        rename(Novel_genes_reads = count)
-
-      SQANTI_cell_summary <- SQANTI_cell_summary %>%
-        left_join(annotated_reads_per_cell, by = "CB") %>%
-        left_join(novel_reads_per_cell, by = "CB")
-
-      SQANTI_cell_summary$Annotated_genes_reads[is.na(SQANTI_cell_summary$Annotated_genes_reads)] <- 0
-      SQANTI_cell_summary$Novel_genes_reads[is.na(SQANTI_cell_summary$Novel_genes_reads)] <- 0
-
-      # Revert to original denominator (Total Transcripts in Cell) now that numerators are correct
-      SQANTI_cell_summary$Annotated_reads_perc <- 100 * SQANTI_cell_summary$Annotated_genes_reads / SQANTI_cell_summary[[count_col]]
-      SQANTI_cell_summary$Novel_reads_perc <- 100 * SQANTI_cell_summary$Novel_genes_reads / SQANTI_cell_summary[[count_col]]
+      # Annotated/Novel per-cell counts are provided directly by cell_metrics, so we
+      # no longer re-explode CB/FL here -- we just read the columns and take the ratio.
+      # Column names follow the mode convention: Annotated_genes_reads (reads mode) /
+      # Annotated_genes_transcripts (isoforms mode), via entity_label_plural_lower.
+      anno_genes_col <- paste0("Annotated_genes_", entity_label_plural_lower)
+      novel_genes_col <- paste0("Novel_genes_", entity_label_plural_lower)
+      SQANTI_cell_summary$Annotated_reads_perc <- 100 * SQANTI_cell_summary[[anno_genes_col]] / SQANTI_cell_summary[[count_col]]
+      SQANTI_cell_summary$Novel_reads_perc <- 100 * SQANTI_cell_summary[[novel_genes_col]] / SQANTI_cell_summary[[count_col]]
 
       SQANTI_cell_summary$Annotated_reads_perc <- ifelse(is.na(SQANTI_cell_summary$Annotated_reads_perc) | is.infinite(SQANTI_cell_summary$Annotated_reads_perc), 0, SQANTI_cell_summary$Annotated_reads_perc)
       SQANTI_cell_summary$Novel_reads_perc <- ifelse(is.na(SQANTI_cell_summary$Novel_reads_perc) | is.infinite(SQANTI_cell_summary$Novel_reads_perc), 0, SQANTI_cell_summary$Novel_reads_perc)
@@ -1497,68 +1443,35 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   ####################################################################
 
   # Define gene read-count bins and labels
-  gene_bin_label <- function(n) {
-    if (is.na(n)) {
-      return(NA_character_)
-    }
-    if (n == 1) {
-      return("1")
-    }
-    if (n >= 2 && n <= 5) {
-      return("2-5")
-    }
-    if (n >= 6 && n <= 9) {
-      return("6-9")
-    }
-    return(">=10")
-  }
   gene_bin_levels <- c("1", "2-5", "6-9", ">=10")
 
-  # Build per-cell per-gene read counts from classification.
-  # In isoforms mode, must explode the comma-separated CB/FL columns so each
-  # (cell, isoform) pair is weighted by its FL count, then sum per (CB, gene).
-  # In reads mode, each row is one read so n() is correct.
-  if (mode == "isoforms" && "FL" %in% colnames(Classification_file) && "CB" %in% colnames(Classification_file)) {
-    genes_by_cb_base <- Classification_file %>%
-      filter(!is.na(CB), CB != "unassigned", !is.na(associated_gene)) %>%
-      select(CB, FL, associated_gene)
-
-    genes_by_cb_base$CB_raw <- as.character(genes_by_cb_base$CB)
-    genes_by_cb_base$FL_raw <- as.character(genes_by_cb_base$FL)
-    genes_by_cb_base <- tidyr::separate_rows(genes_by_cb_base, CB_raw, FL_raw, sep = ",")
-    genes_by_cb_base$FL_num <- suppressWarnings(as.numeric(trimws(genes_by_cb_base$FL_raw)))
-    genes_by_cb_base$FL_num[is.na(genes_by_cb_base$FL_num) | genes_by_cb_base$FL_num < 0] <- 0
-    genes_by_cb_base$CB_clean <- trimws(genes_by_cb_base$CB_raw)
-
-    genes_by_cb <- genes_by_cb_base %>%
-      filter(CB_clean != "" & CB_clean != "unassigned" & FL_num > 0) %>%
-      group_by(CB = CB_clean, associated_gene) %>%
-      summarise(reads_per_gene = sum(FL_num), .groups = "drop") %>%
-      mutate(
-        gene_type = ifelse(grepl("^novel", associated_gene), "Novel", "Annotated"),
-        bin = vapply(reads_per_gene, gene_bin_label, character(1))
-      ) %>%
-      filter(!is.na(bin))
-  } else {
-    genes_by_cb <- Classification_file %>%
-      filter(!is.na(CB), CB != "unassigned", !is.na(associated_gene)) %>%
-      group_by(CB, associated_gene) %>%
-      summarise(reads_per_gene = n(), .groups = "drop") %>%
-      mutate(
-        gene_type = ifelse(grepl("^novel", associated_gene), "Novel", "Annotated"),
-        bin = vapply(reads_per_gene, gene_bin_label, character(1))
-      ) %>%
-      filter(!is.na(bin))
-  }
+  # Gene read-count bins come directly from cell_metrics (both modes): the summary
+  # holds per-cell gene counts per bin. Column names follow the mode convention --
+  # anno/novel_gene_reads_bin_* (reads) or _gene_transcripts_bin_* (isoforms), via
+  # entity_label_plural_lower. Build a per-(CB, gene_type, bin) num_genes table from
+  # those columns -- no CB/FL explosion.
+  bin_suffix <- paste0("_gene_", entity_label_plural_lower, "_bin_")
+  bin_defs <- list(
+    c("1", paste0(bin_suffix, "1")), c("2-5", paste0(bin_suffix, "2_5")),
+    c("6-9", paste0(bin_suffix, "6_9")), c(">=10", paste0(bin_suffix, "10plus"))
+  )
+  read_bins_counts <- do.call(rbind, lapply(list(c("Annotated", "anno"), c("Novel", "novel")), function(gp) {
+    do.call(rbind, lapply(bin_defs, function(bd) {
+      data.frame(
+        CB = SQANTI_cell_summary$CB,
+        gene_type = gp[1],
+        bin = bd[1],
+        num_genes = as.numeric(SQANTI_cell_summary[[paste0(gp[2], bd[2])]]),
+        stringsAsFactors = FALSE
+      )
+    }))
+  }))
 
   # Percent of genes per bin within each CB and gene type
-  read_bins_data <- genes_by_cb %>%
-    group_by(CB, gene_type, bin) %>%
-    summarise(num_genes = n(), .groups = "drop") %>%
+  read_bins_data <- read_bins_counts %>%
     group_by(CB, gene_type) %>%
-    mutate(percentage = 100 * num_genes / sum(num_genes)) %>%
-    ungroup() %>%
-    tidyr::complete(CB, gene_type, bin = gene_bin_levels, fill = list(num_genes = 0, percentage = 0))
+    mutate(percentage = ifelse(sum(num_genes) > 0, 100 * num_genes / sum(num_genes), 0)) %>%
+    ungroup()
 
   read_bins_data$bin <- factor(read_bins_data$bin, levels = gene_bin_levels)
   read_bins_data$gene_type <- factor(read_bins_data$gene_type, levels = c("Annotated", "Novel"))
@@ -1582,28 +1495,24 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     )
   }
 
-  # Combined (all genes together): one violin per bin
+  # Combined: one violin per bin. Reads mode shows annotated genes only; isoforms
+  # mode shows all genes (annotated + novel) summed per bin.
   if (mode == "reads") {
-    # Filter for Annotated genes only
-    read_bins_all <- genes_by_cb %>%
+    read_bins_all <- read_bins_counts %>%
       filter(gene_type == "Annotated") %>%
-      group_by(CB, bin) %>%
-      summarise(num_genes = n(), .groups = "drop") %>%
       group_by(CB) %>%
-      mutate(percentage = 100 * num_genes / sum(num_genes)) %>%
+      mutate(percentage = ifelse(sum(num_genes) > 0, 100 * num_genes / sum(num_genes), 0)) %>%
       ungroup() %>%
-      tidyr::complete(CB, bin = gene_bin_levels, fill = list(num_genes = 0, percentage = 0))
+      select(CB, bin, num_genes, percentage)
 
     plot_title_all <- paste("Distribution of Annotated Genes by", entity_label, "Count Bins Across Cells")
   } else {
-    # All genes (Annotated + Novel)
-    read_bins_all <- genes_by_cb %>%
+    read_bins_all <- read_bins_counts %>%
       group_by(CB, bin) %>%
-      summarise(num_genes = n(), .groups = "drop") %>%
+      summarise(num_genes = sum(num_genes), .groups = "drop") %>%
       group_by(CB) %>%
-      mutate(percentage = 100 * num_genes / sum(num_genes)) %>%
-      ungroup() %>%
-      tidyr::complete(CB, bin = gene_bin_levels, fill = list(num_genes = 0, percentage = 0))
+      mutate(percentage = ifelse(sum(num_genes) > 0, 100 * num_genes / sum(num_genes), 0)) %>%
+      ungroup()
 
     plot_title_all <- paste("Distribution of Genes by", entity_label, "Count Bins Across Cells")
   }
@@ -1635,14 +1544,12 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
   # New plot: Distribution of Known Genes by Unique Isoform Count Bins Across Cells (Isoforms mode)
   if (mode == "isoforms") {
-    iso_bins_annot <- genes_by_cb %>%
+    iso_bins_annot <- read_bins_counts %>%
       filter(gene_type == "Annotated") %>%
-      group_by(CB, bin) %>%
-      summarise(num_genes = n(), .groups = "drop") %>%
       group_by(CB) %>%
-      mutate(percentage = 100 * num_genes / sum(num_genes)) %>%
+      mutate(percentage = ifelse(sum(num_genes) > 0, 100 * num_genes / sum(num_genes), 0)) %>%
       ungroup() %>%
-      tidyr::complete(CB, bin = gene_bin_levels, fill = list(num_genes = 0, percentage = 0))
+      select(CB, bin, num_genes, percentage)
 
     iso_bins_annot$bin <- factor(iso_bins_annot$bin, levels = gene_bin_levels)
 
