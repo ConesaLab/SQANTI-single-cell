@@ -1392,11 +1392,14 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     classification_valid <- Classification_file[Classification_file$CB != "unassigned" & !is.na(Classification_file$CB), ]
 
     if (nrow(classification_valid) > 0) {
-      # Annotated/Novel read counts per cell are provided directly by cell_metrics
-      # (Annotated_genes_reads / Novel_genes_reads, written in both modes), so we no
-      # longer re-explode CB/FL here -- we just read the columns and take the ratio.
-      SQANTI_cell_summary$Annotated_reads_perc <- 100 * SQANTI_cell_summary$Annotated_genes_reads / SQANTI_cell_summary[[count_col]]
-      SQANTI_cell_summary$Novel_reads_perc <- 100 * SQANTI_cell_summary$Novel_genes_reads / SQANTI_cell_summary[[count_col]]
+      # Annotated/Novel per-cell counts are provided directly by cell_metrics, so we
+      # no longer re-explode CB/FL here -- we just read the columns and take the ratio.
+      # Column names follow the mode convention: Annotated_genes_reads (reads mode) /
+      # Annotated_genes_transcripts (isoforms mode), via entity_label_plural_lower.
+      anno_genes_col <- paste0("Annotated_genes_", entity_label_plural_lower)
+      novel_genes_col <- paste0("Novel_genes_", entity_label_plural_lower)
+      SQANTI_cell_summary$Annotated_reads_perc <- 100 * SQANTI_cell_summary[[anno_genes_col]] / SQANTI_cell_summary[[count_col]]
+      SQANTI_cell_summary$Novel_reads_perc <- 100 * SQANTI_cell_summary[[novel_genes_col]] / SQANTI_cell_summary[[count_col]]
 
       SQANTI_cell_summary$Annotated_reads_perc <- ifelse(is.na(SQANTI_cell_summary$Annotated_reads_perc) | is.infinite(SQANTI_cell_summary$Annotated_reads_perc), 0, SQANTI_cell_summary$Annotated_reads_perc)
       SQANTI_cell_summary$Novel_reads_perc <- ifelse(is.na(SQANTI_cell_summary$Novel_reads_perc) | is.infinite(SQANTI_cell_summary$Novel_reads_perc), 0, SQANTI_cell_summary$Novel_reads_perc)
@@ -1443,11 +1446,14 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   gene_bin_levels <- c("1", "2-5", "6-9", ">=10")
 
   # Gene read-count bins come directly from cell_metrics (both modes): the summary
-  # holds per-cell gene counts per bin (anno/novel_gene_reads_bin_*). Build a
-  # per-(CB, gene_type, bin) num_genes table from those columns -- no CB/FL explosion.
+  # holds per-cell gene counts per bin. Column names follow the mode convention --
+  # anno/novel_gene_reads_bin_* (reads) or _gene_transcripts_bin_* (isoforms), via
+  # entity_label_plural_lower. Build a per-(CB, gene_type, bin) num_genes table from
+  # those columns -- no CB/FL explosion.
+  bin_suffix <- paste0("_gene_", entity_label_plural_lower, "_bin_")
   bin_defs <- list(
-    c("1", "_gene_reads_bin_1"), c("2-5", "_gene_reads_bin_2_5"),
-    c("6-9", "_gene_reads_bin_6_9"), c(">=10", "_gene_reads_bin_10plus")
+    c("1", paste0(bin_suffix, "1")), c("2-5", paste0(bin_suffix, "2_5")),
+    c("6-9", paste0(bin_suffix, "6_9")), c(">=10", paste0(bin_suffix, "10plus"))
   )
   read_bins_counts <- do.call(rbind, lapply(list(c("Annotated", "anno"), c("Novel", "novel")), function(gp) {
     do.call(rbind, lapply(bin_defs, function(bd) {

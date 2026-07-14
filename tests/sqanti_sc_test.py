@@ -1236,7 +1236,7 @@ class TestFLWeightingIsoformsMode:
 
     def test_annotated_novel_reads_are_fl_weighted(self, mock_args, tmpdir):
         """
-        Annotated_genes_reads / Novel_genes_reads are per-cell FL sums split by
+        Annotated_genes_transcripts / Novel_genes_transcripts are per-cell FL sums split by
         whether associated_gene starts with 'novel'.
           CB1: geneA FL=3 (annotated) + novelGene FL=1 (novel)
           CB2: geneA FL=10 + geneA FL=4 (annotated) + novelGene FL=6 (novel)
@@ -1250,10 +1250,10 @@ class TestFLWeightingIsoformsMode:
         cb1 = summary[summary["CB"] == "CB1"].iloc[0]
         cb2 = summary[summary["CB"] == "CB2"].iloc[0]
 
-        assert cb1["Annotated_genes_reads"] == 3
-        assert cb1["Novel_genes_reads"] == 1
-        assert cb2["Annotated_genes_reads"] == 14   # 10 + 4
-        assert cb2["Novel_genes_reads"] == 6
+        assert cb1["Annotated_genes_transcripts"] == 3
+        assert cb1["Novel_genes_transcripts"] == 1
+        assert cb2["Annotated_genes_transcripts"] == 14   # 10 + 4
+        assert cb2["Novel_genes_transcripts"] == 6
 
     # ------------------------------------------------------------------
     # Test 5c — gene read-count bins store gene COUNTS in the report's
@@ -1277,17 +1277,17 @@ class TestFLWeightingIsoformsMode:
         cb2 = summary[summary["CB"] == "CB2"].iloc[0]
 
         # CB1 annotated: geneA=5 -> bin 2-5 only
-        assert cb1["anno_gene_reads_bin_1"] == 0
-        assert cb1["anno_gene_reads_bin_2_5"] == 1
-        assert cb1["anno_gene_reads_bin_6_9"] == 0
-        assert cb1["anno_gene_reads_bin_10plus"] == 0
+        assert cb1["anno_gene_transcripts_bin_1"] == 0
+        assert cb1["anno_gene_transcripts_bin_2_5"] == 1
+        assert cb1["anno_gene_transcripts_bin_6_9"] == 0
+        assert cb1["anno_gene_transcripts_bin_10plus"] == 0
         # CB1 novel: novelGene=1 -> bin 1
-        assert cb1["novel_gene_reads_bin_1"] == 1
+        assert cb1["novel_gene_transcripts_bin_1"] == 1
         # CB2 annotated: geneA=10 -> >=10, geneB=4 -> 2-5
-        assert cb2["anno_gene_reads_bin_2_5"] == 1
-        assert cb2["anno_gene_reads_bin_10plus"] == 1
+        assert cb2["anno_gene_transcripts_bin_2_5"] == 1
+        assert cb2["anno_gene_transcripts_bin_10plus"] == 1
         # CB2 novel: novelGene=6 -> 6-9
-        assert cb2["novel_gene_reads_bin_6_9"] == 1
+        assert cb2["novel_gene_transcripts_bin_6_9"] == 1
 
     # ------------------------------------------------------------------
     # Test 6 — reads mode uses 1 count per row regardless of FL column

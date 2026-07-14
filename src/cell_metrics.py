@@ -512,7 +512,12 @@ def calculate_metrics_per_cell(args, df):
             # frame. Produces the same columns as the reads-mode branch below.
             summary = _isoforms_summary(cls, junc)
             summary = summary.reset_index()
-            summary = summary.rename(columns={'total_reads': 'Transcripts_in_cell', 'total_reads_no_monoexon': 'total_transcripts_no_monoexon', 'MT_reads_count': 'MT_transcripts_count'})
+            # In isoforms mode the per-cell counter is transcript-level (sum of FL),
+            # so the gene read-count columns follow the tool's convention and are
+            # named *_transcripts / *_gene_transcripts_bin_* (cf. Transcripts_in_cell).
+            gene_tx = {c: c.replace('_reads', '_transcripts') for c in summary.columns
+                       if 'genes_reads' in c or 'gene_reads_bin' in c}
+            summary = summary.rename(columns={'total_reads': 'Transcripts_in_cell', 'total_reads_no_monoexon': 'total_transcripts_no_monoexon', 'MT_reads_count': 'MT_transcripts_count', **gene_tx})
             for c in summary.columns[1:]:
                 summary[c] = pd.to_numeric(summary[c], errors='coerce').fillna(0)
             try:
@@ -988,7 +993,9 @@ def calculate_metrics_per_cell(args, df):
 
         summary = summary.reset_index()
         if args.mode == 'isoforms':
-            summary = summary.rename(columns={'total_reads': 'Transcripts_in_cell', 'total_reads_no_monoexon': 'total_transcripts_no_monoexon', 'MT_reads_count': 'MT_transcripts_count'})
+            gene_tx = {c: c.replace('_reads', '_transcripts') for c in summary.columns
+                       if 'genes_reads' in c or 'gene_reads_bin' in c}
+            summary = summary.rename(columns={'total_reads': 'Transcripts_in_cell', 'total_reads_no_monoexon': 'total_transcripts_no_monoexon', 'MT_reads_count': 'MT_transcripts_count', **gene_tx})
         else:
             summary = summary.rename(columns={'total_reads': 'Reads_in_cell', 'total_UMI': 'UMIs_in_cell'})
 
