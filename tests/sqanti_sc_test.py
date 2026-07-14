@@ -1230,6 +1230,66 @@ class TestFLWeightingIsoformsMode:
         assert abs(cb2["FSM_prop"] - 100.0) < 0.01
 
     # ------------------------------------------------------------------
+    # Test 5b — annotated/novel READ counts are FL-weighted, split by gene
+    #           annotation (associated_gene 'novel' prefix, not category)
+    # ------------------------------------------------------------------
+
+    def test_annotated_novel_reads_are_fl_weighted(self, mock_args, tmpdir):
+        """
+        Annotated_genes_reads / Novel_genes_reads are per-cell FL sums split by
+        whether associated_gene starts with 'novel'.
+          CB1: geneA FL=3 (annotated) + novelGene FL=1 (novel)
+          CB2: geneA FL=10 + geneA FL=4 (annotated) + novelGene FL=6 (novel)
+        """
+        cls_rows = [
+            self._cls_row("iso1", "CB1,CB2", "3,10", "full-splice_match", associated_gene="geneA"),
+            self._cls_row("iso2", "CB2",     "4",    "full-splice_match", associated_gene="geneA"),
+            self._cls_row("iso3", "CB1,CB2", "1,6",  "novel_in_catalog",  associated_gene="novelGene_1"),
+        ]
+        summary = self._run(mock_args, tmpdir, cls_rows)
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        cb2 = summary[summary["CB"] == "CB2"].iloc[0]
+
+        assert cb1["Annotated_genes_reads"] == 3
+        assert cb1["Novel_genes_reads"] == 1
+        assert cb2["Annotated_genes_reads"] == 14   # 10 + 4
+        assert cb2["Novel_genes_reads"] == 6
+
+    # ------------------------------------------------------------------
+    # Test 5c — gene read-count bins store gene COUNTS in the report's
+    #           boundaries (1 / 2-5 / 6-9 / >=10), FL-summed per gene
+    # ------------------------------------------------------------------
+
+    def test_gene_read_count_bins_are_fl_weighted_counts(self, mock_args, tmpdir):
+        """
+        Each bin column counts genes whose per-cell FL sum falls in that bin.
+          CB1: geneA=3+2=5 (anno -> 2-5), novelGene=1 (novel -> 1)
+          CB2: geneA=10 (anno -> >=10), geneB=4 (anno -> 2-5), novelGene=6 (novel -> 6-9)
+        """
+        cls_rows = [
+            self._cls_row("iso1", "CB1,CB2", "3,10", "full-splice_match", associated_gene="geneA"),
+            self._cls_row("iso2", "CB1",     "2",    "full-splice_match", associated_gene="geneA"),
+            self._cls_row("iso3", "CB2",     "4",    "full-splice_match", associated_gene="geneB"),
+            self._cls_row("iso4", "CB1,CB2", "1,6",  "novel_in_catalog",  associated_gene="novelGene_1"),
+        ]
+        summary = self._run(mock_args, tmpdir, cls_rows)
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        cb2 = summary[summary["CB"] == "CB2"].iloc[0]
+
+        # CB1 annotated: geneA=5 -> bin 2-5 only
+        assert cb1["anno_gene_reads_bin_1"] == 0
+        assert cb1["anno_gene_reads_bin_2_5"] == 1
+        assert cb1["anno_gene_reads_bin_6_9"] == 0
+        assert cb1["anno_gene_reads_bin_10plus"] == 0
+        # CB1 novel: novelGene=1 -> bin 1
+        assert cb1["novel_gene_reads_bin_1"] == 1
+        # CB2 annotated: geneA=10 -> >=10, geneB=4 -> 2-5
+        assert cb2["anno_gene_reads_bin_2_5"] == 1
+        assert cb2["anno_gene_reads_bin_10plus"] == 1
+        # CB2 novel: novelGene=6 -> 6-9
+        assert cb2["novel_gene_reads_bin_6_9"] == 1
+
+    # ------------------------------------------------------------------
     # Test 6 — reads mode uses 1 count per row regardless of FL column
     # ------------------------------------------------------------------
 
@@ -1281,6 +1341,14 @@ class TestFLWeightingIsoformsMode:
         assert abs(cb1["FSM_prop"] - (2 / 3 * 100)) < 0.1, (
             f"Reads mode: expected FSM_prop≈66.7 %, got {cb1['FSM_prop']}"
         )
+
+        # Gene-annotation columns are gene-based, not category-based: all 3 reads
+        # belong to annotated geneA (even the novel-category read), 3 reads -> bin 2-5.
+        assert cb1["Annotated_genes_reads"] == 3
+        assert cb1["Novel_genes_reads"] == 0
+        assert cb1["anno_gene_reads_bin_1"] == 0
+        assert cb1["anno_gene_reads_bin_2_5"] == 1
+        assert cb1["novel_gene_reads_bin_2_5"] == 0
 
 
 # ==============================================================================

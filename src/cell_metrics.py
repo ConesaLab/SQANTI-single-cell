@@ -207,6 +207,10 @@ def calculate_metrics_per_cell(args, df):
 
         summary['Annotated_genes'] = distinct(gene_code, anno_mask)
         summary['Novel_genes'] = distinct(gene_code, novel_gene)
+        # FL (read) counts from annotated vs novel genes -- numerators the report
+        # used to re-derive by re-exploding CB/FL (Annotated/Novel reads % plot).
+        summary['Annotated_genes_reads'] = msum(anno_mask)
+        summary['Novel_genes_reads'] = msum(novel_gene)
 
         # ---- junctions: per-isoform type counts weighted by per-cell FL ----
         junc_types = ['known_canonical', 'known_non_canonical', 'novel_canonical', 'novel_non_canonical']
@@ -249,13 +253,16 @@ def calculate_metrics_per_cell(args, df):
                 numer = msum(m_cat(cat) & (subcat == lv))
                 summary[f"{cat_to_tag[cat]}_{lv.replace('-', '_')}_prop"] = safe_prop(numer, denom).fillna(0)
 
-        # ---- gene read-count bins (per gene type; boundaries 1 / 2-4 / 5-9 / 10+) ----
+        # ---- gene read-count bins (genes per bin, by gene type) ----
+        # Store raw gene COUNTS per bin (not percentages): the report derives every
+        # percentage it needs (per-type grouped, all-genes-combined, annotated-only)
+        # from these and no longer re-explodes CB/FL. Boundaries: 1 / 2-5 / 6-9 / >=10.
         def gene_bins(gene_type_mask, prefix):
-            labels = [(f"{prefix}_bin1_perc", None), (f"{prefix}_bin2_4_perc", None),
-                      (f"{prefix}_bin5_9_perc", None), (f"{prefix}_bin10plus_perc", None)]
+            bin_labels = [f"{prefix}_gene_reads_bin_1", f"{prefix}_gene_reads_bin_2_5",
+                          f"{prefix}_gene_reads_bin_6_9", f"{prefix}_gene_reads_bin_10plus"]
             sel = gene_type_mask[row] & (gene_code[row] >= 0)
             if not sel.any():
-                for lab, _ in labels:
+                for lab in bin_labels:
                     summary[lab] = 0
                 return
             g = gene_code[row][sel].astype(np.int64)
@@ -269,16 +276,14 @@ def calculate_metrics_per_cell(args, df):
             idx_start = np.nonzero(first)[0]
             sums = np.add.reduceat(w, idx_start)
             cc = (key[idx_start] % Cn).astype(np.int64)
-            total_genes = pd.Series(np.bincount(cc, minlength=Cn).astype(float), index=cells_index)
 
-            def binperc(binmask, lab):
-                b = pd.Series(np.bincount(cc[binmask], minlength=Cn).astype(float), index=cells_index)
-                summary[lab] = safe_prop(b, total_genes).fillna(0)
+            def bincount_col(binmask, lab):
+                summary[lab] = pd.Series(np.bincount(cc[binmask], minlength=Cn).astype(float), index=cells_index)
 
-            binperc(sums == 1, f"{prefix}_bin1_perc")
-            binperc((sums >= 2) & (sums <= 4), f"{prefix}_bin2_4_perc")
-            binperc((sums >= 5) & (sums <= 9), f"{prefix}_bin5_9_perc")
-            binperc(sums >= 10, f"{prefix}_bin10plus_perc")
+            bincount_col(sums == 1, bin_labels[0])
+            bincount_col((sums >= 2) & (sums <= 5), bin_labels[1])
+            bincount_col((sums >= 6) & (sums <= 9), bin_labels[2])
+            bincount_col(sums >= 10, bin_labels[3])
 
         gene_bins(anno_mask, 'anno')
         gene_bins(novel_gene, 'novel')
@@ -587,6 +592,9 @@ def calculate_metrics_per_cell(args, df):
         anno = (~cls_valid['associated_gene'].fillna('').str.startswith('novel'))
         summary['Annotated_genes'] = cls_valid[anno].groupby('CB')['associated_gene'].nunique().reindex(summary.index, fill_value=0)
         summary['Novel_genes'] = cls_valid[~anno].groupby('CB')['associated_gene'].nunique().reindex(summary.index, fill_value=0)
+        # Read counts from annotated vs novel genes (report reads these directly).
+        summary['Annotated_genes_reads'] = cls_valid[anno].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
+        summary['Novel_genes_reads'] = cls_valid[~anno].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
 
         if not junc.empty:
             junc_types = ['known_canonical', 'known_non_canonical', 'novel_canonical', 'novel_non_canonical']
@@ -672,25 +680,28 @@ def calculate_metrics_per_cell(args, df):
                 numer = tbl.get(lv, pd.Series(0, index=summary.index)).reindex(summary.index, fill_value=0)
                 summary[subkey(cat, lv.replace('-', '_'))] = safe_prop(numer, denom).fillna(0)
 
+        # Gene read-count bins as raw gene COUNTS (boundaries 1 / 2-5 / 6-9 / >=10);
+        # the report reads these directly and derives whatever percentages each plot needs.
         gene_counts = cls_valid.groupby(['CB','associated_gene'])['_count'].sum().rename('read_count').reset_index()
         gene_counts['gene_type'] = np.where(gene_counts['associated_gene'].fillna('').str.startswith('novel'), 'novel', 'annotated')
+        bin_suffixes = ['gene_reads_bin_1', 'gene_reads_bin_2_5', 'gene_reads_bin_6_9', 'gene_reads_bin_10plus']
         bins = gene_counts.groupby(['CB','gene_type']).agg(
-            bin1_count=('read_count', lambda s: (s == 1).sum()),
-            bin2_4_count=('read_count', lambda s: ((s >= 2) & (s <= 4)).sum()),
-            bin5_9_count=('read_count', lambda s: ((s >= 5) & (s <= 9)).sum()),
-            bin10plus_count=('read_count', lambda s: (s >= 10).sum()),
-            total_genes_in_type=('associated_gene','nunique')
+            gene_reads_bin_1=('read_count', lambda s: (s == 1).sum()),
+            gene_reads_bin_2_5=('read_count', lambda s: ((s >= 2) & (s <= 5)).sum()),
+            gene_reads_bin_6_9=('read_count', lambda s: ((s >= 6) & (s <= 9)).sum()),
+            gene_reads_bin_10plus=('read_count', lambda s: (s >= 10).sum()),
         ).reset_index()
-        def bin_props(df, gene_kind, out_prefix):
+        def bin_counts(df, gene_kind, out_prefix):
             out = pd.DataFrame(index=summary.index)
             keyed = df[df['gene_type'] == gene_kind].set_index('CB') if not df.empty else pd.DataFrame(index=summary.index)
-            for label, src in [(f"{out_prefix}_bin1_perc", 'bin1_count'), (f"{out_prefix}_bin2_4_perc", 'bin2_4_count'), (f"{out_prefix}_bin5_9_perc", 'bin5_9_count'), (f"{out_prefix}_bin10plus_perc", 'bin10plus_count')]:
-                if not keyed.empty and src in keyed.columns:
-                    out[label] = safe_prop(keyed[src].reindex(summary.index, fill_value=0), keyed['total_genes_in_type'].reindex(summary.index, fill_value=0)).fillna(0)
+            for suffix in bin_suffixes:
+                col = f"{out_prefix}_{suffix}"
+                if not keyed.empty and suffix in keyed.columns:
+                    out[col] = keyed[suffix].reindex(summary.index, fill_value=0)
                 else:
-                    out[label] = 0
+                    out[col] = 0
             return out
-        summary = summary.join(bin_props(bins, 'annotated', 'anno')).join(bin_props(bins, 'novel', 'novel'))
+        summary = summary.join(bin_counts(bins, 'annotated', 'anno')).join(bin_counts(bins, 'novel', 'novel'))
 
         if args.mode != 'isoforms':
             gene_ujc = cls_valid[cls_valid['exons'] > 1].groupby(['CB','associated_gene'])['jxn_string'].nunique().rename('ujc_count').reset_index()
