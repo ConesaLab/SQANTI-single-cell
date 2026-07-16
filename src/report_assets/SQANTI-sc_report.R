@@ -1439,97 +1439,58 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     plot_args = common_plot_args
   ))
 
-  ### Gene Distribution by Read Count Bins (configurable gene bins) ###
-  ####################################################################
+  ### Gene Distribution by Count Bins (annotated genes only) ###
+  ##############################################################
 
-  # Define gene read-count bins and labels
-  gene_bin_levels <- c("1", "2-5", "6-9", ">=10")
+  # cell_metrics stores per-cell gene COUNTS in 11 bins: columns *_bin_1..*_bin_10
+  # and *_bin_10plus. Two families:
+  #   * abundance  -> anno_gene_reads_bin_* (reads) / anno_gene_transcripts_bin_*
+  #                   (isoforms), via entity_label_plural_lower.
+  #   * isoforms   -> anno_gene_isoforms_bin_* (isoforms mode only).
+  # Novel genes are no longer binned. We read these columns directly -- no CB/FL
+  # explosion -- and turn each into a one-violin-per-bin distribution.
+  bin_keys <- c(as.character(1:10), "10plus")
 
-  # Gene read-count bins come directly from cell_metrics (both modes): the summary
-  # holds per-cell gene counts per bin. Column names follow the mode convention --
-  # anno/novel_gene_reads_bin_* (reads) or _gene_transcripts_bin_* (isoforms), via
-  # entity_label_plural_lower. Build a per-(CB, gene_type, bin) num_genes table from
-  # those columns -- no CB/FL explosion.
-  bin_suffix <- paste0("_gene_", entity_label_plural_lower, "_bin_")
-  bin_defs <- list(
-    c("1", paste0(bin_suffix, "1")), c("2-5", paste0(bin_suffix, "2_5")),
-    c("6-9", paste0(bin_suffix, "6_9")), c(">=10", paste0(bin_suffix, "10plus"))
-  )
-  read_bins_counts <- do.call(rbind, lapply(list(c("Annotated", "anno"), c("Novel", "novel")), function(gp) {
-    do.call(rbind, lapply(bin_defs, function(bd) {
-      data.frame(
-        CB = SQANTI_cell_summary$CB,
-        gene_type = gp[1],
-        bin = bd[1],
-        num_genes = as.numeric(SQANTI_cell_summary[[paste0(gp[2], bd[2])]]),
-        stringsAsFactors = FALSE
-      )
+  # Abundance labels adapt to whether the quantification holds non-integer values:
+  # exact integers (1..10,>10) when all counts are whole, half-open intervals
+  # ((0,1]..(9,10],>10) when any are fractional (EM, or equal division of ambiguous
+  # reads among transcript models -- possible even in "deterministic" tools). This is
+  # a per-sample property, detected from the per-cell total abundance (count_col =
+  # sum of FL) rather than stored as a non-informative per-cell column.
+  exact_bin_labels <- c(as.character(1:10), ">10")
+  interval_bin_labels <- c(sprintf("(%d,%d]", 0:9, 1:10), ">10")
+  quant_vals <- suppressWarnings(as.numeric(SQANTI_cell_summary[[count_col]]))
+  quant_vals <- quant_vals[is.finite(quant_vals)]
+  is_integer_quant <- length(quant_vals) == 0 ||
+    all(abs(quant_vals - round(quant_vals)) < 1e-9)
+  abundance_bin_labels <- if (is_integer_quant) exact_bin_labels else interval_bin_labels
+
+  # Build a one-violin-per-bin plot (% of a cell's annotated genes per bin) from a
+  # set of 11 count columns sharing col_prefix (+ bin_keys).
+  build_gene_bin_violin <- function(col_prefix, plot_title, bin_labels, fill_hex) {
+    count_cols <- paste0(col_prefix, bin_keys)
+    # Gene COUNTS per bin as a cells x nbin matrix (missing columns -> 0).
+    mat <- do.call(cbind, lapply(count_cols, function(cn) {
+      if (cn %in% colnames(SQANTI_cell_summary)) as.numeric(SQANTI_cell_summary[[cn]])
+      else rep(0, nrow(SQANTI_cell_summary))
     }))
-  }))
-
-  # Percent of genes per bin within each CB and gene type
-  read_bins_data <- read_bins_counts %>%
-    group_by(CB, gene_type) %>%
-    mutate(percentage = ifelse(sum(num_genes) > 0, 100 * num_genes / sum(num_genes), 0)) %>%
-    ungroup()
-
-  read_bins_data$bin <- factor(read_bins_data$bin, levels = gene_bin_levels)
-  read_bins_data$gene_type <- factor(read_bins_data$gene_type, levels = c("Annotated", "Novel"))
-
-  if (mode == "isoforms") {
-    gg_read_bins <<- build_grouped_violin_plot(
-      df = read_bins_data %>% transmute(bin = as.character(bin), group = as.character(gene_type), value = percentage),
-      bin_levels = gene_bin_levels,
-      group_levels = c("Annotated", "Novel"),
-      title = paste("Distribution of Known/Novel Genes by", entity_label, "Count Bins Across Cells"),
-      fill_map = c("Annotated" = "#e37744", "Novel" = "#78C679"),
-      legend_labels = c("Annotated" = "Annotated", "Novel" = "Novel"),
-      y_label = "Genes, %",
-      ylim = c(0, 100),
-      violin_alpha = 0.5,
-      box_alpha = 0.3,
-      box_width = 0.05,
-      x_tickangle = 45,
-      violin_width = 0.28,
-      dodge_width = 1.0
-    )
-  }
-
-  # Combined: one violin per bin. Reads mode shows annotated genes only; isoforms
-  # mode shows all genes (annotated + novel) summed per bin.
-  if (mode == "reads") {
-    read_bins_all <- read_bins_counts %>%
-      filter(gene_type == "Annotated") %>%
-      group_by(CB) %>%
-      mutate(percentage = ifelse(sum(num_genes) > 0, 100 * num_genes / sum(num_genes), 0)) %>%
-      ungroup() %>%
-      select(CB, bin, num_genes, percentage)
-
-    plot_title_all <- paste("Distribution of Annotated Genes by", entity_label, "Count Bins Across Cells")
-  } else {
-    read_bins_all <- read_bins_counts %>%
-      group_by(CB, bin) %>%
-      summarise(num_genes = sum(num_genes), .groups = "drop") %>%
-      group_by(CB) %>%
-      mutate(percentage = ifelse(sum(num_genes) > 0, 100 * num_genes / sum(num_genes), 0)) %>%
-      ungroup()
-
-    plot_title_all <- paste("Distribution of Genes by", entity_label, "Count Bins Across Cells")
-  }
-
-  read_bins_all$bin <- factor(read_bins_all$bin, levels = gene_bin_levels)
-
-  {
+    # Row-normalize to "% of the cell's annotated genes in each bin" (cells with no
+    # annotated genes -> all zeros). Done in WIDE form so each bin's percentages stay
+    # aligned to their bin. A stacked group_by(CB) %>% mutate(ifelse(sum(num_genes)>0,
+    # ...)) is WRONG here: the scalar condition makes ifelse() return a length-1 result
+    # per cell (bin_1's value), which dplyr then recycles across all of that cell's bins.
+    totals <- rowSums(mat)
+    pct <- 100 * mat / ifelse(totals > 0, totals, 1)
+    pct[totals == 0, ] <- 0
     df_long <- data.frame(
-      Variable = factor(read_bins_all$bin, levels = gene_bin_levels),
-      Value = read_bins_all$percentage
+      Variable = factor(rep(bin_labels, each = nrow(mat)), levels = bin_labels),
+      Value = as.vector(pct)
     )
-    fill_map <- setNames(rep("#CC6633", length(gene_bin_levels)), gene_bin_levels)
-    gg_read_bins_all <<- build_violin_plot(
+    build_violin_plot(
       df_long,
-      title = plot_title_all,
-      x_labels = as.character(gene_bin_levels),
-      fill_map = fill_map,
+      title = plot_title,
+      x_labels = as.character(bin_labels),
+      fill_map = setNames(rep(fill_hex, length(bin_labels)), bin_labels),
       y_label = "Genes, %",
       legend = FALSE,
       ylim = c(0, 100),
@@ -1542,38 +1503,22 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     )
   }
 
-  # New plot: Distribution of Known Genes by Unique Isoform Count Bins Across Cells (Isoforms mode)
+  # Abundance: annotated genes by (read/transcript) count bins -- both modes.
+  gg_read_bins_all <<- build_gene_bin_violin(
+    col_prefix = paste0("anno_gene_", entity_label_plural_lower, "_bin_"),
+    plot_title = paste("Distribution of Annotated Genes by", entity_label, "Count Bins Across Cells"),
+    bin_labels = abundance_bin_labels,
+    fill_hex = "#CC6633"
+  )
+
+  # Unique isoforms per gene (isoforms mode only): distinct models per annotated
+  # gene -- always integer counts, so exact labels.
   if (mode == "isoforms") {
-    iso_bins_annot <- read_bins_counts %>%
-      filter(gene_type == "Annotated") %>%
-      group_by(CB) %>%
-      mutate(percentage = ifelse(sum(num_genes) > 0, 100 * num_genes / sum(num_genes), 0)) %>%
-      ungroup() %>%
-      select(CB, bin, num_genes, percentage)
-
-    iso_bins_annot$bin <- factor(iso_bins_annot$bin, levels = gene_bin_levels)
-
-    df_long_iso <- data.frame(
-      Variable = factor(iso_bins_annot$bin, levels = gene_bin_levels),
-      Value = iso_bins_annot$percentage
-    )
-    # Use Annotated color #e37744
-    fill_map_iso <- setNames(rep("#e37744", length(gene_bin_levels)), gene_bin_levels)
-
-    gg_isoform_bins <<- build_violin_plot(
-      df_long_iso,
-      title = "Distribution of Known Genes by Unique Isoform Count Bins Across Cells",
-      x_labels = as.character(gene_bin_levels),
-      fill_map = fill_map_iso,
-      y_label = "Genes, %",
-      legend = FALSE,
-      ylim = c(0, 100),
-      violin_alpha = 0.5,
-      box_alpha = 0.3,
-      box_width = 0.05,
-      x_tickangle = 45,
-      box_outline_default = "black",
-      violin_outline_fill = FALSE
+    gg_isoform_bins <<- build_gene_bin_violin(
+      col_prefix = "anno_gene_isoforms_bin_",
+      plot_title = "Distribution of Annotated Genes by Unique Isoform Count Bins Across Cells",
+      bin_labels = exact_bin_labels,
+      fill_hex = "#e37744"
     )
   }
 
@@ -3553,7 +3498,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # Reads per Gene
     render_pdf_plot("gg_annotation_of_reads_in_cell")
     render_pdf_plot("gg_read_bins_all")
-    render_pdf_plot("gg_read_bins")
     if (mode == "isoforms" && exists("gg_isoform_bins")) {
       render_pdf_plot("gg_isoform_bins")
     }
