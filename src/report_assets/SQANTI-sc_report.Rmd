@@ -724,9 +724,8 @@ if (exists("gg_annotation_of_genes_percent_in_cell")) {
     <ul class="dropdown-menu dropdown-menu-right" role="menu">
       <li><a href="#" data-target="#readspergene-perc-reads-annot">% `r entity_label_plural` from Known/Novel Genes</a></li>
       <li><a href="#" data-target="#readspergene-bins-all">
-        `r if(mode == "reads") paste("% Annotated Genes by", entity_label, "Count Bins") else paste("% Genes by", entity_label, "Count Bins")`
+        `r paste("% Annotated Genes by", entity_label, "Count Bins")`
       </a></li>
-      `r if(mode == "isoforms") paste0('<li><a href="#" data-target="#readspergene-bins-annot">% Known/Novel Genes by ', entity_label, ' Count Bins</a></li>')`
     </ul>
   </div>
 </div>
@@ -747,16 +746,6 @@ if (exists("gg_annotation_of_reads_in_cell")) {
 ```{r readspergene-bins-all, fig.height=8, fig.width=12}
 if (exists("gg_read_bins_all")) {
   print(gg_read_bins_all)
-}
-```
-
-</div>
-
-<div id="readspergene-bins-annot" class="toggle-pane hidden-pane" style="display:block;">
-
-```{r readspergene-bins-annot, fig.height=8, fig.width=12}
-if (exists("gg_read_bins")) {
-  print(gg_read_bins)
 }
 ```
 

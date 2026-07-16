@@ -1256,15 +1256,27 @@ class TestFLWeightingIsoformsMode:
         assert cb2["Novel_genes_transcripts"] == 6
 
     # ------------------------------------------------------------------
-    # Test 5c — gene read-count bins store gene COUNTS in the report's
-    #           boundaries (1 / 2-5 / 6-9 / >=10), FL-summed per gene
+    # Test 5c — gene abundance bins store gene COUNTS in the 11 gapless
+    #           half-open bins (0,1]..(9,10],(10,inf), FL-summed per gene
     # ------------------------------------------------------------------
+
+    # All 11 abundance-bin column names, in order, for isoforms mode. In isoforms mode
+    # the *_gene_reads_bin_* columns are renamed *_gene_transcripts_bin_* on output.
+    ANNO_TX_BINS = [f"anno_gene_transcripts_bin_{i}" for i in range(1, 11)] + [
+        "anno_gene_transcripts_bin_10plus"
+    ]
+    ANNO_ISO_BINS = [f"anno_gene_isoforms_bin_{i}" for i in range(1, 11)] + [
+        "anno_gene_isoforms_bin_10plus"
+    ]
 
     def test_gene_read_count_bins_are_fl_weighted_counts(self, mock_args, tmpdir):
         """
-        Each bin column counts genes whose per-cell FL sum falls in that bin.
-          CB1: geneA=3+2=5 (anno -> 2-5), novelGene=1 (novel -> 1)
-          CB2: geneA=10 (anno -> >=10), geneB=4 (anno -> 2-5), novelGene=6 (novel -> 6-9)
+        Each bin column counts annotated genes whose per-cell FL sum falls in that
+        bin. Bins are the 11 gapless half-open intervals (i-1, i] for i=1..10, then
+        >10.
+          CB1: geneA=3+2=5   -> bin_5
+          CB2: geneA=10      -> bin_10 ;  geneB=4 -> bin_4
+        Novel-gene bins are intentionally NOT computed (no plot consumes them).
         """
         cls_rows = [
             self._cls_row("iso1", "CB1,CB2", "3,10", "full-splice_match", associated_gene="geneA"),
@@ -1276,18 +1288,83 @@ class TestFLWeightingIsoformsMode:
         cb1 = summary[summary["CB"] == "CB1"].iloc[0]
         cb2 = summary[summary["CB"] == "CB2"].iloc[0]
 
-        # CB1 annotated: geneA=5 -> bin 2-5 only
-        assert cb1["anno_gene_transcripts_bin_1"] == 0
-        assert cb1["anno_gene_transcripts_bin_2_5"] == 1
-        assert cb1["anno_gene_transcripts_bin_6_9"] == 0
-        assert cb1["anno_gene_transcripts_bin_10plus"] == 0
-        # CB1 novel: novelGene=1 -> bin 1
-        assert cb1["novel_gene_transcripts_bin_1"] == 1
-        # CB2 annotated: geneA=10 -> >=10, geneB=4 -> 2-5
-        assert cb2["anno_gene_transcripts_bin_2_5"] == 1
-        assert cb2["anno_gene_transcripts_bin_10plus"] == 1
-        # CB2 novel: novelGene=6 -> 6-9
-        assert cb2["novel_gene_transcripts_bin_6_9"] == 1
+        # CB1 annotated: geneA = 3+2 = 5 -> lands in (4,5] and nowhere else
+        assert cb1["anno_gene_transcripts_bin_5"] == 1
+        assert sum(cb1[b] for b in self.ANNO_TX_BINS) == 1, "CB1 has exactly 1 annotated gene"
+
+        # CB2 annotated: geneA = 10 -> (9,10] ; geneB = 4 -> (3,4]
+        assert cb2["anno_gene_transcripts_bin_10"] == 1
+        assert cb2["anno_gene_transcripts_bin_4"] == 1
+        assert cb2["anno_gene_transcripts_bin_10plus"] == 0, "10 is <=10, must not spill into >10"
+        assert sum(cb2[b] for b in self.ANNO_TX_BINS) == 2, "CB2 has exactly 2 annotated genes"
+
+        # Novel-gene bin columns are not produced at all.
+        assert not [c for c in summary.columns if c.startswith("novel_gene_transcripts_bin_")]
+
+    # ------------------------------------------------------------------
+    # Test 5d — bins are GAPLESS: float/EM abundances never fall through
+    # ------------------------------------------------------------------
+
+    def test_gene_abundance_bins_are_gapless_for_float_abundances(self, mock_args, tmpdir):
+        """
+        Regression guard for the old 4-bin scheme (1 / 2-5 / 6-9 / >=10), which had
+        gaps at (1,2), (5,6) and (9,10) that silently DROPPED non-integer abundances.
+        EM-based tools (Isosceles, bambu) and 1/n ambiguous splitting produce
+        fractional FL, so every value must still land in exactly one bin.
+
+        CB1: geneA=1.5 -> (1,2]=bin_2 ; geneB=5.5 -> (5,6]=bin_6
+             geneC=9.5 -> (9,10]=bin_10 ; geneD=10.5 -> >10=bin_10plus
+        """
+        cls_rows = [
+            self._cls_row("iso1", "CB1", "1.5",  "full-splice_match", associated_gene="geneA"),
+            self._cls_row("iso2", "CB1", "5.5",  "full-splice_match", associated_gene="geneB"),
+            self._cls_row("iso3", "CB1", "9.5",  "full-splice_match", associated_gene="geneC"),
+            self._cls_row("iso4", "CB1", "10.5", "full-splice_match", associated_gene="geneD"),
+        ]
+        summary = self._run(mock_args, tmpdir, cls_rows)
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+
+        # Each fractional abundance lands in its half-open bin -- these are exactly
+        # the values the old binning dropped.
+        assert cb1["anno_gene_transcripts_bin_2"] == 1, "1.5 must land in (1,2]"
+        assert cb1["anno_gene_transcripts_bin_6"] == 1, "5.5 must land in (5,6]"
+        assert cb1["anno_gene_transcripts_bin_10"] == 1, "9.5 must land in (9,10]"
+        assert cb1["anno_gene_transcripts_bin_10plus"] == 1, "10.5 must land in >10"
+
+        # Nothing dropped: all 4 genes accounted for across the 11 bins.
+        assert sum(cb1[b] for b in self.ANNO_TX_BINS) == 4
+
+    # ------------------------------------------------------------------
+    # Test 5e — unique-isoform bins count DISTINCT MODELS, not abundance
+    # ------------------------------------------------------------------
+
+    def test_unique_isoform_bins_count_distinct_models_not_abundance(self, mock_args, tmpdir):
+        """
+        anno_gene_isoforms_bin_* must count distinct transcript MODELS per gene per
+        cell, which is a different quantity from the FL-sum abundance bins. This is
+        the distinction the old report collapsed by re-plotting abundance under the
+        "Unique Isoform Count" title.
+
+        Both genes have abundance 2 in CB1, but differ in model count:
+          geneA: ONE model with FL=2      -> abundance 2, 1 distinct isoform
+          geneB: TWO models with FL=1 each -> abundance 2, 2 distinct isoforms
+        """
+        cls_rows = [
+            self._cls_row("iso1", "CB1", "2", "full-splice_match", associated_gene="geneA"),
+            self._cls_row("iso2", "CB1", "1", "full-splice_match", associated_gene="geneB"),
+            self._cls_row("iso3", "CB1", "1", "full-splice_match", associated_gene="geneB"),
+        ]
+        summary = self._run(mock_args, tmpdir, cls_rows)
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+
+        # Abundance: both genes sum to 2 -> both in bin_2.
+        assert cb1["anno_gene_transcripts_bin_2"] == 2
+        assert sum(cb1[b] for b in self.ANNO_TX_BINS) == 2
+
+        # Distinct models: geneA has 1, geneB has 2 -> the two families DIVERGE.
+        assert cb1["anno_gene_isoforms_bin_1"] == 1, "geneA: one model carrying FL=2"
+        assert cb1["anno_gene_isoforms_bin_2"] == 1, "geneB: two models of FL=1"
+        assert sum(cb1[b] for b in self.ANNO_ISO_BINS) == 2
 
     # ------------------------------------------------------------------
     # Test 6 — reads mode uses 1 count per row regardless of FL column
@@ -1343,12 +1420,17 @@ class TestFLWeightingIsoformsMode:
         )
 
         # Gene-annotation columns are gene-based, not category-based: all 3 reads
-        # belong to annotated geneA (even the novel-category read), 3 reads -> bin 2-5.
+        # belong to annotated geneA (even the novel-category read), 3 reads -> (2,3].
         assert cb1["Annotated_genes_reads"] == 3
         assert cb1["Novel_genes_reads"] == 0
         assert cb1["anno_gene_reads_bin_1"] == 0
-        assert cb1["anno_gene_reads_bin_2_5"] == 1
-        assert cb1["novel_gene_reads_bin_2_5"] == 0
+        assert cb1["anno_gene_reads_bin_3"] == 1
+        anno_read_bins = [f"anno_gene_reads_bin_{i}" for i in range(1, 11)] + [
+            "anno_gene_reads_bin_10plus"
+        ]
+        assert sum(cb1[b] for b in anno_read_bins) == 1, "CB1 has exactly 1 annotated gene"
+        # Novel-gene bin columns are not produced at all.
+        assert not [c for c in summary.columns if c.startswith("novel_gene_reads_bin_")]
 
 
 # ==============================================================================

@@ -253,18 +253,22 @@ def calculate_metrics_per_cell(args, df):
                 numer = msum(m_cat(cat) & (subcat == lv))
                 summary[f"{cat_to_tag[cat]}_{lv.replace('-', '_')}_prop"] = safe_prop(numer, denom).fillna(0)
 
-        # ---- gene read-count bins (genes per bin, by gene type) ----
-        # Store raw gene COUNTS per bin (not percentages): the report derives every
-        # percentage it needs (per-type grouped, all-genes-combined, annotated-only)
-        # from these and no longer re-explodes CB/FL. Boundaries: 1 / 2-5 / 6-9 / >=10.
-        def gene_bins(gene_type_mask, prefix):
-            bin_labels = [f"{prefix}_gene_reads_bin_1", f"{prefix}_gene_reads_bin_2_5",
-                          f"{prefix}_gene_reads_bin_6_9", f"{prefix}_gene_reads_bin_10plus"]
-            sel = gene_type_mask[row] & (gene_code[row] >= 0)
-            if not sel.any():
-                for lab in bin_labels:
-                    summary[lab] = 0
-                return
+        # ---- gene bins (annotated genes only): abundance + unique isoforms ----
+        # Two per-cell distributions over annotated genes, both from a single pass over
+        # the (gene, cell) groups of the sparse COO -- no CB/FL explosion:
+        #   * abundance = sum(FL) per gene -> half-open bins (0,1]..(9,10],(10,inf),
+        #     named *_gene_reads_bin_* (renamed *_transcripts on output). Half-open so
+        #     float/EM abundances never fall through a gap.
+        #   * isoforms  = # distinct models per gene (group size) -> exact bins 1..10,>10,
+        #     named anno_gene_isoforms_bin_* (always integer counts).
+        # Novel-gene bins are intentionally not computed (no plot uses them).
+        ab_labels = [f"anno_gene_reads_bin_{i}" for i in range(1, 11)] + ["anno_gene_reads_bin_10plus"]
+        iso_labels = [f"anno_gene_isoforms_bin_{i}" for i in range(1, 11)] + ["anno_gene_isoforms_bin_10plus"]
+        sel = anno_mask[row] & (gene_code[row] >= 0)
+        if not sel.any():
+            for lab in ab_labels + iso_labels:
+                summary[lab] = 0.0
+        else:
             g = gene_code[row][sel].astype(np.int64)
             c = col[sel]
             w = data[sel]
@@ -274,19 +278,21 @@ def calculate_metrics_per_cell(args, df):
             first = np.ones(len(key), dtype=bool)
             first[1:] = key[1:] != key[:-1]
             idx_start = np.nonzero(first)[0]
-            sums = np.add.reduceat(w, idx_start)
-            cc = (key[idx_start] % Cn).astype(np.int64)
+            sums = np.add.reduceat(w, idx_start)                 # sum(FL) per (gene, cell)
+            grp_sizes = np.diff(np.append(idx_start, len(key)))  # distinct models per (gene, cell)
+            cc = (key[idx_start] % Cn).astype(np.int64)          # cell index per group
 
             def bincount_col(binmask, lab):
                 summary[lab] = pd.Series(np.bincount(cc[binmask], minlength=Cn).astype(float), index=cells_index)
 
-            bincount_col(sums == 1, bin_labels[0])
-            bincount_col((sums >= 2) & (sums <= 5), bin_labels[1])
-            bincount_col((sums >= 6) & (sums <= 9), bin_labels[2])
-            bincount_col(sums >= 10, bin_labels[3])
-
-        gene_bins(anno_mask, 'anno')
-        gene_bins(novel_gene, 'novel')
+            # abundance: half-open (i-1, i] for i=1..10, then >10
+            for i in range(1, 11):
+                bincount_col((sums > i - 1) & (sums <= i), ab_labels[i - 1])
+            bincount_col(sums > 10, ab_labels[10])
+            # unique isoforms: exact model counts 1..10, then >10
+            for i in range(1, 11):
+                bincount_col(grp_sizes == i, iso_labels[i - 1])
+            bincount_col(grp_sizes > 10, iso_labels[10])
 
         # ---- length bins ----
         def lenbin_masks(base_mask):
@@ -685,28 +691,22 @@ def calculate_metrics_per_cell(args, df):
                 numer = tbl.get(lv, pd.Series(0, index=summary.index)).reindex(summary.index, fill_value=0)
                 summary[subkey(cat, lv.replace('-', '_'))] = safe_prop(numer, denom).fillna(0)
 
-        # Gene read-count bins as raw gene COUNTS (boundaries 1 / 2-5 / 6-9 / >=10);
-        # the report reads these directly and derives whatever percentages each plot needs.
-        gene_counts = cls_valid.groupby(['CB','associated_gene'])['_count'].sum().rename('read_count').reset_index()
-        gene_counts['gene_type'] = np.where(gene_counts['associated_gene'].fillna('').str.startswith('novel'), 'novel', 'annotated')
-        bin_suffixes = ['gene_reads_bin_1', 'gene_reads_bin_2_5', 'gene_reads_bin_6_9', 'gene_reads_bin_10plus']
-        bins = gene_counts.groupby(['CB','gene_type']).agg(
-            gene_reads_bin_1=('read_count', lambda s: (s == 1).sum()),
-            gene_reads_bin_2_5=('read_count', lambda s: ((s >= 2) & (s <= 5)).sum()),
-            gene_reads_bin_6_9=('read_count', lambda s: ((s >= 6) & (s <= 9)).sum()),
-            gene_reads_bin_10plus=('read_count', lambda s: (s >= 10).sum()),
-        ).reset_index()
-        def bin_counts(df, gene_kind, out_prefix):
-            out = pd.DataFrame(index=summary.index)
-            keyed = df[df['gene_type'] == gene_kind].set_index('CB') if not df.empty else pd.DataFrame(index=summary.index)
-            for suffix in bin_suffixes:
-                col = f"{out_prefix}_{suffix}"
-                if not keyed.empty and suffix in keyed.columns:
-                    out[col] = keyed[suffix].reindex(summary.index, fill_value=0)
-                else:
-                    out[col] = 0
-            return out
-        summary = summary.join(bin_counts(bins, 'annotated', 'anno')).join(bin_counts(bins, 'novel', 'novel'))
+        # Gene read-count bins (annotated genes only) as raw gene COUNTS. Bins are the
+        # 11 half-open intervals (0,1]..(9,10],(10,inf); the report labels them exactly
+        # (1..10,>10) since reads-mode counts are always whole. Novel-gene bins are
+        # intentionally not computed (no plot uses them).
+        anno_counts = cls_valid[anno].groupby(['CB','associated_gene'])['_count'].sum().rename('read_count').reset_index()
+        ab_labels = [f"anno_gene_reads_bin_{i}" for i in range(1, 11)] + ["anno_gene_reads_bin_10plus"]
+        def _upper_half_open(lo, hi):
+            return lambda s: ((s > lo) & (s <= hi)).sum()
+        if not anno_counts.empty:
+            agg_kwargs = {f"anno_gene_reads_bin_{i}": ('read_count', _upper_half_open(i - 1, i)) for i in range(1, 11)}
+            agg_kwargs["anno_gene_reads_bin_10plus"] = ('read_count', lambda s: (s > 10).sum())
+            abins = anno_counts.groupby('CB').agg(**agg_kwargs)
+            summary = summary.join(abins.reindex(summary.index, fill_value=0))
+        else:
+            for lab in ab_labels:
+                summary[lab] = 0
 
         if args.mode != 'isoforms':
             gene_ujc = cls_valid[cls_valid['exons'] > 1].groupby(['CB','associated_gene'])['jxn_string'].nunique().rename('ujc_count').reset_index()
