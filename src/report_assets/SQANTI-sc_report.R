@@ -2440,68 +2440,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       override_outline_vars = c("Genic")
     )
 
-    # 3) Exon count bins per structural category across cells (HTML)
-    exon_bin_levels <- c("1", "2-3", "4-5", ">=6")
-    bin_fill_map <- setNames(c("#6BAED6", "#78C679", "#FC8D59", "#969696"), exon_bin_levels)
-    gg_exon_bins_by_category <<- list()
-    for (ck in all_cats) {
-      cat_df <- cls_valid %>% filter(cat_key == ck)
-      if (nrow(cat_df) == 0) {
-        next
-      }
-      bins_by_cell <- cat_df %>%
-        mutate(
-          exons_n = as.numeric(exons),
-          bin = dplyr::case_when(
-            exons_n <= 1 ~ "1",
-            exons_n <= 3 ~ "2-3",
-            exons_n <= 5 ~ "4-5",
-            TRUE ~ ">=6"
-          )
-        ) %>%
-        group_by(CB, bin) %>%
-        summarise(n = sum(count, na.rm = TRUE), .groups = "drop") %>%
-        group_by(CB) %>%
-        mutate(perc = ifelse(sum(n) > 0, 100 * n / sum(n), NA_real_)) %>%
-        ungroup() %>%
-        tidyr::complete(CB, bin = exon_bin_levels)
-
-      df_long_bins <- data.frame(
-        Variable = factor(bins_by_cell$bin, levels = exon_bin_levels),
-        Value = bins_by_cell$perc
-      )
-
-      pretty_name <- switch(ck,
-        FSM = "FSM",
-        ISM = "ISM",
-        NIC = "NIC",
-        NNC = "NNC",
-        Genic = "Genic Genomic",
-        Antisense = "Antisense",
-        Fusion = "Fusion",
-        Intergenic = "Intergenic",
-        Genic_intron = "Genic Intron",
-        ck
-      )
-
-      gg_exon_bins_by_category[[pretty_name]] <<- build_violin_plot(
-        df_long = df_long_bins,
-        title = paste0("Exon Count Bins in ", pretty_name, " Across Cells"),
-        x_labels = exon_bin_levels,
-        fill_map = bin_fill_map,
-        y_label = paste(entity_label_plural, ", %", sep = ""),
-        legend = FALSE,
-        ylim = c(0, 100),
-        violin_alpha = 0.7,
-        box_alpha = 0.3,
-        box_width = 0.05,
-        x_tickangle = 45,
-        violin_outline_fill = TRUE,
-        box_outline_default = "grey20"
-      )
-    }
-
-    # 4) Exon count profile per category across cells (median + IQR)
+    # 3) Exon count profile per category across cells (median + IQR)
     K <- 20
     min_reads <- 5
     gg_exon_profile_by_category <<- list()
@@ -2527,7 +2466,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         group_by(CB, exons_n) %>%
         summarise(n = sum(count, na.rm = TRUE), .groups = "drop") %>%
         group_by(CB) %>%
-        mutate(perc = ifelse(sum(n) > 0, 100 * n / sum(n), 0)) %>%
+        # Elementwise recycling of the scalar sum(n) -- see the note above.
+        mutate(perc = 100 * n / sum(n)) %>%
         ungroup() %>%
         tidyr::complete(CB, exons_n = seq_len(K), fill = list(n = 0, perc = 0))
       # Aggregate across cells
