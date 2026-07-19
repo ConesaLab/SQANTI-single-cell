@@ -1687,6 +1687,38 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     "genic_intron" = "Genic_intron"
   )
   structural_category_levels <- unname(structural_category_map)
+
+  # Build the per-(cell, structural category) junction-type percentages consumed by the
+  # "Junctions by Structural Category" violins, directly from the per-cell cell-summary
+  # columns written by cell_metrics ({tag}_{jtype}_junctions counts). Replaces the old
+  # per-report re-explosion of the junctions + classification tables. Returns a long
+  # frame (one row per cell x category) with the four *Perc columns; a percentage is NA
+  # when a cell has no junctions of that category (excluded from the violin), matching
+  # the previous behaviour.
+  build_junc_cat_long <- function(summ) {
+    jtypes <- c("known_canonical", "known_non_canonical", "novel_canonical", "novel_non_canonical")
+    cb_col <- if ("CB" %in% names(summ)) summ$CB else seq_len(nrow(summ))
+    parts <- lapply(structural_category_levels, function(tag) {
+      cols <- paste0(tag, "_", jtypes, "_junctions")
+      vals <- lapply(cols, function(cn) {
+        if (cn %in% names(summ)) suppressWarnings(as.numeric(summ[[cn]])) else rep(0, nrow(summ))
+      })
+      names(vals) <- jtypes
+      total <- vals$known_canonical + vals$known_non_canonical +
+               vals$novel_canonical + vals$novel_non_canonical
+      data.frame(
+        CB      = cb_col,
+        cat_key = tag,
+        KnownCanonicalPerc    = ifelse(total > 0, 100 * vals$known_canonical     / total, NA_real_),
+        KnownNonCanonicalPerc = ifelse(total > 0, 100 * vals$known_non_canonical / total, NA_real_),
+        NovelCanonicalPerc    = ifelse(total > 0, 100 * vals$novel_canonical     / total, NA_real_),
+        NovelNonCanonicalPerc = ifelse(total > 0, 100 * vals$novel_non_canonical / total, NA_real_),
+        stringsAsFactors = FALSE
+      )
+    })
+    do.call(rbind, parts)
+  }
+
   # Build violin across categories and assign to a global name
   # Helper: build 9 tag column names from suffix (e.g. "_intrapriming_prop")
   cat_cols <- function(suffix) paste0(cat_tags, suffix)
@@ -2507,7 +2539,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   #                                colhead = list(fg_params = list(cex = 0.7))))
 
   # Resolve common isoform ID key between Junctions and Classification_file once,
-  # shared by all junction blocks below (HTML junc_aug_html, junc_rt, and PDF junc_aug).
+  # shared by the RT-switching junction blocks below (junc_rt). The per-category
+  # junction-type violins no longer need it — they read the cell summary directly.
   junc_iso_key <- NULL
   for (.k in c("isoform", "readID", "read_id", "ID", "read_name", "read")) {
     if (.k %in% colnames(Junctions) && .k %in% colnames(Classification_file)) {
@@ -2519,64 +2552,13 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # Build SJ per-type/per-category plots and the all-canonical grouped plot for HTML (and reuse for PDF)
   # This block creates plot objects regardless of generate_pdf so the Rmd can render them.
   {
-    # Build junc_aug_html: in isoforms mode, Junctions$CB is comma-separated — must explode.
-    if (mode == "isoforms" && !is.null(junc_iso_key) &&
-        "FL" %in% colnames(Classification_file) && "CB" %in% colnames(Classification_file) &&
-        junc_iso_key %in% colnames(Junctions)) {
-
-      cls_exp_html <- Classification_file %>%
-        filter(!is.na(CB), !is.na(structural_category)) %>%
-        select(all_of(c(junc_iso_key, "CB", "FL", "structural_category"))) %>%
-        mutate(CB_raw = as.character(CB), FL_raw = as.character(FL)) %>%
-        tidyr::separate_rows(CB_raw, FL_raw, sep = ",") %>%
-        mutate(CB_clean = trimws(CB_raw),
-               FL_num   = suppressWarnings(as.numeric(trimws(FL_raw)))) %>%
-        filter(CB_clean != "", CB_clean != "unassigned", !is.na(FL_num), FL_num > 0) %>%
-        select(all_of(c(junc_iso_key, "CB_clean", "FL_num", "structural_category")))
-
-      junc_aug_html <- Junctions %>%
-        select(all_of(c(junc_iso_key, "junction_category", "canonical"))) %>%
-        mutate(junction_type = paste(junction_category, canonical, sep = "_")) %>%
-        inner_join(cls_exp_html, by = junc_iso_key) %>%
-        rename(CB = CB_clean, count = FL_num)
-
-    } else {
-      junc_aug_html <- Junctions %>%
-        dplyr::filter(!is.na(CB) & CB != "" & CB != "unassigned") %>%
-        mutate(junction_type = paste(junction_category, canonical, sep = "_"),
-               count = 1)
-      if (!("structural_category" %in% colnames(junc_aug_html)) && !is.null(junc_iso_key)) {
-        junc_aug_html <- junc_aug_html %>%
-          left_join(Classification_file %>% select(all_of(c(junc_iso_key, "structural_category"))),
-                    by = junc_iso_key)
-      }
-    }
-
-    cat_key_map <- structural_category_map
     all_cats <- structural_category_levels
     x_labels_full <- cat_labels_pretty
 
-    junc_summ_html <- junc_aug_html %>%
-      filter(!is.na(structural_category)) %>%
-      mutate(cat_key = unname(cat_key_map[structural_category])) %>%
-      filter(!is.na(cat_key)) %>%
-      group_by(CB, cat_key) %>%
-      summarise(
-        total               = sum(count, na.rm = TRUE),
-        known_canonical     = sum(count[junction_type == "known_canonical"], na.rm = TRUE),
-        known_non_canonical = sum(count[junction_type == "known_non_canonical"], na.rm = TRUE),
-        novel_canonical     = sum(count[junction_type == "novel_canonical"], na.rm = TRUE),
-        novel_non_canonical = sum(count[junction_type == "novel_non_canonical"], na.rm = TRUE),
-        .groups = "drop"
-      ) %>%
-      mutate(
-        KnownCanonicalPerc    = ifelse(total > 0, 100 * known_canonical    / total, NA_real_),
-        KnownNonCanonicalPerc = ifelse(total > 0, 100 * known_non_canonical / total, NA_real_),
-        NovelCanonicalPerc    = ifelse(total > 0, 100 * novel_canonical     / total, NA_real_),
-        NovelNonCanonicalPerc = ifelse(total > 0, 100 * novel_non_canonical / total, NA_real_)
-      ) %>%
-      tidyr::complete(CB, cat_key = all_cats) %>%
-      ungroup()
+    # Per-cell, per-category junction-type percentages now come straight from the cell
+    # summary (see build_junc_cat_long); no per-report re-explosion of the junctions +
+    # classification tables.
+    junc_summ_html <- build_junc_cat_long(SQANTI_cell_summary)
 
     make_df_long_html <- function(col_name) {
       data.frame(Variable = factor(junc_summ_html$cat_key, levels = all_cats), Value = junc_summ_html[[col_name]])
@@ -3513,75 +3495,12 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       }
     }
 
-    if (mode == "isoforms" && !is.null(junc_iso_key) &&
-        "FL" %in% colnames(Classification_file) && "CB" %in% colnames(Classification_file)) {
-      # Explode Classification_file CB/FL to get one row per (isoform, cell, FL_count)
-      cls_exploded <- Classification_file %>%
-        filter(!is.na(CB), !is.na(structural_category)) %>%
-        select(all_of(c(junc_iso_key, "CB", "FL", "structural_category"))) %>%
-        mutate(CB_raw = as.character(CB), FL_raw = as.character(FL)) %>%
-        tidyr::separate_rows(CB_raw, FL_raw, sep = ",") %>%
-        mutate(
-          CB_clean = trimws(CB_raw),
-          FL_num   = suppressWarnings(as.numeric(trimws(FL_raw)))
-        ) %>%
-        filter(CB_clean != "", CB_clean != "unassigned", !is.na(FL_num), FL_num > 0) %>%
-        select(all_of(c(junc_iso_key, "CB_clean", "FL_num", "structural_category")))
-
-      # Join junctions to exploded classification by isoform key only.
-      # Select only junction-type columns from Junctions first to avoid
-      # column name collisions with the CB/count columns in cls_exploded.
-      junc_aug <- Junctions %>%
-        select(all_of(c(junc_iso_key, "junction_category", "canonical"))) %>%
-        mutate(junction_type = paste(junction_category, canonical, sep = "_")) %>%
-        inner_join(cls_exploded, by = junc_iso_key) %>%
-        rename(CB = CB_clean, count = FL_num)
-
-    } else {
-      # Reads mode: each junction row already has a single CB; count = 1
-      junc_aug <- Junctions %>%
-        dplyr::filter(!is.na(CB) & CB != "" & CB != "unassigned") %>%
-        mutate(junction_type = paste(junction_category, canonical, sep = "_"),
-               count = 1)
-
-      # Bring in structural_category if not already present
-      if (!("structural_category" %in% colnames(junc_aug)) && !is.null(junc_iso_key)) {
-        junc_aug <- junc_aug %>%
-          left_join(
-            Classification_file %>% select(all_of(c(junc_iso_key, "structural_category"))),
-            by = junc_iso_key
-          )
-      }
-    }
-
-    cat_key_map <- structural_category_map
     all_cats <- structural_category_levels
 
-    junc_summ <- junc_aug %>%
-      filter(!is.na(structural_category)) %>%
-      mutate(cat_key = unname(cat_key_map[structural_category])) %>%
-      filter(!is.na(cat_key)) %>%
-      group_by(CB, cat_key) %>%
-      summarise(
-        total = sum(count, na.rm = TRUE),
-        known_canonical = sum(count[junction_type == "known_canonical"], na.rm = TRUE),
-        known_non_canonical = sum(count[junction_type == "known_non_canonical"], na.rm = TRUE),
-        novel_canonical = sum(count[junction_type == "novel_canonical"], na.rm = TRUE),
-        novel_non_canonical = sum(count[junction_type == "novel_non_canonical"], na.rm = TRUE),
-        .groups = "drop"
-      ) %>%
-      # Do NOT fill absent (CB, cat_key) pairs with 0 — cells with no transcripts
-      # of a given category should be NA (excluded from violin), not 0%.
-      mutate(
-        KnownCanonicalPerc    = ifelse(total > 0, 100 * known_canonical    / total, NA_real_),
-        KnownNonCanonicalPerc = ifelse(total > 0, 100 * known_non_canonical / total, NA_real_),
-        NovelCanonicalPerc    = ifelse(total > 0, 100 * novel_canonical     / total, NA_real_),
-        NovelNonCanonicalPerc = ifelse(total > 0, 100 * novel_non_canonical / total, NA_real_)
-      ) %>%
-      # Expand to all categories so every category column exists for plotting,
-      # but keep NA for cells absent from that category
-      tidyr::complete(CB, cat_key = all_cats) %>%
-      ungroup()
+    # Per-cell, per-category junction-type percentages now come straight from the cell
+    # summary (see build_junc_cat_long); no per-report re-explosion of the junctions +
+    # classification tables.
+    junc_summ <- build_junc_cat_long(SQANTI_cell_summary)
 
     # Prepare plotting helpers
     fill_map_cat <- cat_fill_map
