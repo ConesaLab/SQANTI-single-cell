@@ -504,7 +504,8 @@ build_loading_feature_plot <- function(multi, feature_info, sample_levels, is_ht
 # Reusable helper: violin + boxplot comparing a single metric across samples
 build_sample_comparison_plot <- function(data, col_name, title, y_label,
                                          sample_levels, scale_percent = FALSE,
-                                         log_scale = FALSE, is_html = FALSE) {
+                                         log_scale = FALSE, is_html = FALSE,
+                                         y_breaks = NULL) {
   if (!col_name %in% colnames(data)) return(NULL)
   plot_df <- data %>%
     select(sampleID, value = all_of(col_name)) %>%
@@ -541,7 +542,10 @@ build_sample_comparison_plot <- function(data, col_name, title, y_label,
     )
   is_pct <- grepl("%", y_label) && !isTRUE(log_scale)
   if (isTRUE(log_scale)) {
-    gp <- gp + scale_y_log10(labels = scales::comma)
+    gp <- gp + scale_y_log10(
+      labels = scales::comma,
+      breaks = if (!is.null(y_breaks)) y_breaks else waiver()
+    )
   } else if (is_pct) {
     gp <- gp + coord_cartesian(ylim = c(0, 100))
     finite_vals <- plot_df$value[is.finite(plot_df$value)]
@@ -634,42 +638,24 @@ main <- function() {
       median_ujc = if ("UJCs_in_cell" %in% names(.)) median(UJCs_in_cell, na.rm = TRUE) else NA
     )
 
-  # Compute per-sample length statistics from classification files (if available)
+  # Compute per-sample length statistics from the cell summary in both modes.
+  # Median_length_per_cell is one value per real cell (the same source as the
+  # per-cell median-length violin), so the summary table agrees with the violin.
+  # We deliberately do NOT re-derive this from the classification file: that
+  # would give a pooled median over all reads/transcripts (and in isoforms mode
+  # the comma-separated FL breaks as.integer() outright), which disagrees with
+  # the violin. The raw length *distribution* still reads the classification
+  # file below, since per-read lengths cannot be recovered from a per-cell median.
   len_stats <- NULL
-  if (!is.null(params$class_files) && nzchar(params$class_files)) {
-    class_paths_tbl <- trimws(unlist(strsplit(params$class_files, ",", fixed = TRUE)))
-    class_paths_tbl <- class_paths_tbl[nchar(class_paths_tbl) > 0 & file.exists(class_paths_tbl)]
-    if (length(class_paths_tbl) >= 1) {
-      len_sel <- if (params$mode == "isoforms") c("length", "FL") else c("length")
-      len_tbl_dfs <- lapply(class_paths_tbl, function(f) {
-        df <- tryCatch(
-          data.table::fread(f, select = len_sel, header = TRUE, sep = "\t",
-                            stringsAsFactors = FALSE, data.table = FALSE),
-          error = function(e) NULL
-        )
-        if (is.null(df) || nrow(df) == 0) return(NULL)
-        df$length <- suppressWarnings(as.numeric(df$length))
-        df <- df[is.finite(df$length) & df$length > 0, , drop = FALSE]
-        sid <- sub("_classification\\.txt(\\.gz)?$", "", basename(f))
-        df$sampleID <- sid
-        df
-      })
-      len_tbl_all <- bind_rows(Filter(Negate(is.null), len_tbl_dfs))
-      if (nrow(len_tbl_all) > 0) {
-        if (params$mode == "isoforms" && "FL" %in% colnames(len_tbl_all)) {
-          len_tbl_all$FL <- suppressWarnings(as.integer(len_tbl_all$FL))
-          len_tbl_all$FL[is.na(len_tbl_all$FL) | len_tbl_all$FL < 1] <- 1L
-          len_tbl_all <- len_tbl_all[rep(seq_len(nrow(len_tbl_all)), len_tbl_all$FL), c("sampleID", "length")]
-        }
-        len_stats <- len_tbl_all %>%
-          group_by(sampleID) %>%
-          summarise(
-            median_length = median(length, na.rm = TRUE),
-            iqr_length = IQR(length, na.rm = TRUE),
-            .groups = "drop"
-          )
-      }
-    }
+  if ("Median_length_per_cell" %in% colnames(multi)) {
+    len_stats <- multi %>%
+      filter(!is.na(Median_length_per_cell)) %>%
+      group_by(sampleID) %>%
+      summarise(
+        median_length = median(Median_length_per_cell, na.rm = TRUE),
+        iqr_length    = IQR(Median_length_per_cell, na.rm = TRUE),
+        .groups = "drop"
+      )
   }
   if (!is.null(len_stats)) {
     per_sample_stats <- left_join(per_sample_stats, len_stats, by = "sampleID")
@@ -783,6 +769,18 @@ main <- function() {
     assign("multi_gene_char_plots", multi_gene_char_plots, envir = .GlobalEnv)
   }
 
+  # Weighted quantile via linear interpolation on the cumulative weight.
+  # Lets the bulk length distribution reflect FL (expression) without exploding
+  # rows: a model of length L with total FL n counts as n observations of L.
+  weighted_quantile <- function(x, w, probs) {
+    ok <- is.finite(x) & is.finite(w) & w > 0
+    x <- x[ok]; w <- w[ok]
+    if (length(x) == 0) return(rep(NA_real_, length(probs)))
+    o <- order(x); x <- x[o]; w <- w[o]
+    cw <- (cumsum(w) - 0.5 * w) / sum(w)
+    stats::approx(cw, x, xout = probs, rule = 2, ties = "ordered")$y
+  }
+
   # -------- Length Distribution plots --------
   multi_length_plots_local <- list()
   if (!is.null(params$class_files) && nzchar(params$class_files)) {
@@ -790,16 +788,29 @@ main <- function() {
     class_file_paths <- class_file_paths[nchar(class_file_paths) > 0 & file.exists(class_file_paths)]
 
     if (length(class_file_paths) >= 2) {
-      select_cols <- if (params$mode == "isoforms") c("length", "FL") else c("length")
+      # Read length, and in isoforms mode the FL abundance, so the distribution
+      # can be FL-weighted (expression-level), consistent with the per-cell
+      # median length and with reads mode where each read is one observation.
+      # FL is comma-separated per cell in isoforms mode, so sum it to a per-model
+      # total; as.integer() on the raw field would NA out (the length version of
+      # the median-length bug) and silently drop to unweighted.
       len_dfs <- lapply(class_file_paths, function(f) {
+        sel <- if (params$mode == "isoforms") c("length", "FL") else c("length")
         df <- tryCatch(
-          data.table::fread(f, select = select_cols, header = TRUE, sep = "\t",
+          data.table::fread(f, select = sel, header = TRUE, sep = "\t",
                             stringsAsFactors = FALSE, data.table = FALSE),
           error = function(e) { message("[WARNING] Could not read ", f, ": ", e$message); NULL }
         )
         if (is.null(df) || nrow(df) == 0) return(NULL)
         df$length <- suppressWarnings(as.numeric(df$length))
-        df <- df[is.finite(df$length) & df$length > 0, , drop = FALSE]
+        if ("FL" %in% colnames(df)) {
+          df$w <- vapply(strsplit(as.character(df$FL), ",", fixed = TRUE),
+                         function(x) sum(as.numeric(x), na.rm = TRUE), numeric(1))
+          df$FL <- NULL
+        } else {
+          df$w <- 1  # reads mode: one row per read is already expression-level
+        }
+        df <- df[is.finite(df$length) & df$length > 0 & is.finite(df$w) & df$w > 0, , drop = FALSE]
         sample_id <- sub("_classification\\.txt(\\.gz)?$", "", basename(f))
         df$sampleID <- sample_id
         df
@@ -807,11 +818,6 @@ main <- function() {
       len_combined <- bind_rows(Filter(Negate(is.null), len_dfs))
 
       if (nrow(len_combined) > 0) {
-        if (params$mode == "isoforms" && "FL" %in% colnames(len_combined)) {
-          len_combined$FL <- suppressWarnings(as.integer(len_combined$FL))
-          len_combined$FL[is.na(len_combined$FL) | len_combined$FL < 1] <- 1L
-          len_combined <- len_combined[rep(seq_len(nrow(len_combined)), len_combined$FL), c("sampleID", "length")]
-        }
         len_combined$sampleID <- factor(len_combined$sampleID, levels = sample_levels_global)
 
         uniqueness <- len_combined %>%
@@ -819,14 +825,49 @@ main <- function() {
           summarise(uv = n_distinct(length), .groups = "drop")
         use_violin <- any(uniqueness$uv > 1)
 
+        # FL-weighted box statistics + mean, drawn with stat = "identity" so the
+        # box and mean point match the (also FL-weighted) violin density.
+        box_stats <- len_combined %>%
+          group_by(sampleID) %>%
+          summarise(
+            lower  = weighted_quantile(length, w, 0.25),
+            middle = weighted_quantile(length, w, 0.50),
+            upper  = weighted_quantile(length, w, 0.75),
+            wmean  = sum(length * w) / sum(w),
+            .groups = "drop"
+          )
+        box_stats <- len_combined %>%
+          left_join(box_stats, by = "sampleID") %>%
+          group_by(sampleID) %>%
+          summarise(
+            lower  = lower[1],
+            middle = middle[1],
+            upper  = upper[1],
+            wmean  = wmean[1],
+            # whiskers: most extreme lengths within 1.5*IQR of the box
+            ymin = min(length[length >= lower[1] - 1.5 * (upper[1] - lower[1])]),
+            ymax = max(length[length <= upper[1] + 1.5 * (upper[1] - lower[1])]),
+            .groups = "drop"
+          )
+        box_stats$sampleID <- factor(box_stats$sampleID, levels = sample_levels_global)
+
         gp_len <- ggplot(len_combined, aes(x = sampleID, y = length, fill = sampleID, colour = sampleID))
         if (use_violin) {
-          gp_len <- gp_len + geom_violin(trim = TRUE, scale = "width", alpha = 0.7, linewidth = 0.3)
+          gp_len <- gp_len + geom_violin(aes(weight = w), trim = TRUE, scale = "width",
+                                         alpha = 0.7, linewidth = 0.3)
         }
         gp_len <- gp_len +
-          geom_boxplot(width = 0.05, outlier.shape = NA, alpha = 0.3, colour = "grey20") +
-          stat_summary(fun = mean, geom = "point", shape = 4, size = 1,
-                       colour = "red", stroke = 0.45) +
+          geom_boxplot(
+            data = box_stats,
+            aes(x = sampleID, ymin = ymin, lower = lower, middle = middle,
+                upper = upper, ymax = ymax, fill = sampleID),
+            stat = "identity", width = 0.05, alpha = 0.3, colour = "grey20",
+            inherit.aes = FALSE
+          ) +
+          geom_point(
+            data = box_stats, aes(x = sampleID, y = wmean),
+            shape = 4, size = 1, colour = "red", stroke = 0.45, inherit.aes = FALSE
+          ) +
           scale_fill_conesa(palette = "complete", drop = FALSE) +
           scale_color_conesa(palette = "complete", guide = "none", drop = FALSE) +
           scale_y_log10(
@@ -860,7 +901,11 @@ main <- function() {
       y_label = "Length, bp",
       sample_levels = sample_levels_global,
       log_scale = TRUE,
-      is_html = is_html_output
+      is_html = is_html_output,
+      # Denser log-spaced ticks adapted to the (narrow) per-cell median range.
+      # A fixed break vector like the bulk plot's would fall mostly outside this
+      # range and leave only 2-3 ticks; breaks_log() fills the actual range.
+      y_breaks = scales::breaks_log(n = 8)
     )
     if (!is.null(gp)) multi_length_plots_local[["Median Length per Cell"]] <- gp
   }
@@ -973,7 +1018,7 @@ main <- function() {
       box_outline_col <- if (as.character(cat_lab) == "Genic Genomic") "grey90" else "grey20"
       violin_fill <- grDevices::adjustcolor(cat_col, alpha.f = 0.7)
       gg <- ggplot(dfp, aes(x = sampleID, y = prop)) +
-        geom_violin(fill = violin_fill, color = cat_col, linewidth = 0.3, width = 0.8, trim = TRUE) +
+        geom_violin(fill = violin_fill, color = cat_col, linewidth = 0.3, width = 0.8, trim = TRUE, scale = "width") +
         geom_boxplot(width = 0.05, outlier.shape = NA, fill = cat_col, color = box_outline_col, alpha = 0.3) +
         stat_summary(fun = mean, geom = "point", shape = 4, size = 1, colour = "red", stroke = 0.9) +
         scale_y_continuous(limits = c(0, 100), expand = expansion(add = c(1, 0))) +
