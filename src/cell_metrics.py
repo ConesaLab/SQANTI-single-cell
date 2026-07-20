@@ -233,9 +233,24 @@ def calculate_metrics_per_cell(args, df):
             summary['total_junctions'] = summary[[junc_rename[j] for j in junc_types]].sum(axis=1)
             for jc in junc_types:
                 summary[f"{junc_rename[jc]}_prop"] = safe_prop(summary[junc_rename[jc]], summary['total_junctions'])
+            # Per-(cell, structural category) junction-type counts: the same FL-weighted
+            # totals restricted to transcripts of each category. Feeds the report's
+            # "Junctions by Structural Category" violins. Stored as counts; the report
+            # derives the per-category percentages (NA when a cell has no junctions of
+            # that category).
+            for cat in structural_categories:
+                tag = cat_to_tag[cat]
+                cmask = m_cat(cat).astype(np.float64)
+                for jc in junc_types:
+                    base = per_tx[jc].fillna(0).to_numpy() if jc in per_tx.columns else np.zeros(T)
+                    summary[f"{tag}_{jc}_junctions"] = wsum(base * cmask)
         else:
             for cn in list(junc_rename.values()) + ['total_junctions'] + [f"{v}_prop" for v in junc_rename.values()]:
                 summary[cn] = 0
+            for cat in structural_categories:
+                tag = cat_to_tag[cat]
+                for jc in junc_types:
+                    summary[f"{tag}_{jc}_junctions"] = 0
 
         # ---- subcategory props ----
         sublevels = {
@@ -668,6 +683,42 @@ def calculate_metrics_per_cell(args, df):
                       'Novel_canonical_junctions', 'Novel_non_canonical_junctions', 'total_junctions',
                       'Known_canonical_junctions_prop', 'Known_non_canonical_junctions_prop',
                       'Novel_canonical_junctions_prop', 'Novel_non_canonical_junctions_prop']] = 0
+
+        # ---- per-(cell, structural category) junction-type counts ----
+        # Each junction inherits its transcript's structural_category (from the
+        # classification table) and CB. Feeds the report's "Junctions by Structural
+        # Category" violins. Stored as counts; the report derives the per-category
+        # percentages (NA when a cell has no junctions of that category).
+        junc_cat_types = ['known_canonical', 'known_non_canonical', 'novel_canonical', 'novel_non_canonical']
+        for cat in structural_categories:
+            tag = cat_to_tag[cat]
+            for jc in junc_cat_types:
+                summary[f"{tag}_{jc}_junctions"] = 0
+        if not junc.empty and {'junction_category', 'canonical'}.issubset(junc.columns):
+            iso_col_r = next((c for c in ['isoform', 'readID', 'read_id', 'ID', 'read_name', 'read']
+                              if c in junc.columns and c in cls_valid.columns), None)
+            jcat = junc.copy()
+            if iso_col_r is not None:
+                if 'CB' not in jcat.columns or (jcat['CB'].fillna('') == '').all():
+                    jcat = jcat.merge(cls_valid[[iso_col_r, 'CB']].dropna().drop_duplicates(iso_col_r),
+                                      on=iso_col_r, how='left')
+                jcat = jcat.merge(cls_valid[[iso_col_r, 'structural_category']].drop_duplicates(iso_col_r),
+                                  on=iso_col_r, how='left')
+            if 'CB' in jcat.columns and 'structural_category' in jcat.columns:
+                jcat = jcat[(jcat['CB'].notna()) & (jcat['CB'] != '') & (jcat['structural_category'].notna())].copy()
+                if not jcat.empty:
+                    jcat['junction_type'] = jcat['junction_category'].astype(str) + '_' + jcat['canonical'].astype(str)
+                    g = (jcat.groupby(['CB', 'structural_category', 'junction_type'], observed=True)
+                             .size().rename('n').reset_index())
+                    for cat in structural_categories:
+                        tag = cat_to_tag[cat]
+                        sub = g[g['structural_category'] == cat]
+                        if sub.empty:
+                            continue
+                        wide = sub.pivot_table(index='CB', columns='junction_type', values='n', fill_value=0)
+                        for jc in junc_cat_types:
+                            if jc in wide.columns:
+                                summary[f"{tag}_{jc}_junctions"] = wide[jc].reindex(summary.index, fill_value=0)
 
         sublevels = {
             'full-splice_match': ['alternative_3end','alternative_3end5end','alternative_5end','reference_match','mono-exon'],

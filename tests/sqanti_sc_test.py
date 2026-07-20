@@ -1173,6 +1173,50 @@ class TestFLWeightingIsoformsMode:
         )
 
     # ------------------------------------------------------------------
+    # Test 3b — per-category junction-type counts are FL-weighted and
+    #           split by the parent isoform's structural category
+    # ------------------------------------------------------------------
+
+    def test_per_category_junction_counts_fl_weighted(self, mock_args, tmpdir):
+        """
+        Per-(cell, structural category) junction-type counts feed the report's
+        "Junctions by Structural Category" violins ({tag}_{jtype}_junctions).
+
+        iso1 (FSM, FL=1): 1 known_canonical junction
+        iso2 (NIC, FL=9): 1 novel_non_canonical junction
+
+        Each junction inherits its isoform's FL for the cell AND its category:
+          FSM_known_canonical_junctions      = 1
+          NIC_novel_non_canonical_junctions  = 9
+        Cross terms (wrong category) must be 0:
+          FSM_novel_non_canonical_junctions  = 0
+          NIC_known_canonical_junctions      = 0
+        """
+        cls_rows = [
+            self._cls_row("iso1", "CB1", "1", "full-splice_match", exons=2),
+            self._cls_row("iso2", "CB1", "9", "novel_in_catalog",  exons=2),
+        ]
+        junc_rows = [
+            self._junc_row("iso1", junction_category="known", canonical="canonical"),
+            self._junc_row("iso2", junction_category="novel", canonical="non_canonical"),
+        ]
+        summary = self._run(mock_args, tmpdir, cls_rows, junc_rows)
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+
+        assert cb1["FSM_known_canonical_junctions"] == 1, (
+            f"Expected FSM_known_canonical_junctions=1 (FL=1), got {cb1['FSM_known_canonical_junctions']}"
+        )
+        assert cb1["NIC_novel_non_canonical_junctions"] == 9, (
+            f"Expected NIC_novel_non_canonical_junctions=9 (FL=9), got {cb1['NIC_novel_non_canonical_junctions']}"
+        )
+        assert cb1["FSM_novel_non_canonical_junctions"] == 0, (
+            f"Expected FSM_novel_non_canonical_junctions=0, got {cb1['FSM_novel_non_canonical_junctions']}"
+        )
+        assert cb1["NIC_known_canonical_junctions"] == 0, (
+            f"Expected NIC_known_canonical_junctions=0, got {cb1['NIC_known_canonical_junctions']}"
+        )
+
+    # ------------------------------------------------------------------
     # Test 4 — multiple junctions per isoform each inherit FL
     # ------------------------------------------------------------------
 
