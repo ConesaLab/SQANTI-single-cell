@@ -445,8 +445,39 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
             cb_cluster_map <- umap_data[, c("Barcode", "Cluster"), drop = FALSE]
             cb_cluster_map <- cb_cluster_map[!is.na(cb_cluster_map$Barcode) & cb_cluster_map$Barcode != "", , drop = FALSE]
 
+            # Weighted quantile (type-7-like, via cumulative-weight interpolation) and a
+            # weighted five-number box summary. Used so the FL weight of each transcript
+            # drives the box/whiskers exactly as replicating rows would, without
+            # materialising per-read rows.
+            wtd_quantile <- function(x, w, probs) {
+              ok <- is.finite(x) & is.finite(w) & w > 0
+              x <- x[ok]; w <- w[ok]
+              if (length(x) == 0) return(rep(NA_real_, length(probs)))
+              if (length(x) == 1) return(rep(x, length(probs)))
+              o <- order(x); x <- x[o]; w <- w[o]
+              cw <- cumsum(w)
+              p <- (cw - 0.5 * w) / sum(w)
+              # approx needs >=2 distinct x-coords; degenerate weights collapse to the median
+              if (length(unique(p)) < 2) return(rep(stats::median(x), length(probs)))
+              stats::approx(p, x, xout = probs, rule = 2, ties = "ordered")$y
+            }
+            wtd_box_stats <- function(x, w) {
+              q <- wtd_quantile(x, w, c(0.25, 0.5, 0.75))
+              if (any(is.na(q))) return(data.frame(ymin = NA_real_, lower = NA_real_,
+                                                   middle = NA_real_, upper = NA_real_, ymax = NA_real_))
+              iqr <- q[3] - q[1]
+              ok <- is.finite(x) & is.finite(w) & w > 0
+              xin <- x[ok][x[ok] >= q[1] - 1.5 * iqr & x[ok] <= q[3] + 1.5 * iqr]
+              data.frame(ymin = min(xin), lower = q[1], middle = q[2], upper = q[3], ymax = max(xin))
+            }
+
             cls_for_len <- Classification_file
             cls_for_len$length_num <- suppressWarnings(as.numeric(cls_for_len$length))
+            # Narrow to just the columns the plot needs BEFORE exploding, so the
+            # per-(transcript, cell) frame stays small (a few numeric/factor columns).
+            .len_keep <- intersect(c("isoform", "length_num", "structural_category", "CB", "FL"),
+                                   colnames(cls_for_len))
+            cls_for_len <- cls_for_len[, .len_keep, drop = FALSE]
 
             if (mode == "isoforms" && "FL" %in% colnames(cls_for_len) && "CB" %in% colnames(cls_for_len)) {
               cls_for_len$CB_raw <- as.character(cls_for_len$CB)
@@ -469,22 +500,44 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
                 !is.na(cls_for_len$length_num) & cls_for_len$length_num > 0 &
                 !is.na(cls_for_len$Cluster), , drop = FALSE]
 
-              if (nrow(cls_for_len) > 0 && any(cls_for_len$FL_num > 1)) {
-                rep_idx <- rep(seq_len(nrow(cls_for_len)), times = as.integer(cls_for_len$FL_num))
-                cls_for_len <- cls_for_len[rep_idx, , drop = FALSE]
+              # Collapse to per-(transcript, cluster) with weight = sum(FL). This replaces
+              # the old rep(FL) row replication: a weighted violin/box over these rows is
+              # identical to one over the FL-replicated reads, at a fraction of the rows.
+              if (nrow(cls_for_len) > 0 && "isoform" %in% colnames(cls_for_len)) {
+                cls_for_len <- cls_for_len %>%
+                  dplyr::group_by(isoform, Cluster, structural_category) %>%
+                  dplyr::summarise(length_num = dplyr::first(length_num),
+                                   w = sum(FL_num), .groups = "drop") %>%
+                  as.data.frame()
+              } else {
+                cls_for_len$w <- cls_for_len$FL_num
               }
 
               build_len_cluster_plot <- function(df_sub, title_str, colors = cluster_colors) {
                 if (nrow(df_sub) == 0) return(NULL)
                 df_sub$Cluster <- factor(df_sub$Cluster, levels = unique_clusters)
+                box_df <- df_sub %>%
+                  dplyr::group_by(Cluster) %>%
+                  dplyr::group_modify(~ wtd_box_stats(.x$length_num, .x$w)) %>%
+                  dplyr::ungroup() %>%
+                  as.data.frame()
+                box_df <- box_df[!is.na(box_df$middle), , drop = FALSE]
+                mean_df <- df_sub %>%
+                  dplyr::group_by(Cluster) %>%
+                  dplyr::summarise(m = stats::weighted.mean(length_num, w), .groups = "drop") %>%
+                  as.data.frame()
                 ggplot(df_sub, aes(x = Cluster, y = length_num, fill = Cluster)) +
-                  geom_violin(aes(color = Cluster), alpha = 0.7, scale = "width",
+                  geom_violin(aes(color = Cluster, weight = w), alpha = 0.7, scale = "width",
                               adjust = 1, trim = TRUE, show.legend = FALSE) +
                   scale_color_manual(values = colors, guide = "none") +
-                  geom_boxplot(width = 0.05, alpha = 0.5, outlier.shape = NA,
-                               color = "grey20", show.legend = FALSE) +
-                  stat_summary(fun = mean, geom = "point", shape = 4,
-                               size = 1, color = "red", stroke = 1, show.legend = FALSE) +
+                  geom_boxplot(data = box_df,
+                               aes(x = Cluster, ymin = ymin, lower = lower, middle = middle,
+                                   upper = upper, ymax = ymax, fill = Cluster),
+                               stat = "identity", width = 0.05, alpha = 0.5,
+                               color = "grey20", inherit.aes = FALSE, show.legend = FALSE) +
+                  geom_point(data = mean_df, aes(x = Cluster, y = m), shape = 4,
+                             size = 1, color = "red", stroke = 1, inherit.aes = FALSE,
+                             show.legend = FALSE) +
                   scale_fill_manual(values = colors) +
                   scale_y_log10(labels = scales::comma) +
                   labs(
