@@ -1039,7 +1039,7 @@ class TestFLWeightingIsoformsMode:
         }
 
     def _junc_row(self, isoform, junction_category="known", canonical="canonical",
-                  rts=False):
+                  rts=False, start="1000", end="2000"):
         """Return one junction row dict (isoform key only; CB/FL come from cls join)."""
         return {
             "isoform": isoform,
@@ -1049,8 +1049,8 @@ class TestFLWeightingIsoformsMode:
             "junction_number": "1",
             "chrom": "chr1",
             "strand": "+",
-            "genomic_start_coord": "1000",
-            "genomic_end_coord": "2000",
+            "genomic_start_coord": start,
+            "genomic_end_coord": end,
         }
 
     def _run(self, mock_args, tmpdir, cls_rows, junc_rows=None):
@@ -1240,6 +1240,94 @@ class TestFLWeightingIsoformsMode:
             f"Expected Known_canonical_junctions=10 (2 junctions × FL=5), "
             f"got {cb1['Known_canonical_junctions']}"
         )
+
+    # ------------------------------------------------------------------
+    # Test 4b — RT-switching all-junction numerators are FL-weighted; the
+    #           denominators are the existing per-SJ-type totals
+    # ------------------------------------------------------------------
+
+    def test_rts_all_junction_counts_fl_weighted(self, mock_args, tmpdir):
+        """
+        CB1 has iso1 (FSM, FL=1) with a known_canonical RTS junction and
+        iso2 (NIC, FL=9) with a novel_non_canonical non-RTS junction.
+          RTS_Known_canonical_junctions     = 1   (FL=1, RTS)
+          Known_canonical_junctions         = 1   (denominator)
+          RTS_Novel_non_canonical_junctions = 0   (not RTS)
+          Novel_non_canonical_junctions     = 9   (denominator)
+        """
+        cls_rows = [
+            self._cls_row("iso1", "CB1", "1", "full-splice_match"),
+            self._cls_row("iso2", "CB1", "9", "novel_in_catalog"),
+        ]
+        junc_rows = [
+            self._junc_row("iso1", "known", "canonical", rts=True),
+            self._junc_row("iso2", "novel", "non_canonical", rts=False, start="3000", end="4000"),
+        ]
+        summary = self._run(mock_args, tmpdir, cls_rows, junc_rows)
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+
+        assert cb1["RTS_Known_canonical_junctions"] == 1, (
+            f"Expected RTS_Known_canonical_junctions=1 (FL=1, RTS), got {cb1['RTS_Known_canonical_junctions']}"
+        )
+        assert cb1["Known_canonical_junctions"] == 1
+        assert cb1["RTS_Novel_non_canonical_junctions"] == 0, (
+            f"Expected RTS_Novel_non_canonical_junctions=0 (not RTS), got {cb1['RTS_Novel_non_canonical_junctions']}"
+        )
+        assert cb1["Novel_non_canonical_junctions"] == 9
+
+    # ------------------------------------------------------------------
+    # Test 4c — unique-junction counts collapse the SAME genomic intron
+    #           shared across transcripts (set union, NOT FL-weighted sum)
+    # ------------------------------------------------------------------
+
+    def test_unique_junction_counts_collapse_shared_introns(self, mock_args, tmpdir):
+        """
+        iso1 (FL=3) and iso2 (FL=5) both carry the SAME intron chr1:1000-2000,
+        both expressed in CB1. The FL-weighted total counts it twice (3+5=8);
+        the distinct-intron count collapses it to a single junction. RTS if ANY
+        supporting row is RTS.
+        """
+        cls_rows = [
+            self._cls_row("iso1", "CB1", "3", "full-splice_match"),
+            self._cls_row("iso2", "CB1", "5", "full-splice_match"),
+        ]
+        junc_rows = [
+            self._junc_row("iso1", "known", "canonical", rts=True),   # chr1:1000-2000
+            self._junc_row("iso2", "known", "canonical", rts=False),  # chr1:1000-2000 (same intron)
+        ]
+        summary = self._run(mock_args, tmpdir, cls_rows, junc_rows)
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+
+        assert cb1["Known_canonical_junctions"] == 8, (
+            f"FL-weighted total should double-count the shared intron (3+5), got {cb1['Known_canonical_junctions']}"
+        )
+        assert cb1["unique_Known_canonical_junctions"] == 1, (
+            f"Distinct-intron count should collapse the shared intron to 1, got {cb1['unique_Known_canonical_junctions']}"
+        )
+        assert cb1["RTS_unique_Known_canonical_junctions"] == 1, (
+            f"Distinct intron is RTS via iso1, got {cb1['RTS_unique_Known_canonical_junctions']}"
+        )
+
+    def test_unique_junction_counts_distinct_introns(self, mock_args, tmpdir):
+        """
+        iso1 (FL=4, 3 exons) has two DIFFERENT known_canonical introns; both are
+        distinct so unique_Known_canonical_junctions=2 while the FL-weighted total
+        is 2 junctions x FL=4 = 8.
+        """
+        cls_rows = [
+            self._cls_row("iso1", "CB1", "4", "full-splice_match", exons=3),
+        ]
+        junc_rows = [
+            self._junc_row("iso1", "known", "canonical", start="1000", end="2000"),
+            self._junc_row("iso1", "known", "canonical", start="3000", end="4000"),
+        ]
+        summary = self._run(mock_args, tmpdir, cls_rows, junc_rows)
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+
+        assert cb1["unique_Known_canonical_junctions"] == 2, (
+            f"Two distinct introns should count as 2, got {cb1['unique_Known_canonical_junctions']}"
+        )
+        assert cb1["Known_canonical_junctions"] == 8
 
     # ------------------------------------------------------------------
     # Test 5 — same isoform appearing in multiple cells is weighted
@@ -1475,6 +1563,64 @@ class TestFLWeightingIsoformsMode:
         assert sum(cb1[b] for b in anno_read_bins) == 1, "CB1 has exactly 1 annotated gene"
         # Novel-gene bin columns are not produced at all.
         assert not [c for c in summary.columns if c.startswith("novel_gene_reads_bin_")]
+
+    # ------------------------------------------------------------------
+    # Test 7 — reads-mode RT-switching all/unique junction counts. Each read's
+    #           junction carries a CB (here merged from the classification table).
+    # ------------------------------------------------------------------
+
+    def test_reads_mode_rts_and_unique_junctions(self, mock_args, tmpdir):
+        """
+        CB1 has 3 reads; r1 and r2 share intron chr1:1000-2000 (r1 RTS), r3 has a
+        distinct intron chr1:3000-4000. All known_canonical.
+          Known_canonical_junctions            = 3   (one per junction row)
+          RTS_Known_canonical_junctions        = 1   (r1)
+          unique_Known_canonical_junctions     = 2   (two distinct introns)
+          RTS_unique_Known_canonical_junctions = 1   (the shared intron is RTS via r1)
+        """
+        out_dir = str(tmpdir.join("output_reads_junc"))
+        file_acc, sampleID = "f1", "s1"
+        sample_dir = os.path.join(out_dir, file_acc)
+        os.makedirs(sample_dir, exist_ok=True)
+        prefix = os.path.join(sample_dir, sampleID)
+
+        mock_args.mode = "reads"
+        mock_args.out_dir = out_dir
+
+        cls = pd.DataFrame([
+            {"isoform": rid, "CB": "CB1", "structural_category": "full-splice_match",
+             "associated_gene": "geneA", "associated_transcript": "txA",
+             "exons": 2, "length": 500, "ref_length": 600, "chrom": "chr1"}
+            for rid in ("r1", "r2", "r3")
+        ])
+        cls.to_csv(f"{prefix}_classification.txt", sep="\t", index=False)
+
+        # Junctions file has no CB column -> merged from classification by isoform.
+        junc = pd.DataFrame([
+            {"isoform": "r1", "junction_category": "known", "canonical": "canonical",
+             "RTS_junction": "True", "chrom": "chr1", "strand": "+",
+             "genomic_start_coord": "1000", "genomic_end_coord": "2000"},
+            {"isoform": "r2", "junction_category": "known", "canonical": "canonical",
+             "RTS_junction": "False", "chrom": "chr1", "strand": "+",
+             "genomic_start_coord": "1000", "genomic_end_coord": "2000"},
+            {"isoform": "r3", "junction_category": "known", "canonical": "canonical",
+             "RTS_junction": "False", "chrom": "chr1", "strand": "+",
+             "genomic_start_coord": "3000", "genomic_end_coord": "4000"},
+        ])
+        junc.to_csv(f"{prefix}_junctions.txt", sep="\t", index=False)
+
+        design_df = pd.DataFrame({"sampleID": [sampleID], "file_acc": [file_acc]})
+        calculate_metrics_per_cell(mock_args, design_df)
+
+        summary = pd.read_csv(
+            f"{prefix}_SQANTI_cell_summary.txt.gz", sep="\t", compression="gzip"
+        )
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+
+        assert cb1["Known_canonical_junctions"] == 3
+        assert cb1["RTS_Known_canonical_junctions"] == 1
+        assert cb1["unique_Known_canonical_junctions"] == 2
+        assert cb1["RTS_unique_Known_canonical_junctions"] == 1
 
 
 # ==============================================================================
