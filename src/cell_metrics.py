@@ -45,6 +45,30 @@ def calculate_metrics_per_cell(args, df):
             arr = np.where(denom > 0, (numer / denom) * 100.0, 0.0)
         return pd.Series(arr, index=numer.index)
 
+    # ---- RT-switching junction column naming (shared by both mode paths) ----
+    # The four splice-junction types, and the per-cell columns that feed the
+    # report's two RT-switching violins. Totals already exist as
+    # `{Known,Novel}_{canonical,non_canonical}_junctions`; here we add the
+    # RTS-flagged numerators (all-junction plot) plus the distinct-intron totals
+    # and RTS numerators (unique-junction plot). Column presence is the report's
+    # capability signal: emitted only when the junctions file carries the needed
+    # inputs (RTS_junction for the all-junction plot; RTS_junction + genomic
+    # coords for the unique-junction plot), so the report skips a plot exactly
+    # when its columns are absent -- mirroring the old runtime guards.
+    junc_type_order = ['known_canonical', 'known_non_canonical', 'novel_canonical', 'novel_non_canonical']
+    junc_total_name = {
+        'known_canonical': 'Known_canonical_junctions',
+        'known_non_canonical': 'Known_non_canonical_junctions',
+        'novel_canonical': 'Novel_canonical_junctions',
+        'novel_non_canonical': 'Novel_non_canonical_junctions',
+    }
+    rts_junc_name = {jc: 'RTS_' + junc_total_name[jc] for jc in junc_type_order}
+    unique_junc_name = {jc: 'unique_' + junc_total_name[jc] for jc in junc_type_order}
+    rts_unique_junc_name = {jc: 'RTS_unique_' + junc_total_name[jc] for jc in junc_type_order}
+
+    def _rts_true(series):
+        return series.astype(str).str.lower().isin(['true', 't', '1', 'yes'])
+
     warnings.simplefilter('ignore', PerformanceWarning)
 
     def _isoforms_summary(cls, junc):
@@ -244,6 +268,82 @@ def calculate_metrics_per_cell(args, df):
                 for jc in junc_types:
                     base = per_tx[jc].fillna(0).to_numpy() if jc in per_tx.columns else np.zeros(T)
                     summary[f"{tag}_{jc}_junctions"] = wsum(base * cmask)
+
+            # ---- RT-switching numerators (all-junction violin) ----
+            # RTS-flagged per-transcript junction-type counts, FL-weighted like the
+            # totals above. Emitted only if the junctions file has RTS_junction; the
+            # denominators are the {Known,Novel}_*_junctions totals. The report
+            # derives % = 100 * RTS / total per SJ type per cell.
+            if 'RTS_junction' in junc.columns:
+                jt_rts = junc.loc[_rts_true(junc['RTS_junction']),
+                                  ['isoform', 'junction_category', 'canonical']].copy()
+                jt_rts['jtype'] = jt_rts['junction_category'].astype(str) + '_' + jt_rts['canonical'].astype(str)
+                per_tx_rts = (jt_rts.groupby(['isoform', 'jtype']).size().unstack(fill_value=0)
+                              .reindex(cls['isoform'].to_numpy()))
+                for jc in junc_types:
+                    w_T = per_tx_rts[jc].fillna(0).to_numpy() if jc in per_tx_rts.columns else np.zeros(T)
+                    summary[rts_junc_name[jc]] = wsum(w_T)
+
+            # ---- unique (distinct-intron) junction counts per cell ----
+            # A junction is "present" in a cell iff ANY transcript carrying it is
+            # expressed there. Collapsing the SAME genomic intron across transcripts
+            # makes this a set-union, not an FL-weighted sum, so it needs the
+            # junction x transcript incidence times the transcript x cell presence:
+            # P = Jt @ Xp, binarized. Distinct-per-cell counts (and their RTS subset)
+            # are then column sums of P over each SJ type's rows. Kept fully sparse so
+            # the (junction, cell) product is never densified. Emitted only when the
+            # junctions file has RTS_junction + genomic coordinates.
+            _chrom_col = 'chrom' if 'chrom' in junc.columns else ('chr' if 'chr' in junc.columns else None)
+            have_coords = ('RTS_junction' in junc.columns and _chrom_col is not None
+                           and {'genomic_start_coord', 'genomic_end_coord'}.issubset(junc.columns))
+            if have_coords:
+                from scipy import sparse
+                iso_to_idx = pd.Series(np.arange(T), index=cls['isoform'].astype(str).to_numpy())
+                jc_df = junc[['isoform', 'junction_category', 'canonical', _chrom_col,
+                              'genomic_start_coord', 'genomic_end_coord', 'RTS_junction']].copy()
+                if 'strand' in junc.columns:
+                    jc_df['strand'] = junc['strand'].astype(str)
+                else:
+                    jc_df['strand'] = ''
+                t_idx = iso_to_idx.reindex(jc_df['isoform'].astype(str).to_numpy()).to_numpy()
+                gs = pd.to_numeric(jc_df['genomic_start_coord'], errors='coerce').to_numpy()
+                ge = pd.to_numeric(jc_df['genomic_end_coord'], errors='coerce').to_numpy()
+                chrom_s = jc_df[_chrom_col].astype(str).to_numpy()
+                keep = (~np.isnan(t_idx)) & (~np.isnan(gs)) & (~np.isnan(ge)) & (chrom_s != '') & (chrom_s != 'nan')
+                if keep.any():
+                    t_idx = t_idx[keep].astype(np.int64)
+                    jkey = (chrom_s[keep] + ':' + gs[keep].astype(np.int64).astype(str) + ':'
+                            + ge[keep].astype(np.int64).astype(str) + ':' + jc_df['strand'].to_numpy()[keep])
+                    jkey_code, _uniq = pd.factorize(jkey)
+                    nJ = len(_uniq)
+                    jtype_arr = (jc_df['junction_category'].astype(str) + '_'
+                                 + jc_df['canonical'].astype(str)).to_numpy()[keep]
+                    rts_arr = _rts_true(jc_df['RTS_junction']).to_numpy()[keep]
+                    # per distinct junction: its SJ type (consistent across rows) and
+                    # whether ANY supporting row is RTS.
+                    jtype_J = np.empty(nJ, dtype=object)
+                    jtype_J[jkey_code] = jtype_arr
+                    rts_J = np.zeros(nJ, dtype=bool)
+                    np.logical_or.at(rts_J, jkey_code, rts_arr)
+                    # Jt: distinct junction x transcript incidence (binary)
+                    Jt = sparse.coo_matrix((np.ones(len(jkey_code)), (jkey_code, t_idx)),
+                                           shape=(nJ, T)).tocsr()
+                    Jt.data[:] = 1.0
+                    # Xp: transcript x cell presence (binary) from the parsed COO
+                    Xp = sparse.coo_matrix((np.ones(len(row)), (row, col)), shape=(T, Cn)).tocsr()
+                    Xp.data[:] = 1.0
+                    P = Jt.dot(Xp)          # (nJ x Cn): supporting transcripts per (junction, cell)
+                    P.data[:] = 1.0         # binarize -> present / absent
+                    for jc in junc_types:
+                        rmask = (jtype_J == jc)
+                        if rmask.any():
+                            u_tot = np.asarray(P[rmask, :].sum(axis=0)).ravel()
+                            u_rts = np.asarray(P[rmask & rts_J, :].sum(axis=0)).ravel()
+                        else:
+                            u_tot = np.zeros(Cn)
+                            u_rts = np.zeros(Cn)
+                        summary[unique_junc_name[jc]] = pd.Series(u_tot, index=cells_index)
+                        summary[rts_unique_junc_name[jc]] = pd.Series(u_rts, index=cells_index)
         else:
             for cn in list(junc_rename.values()) + ['total_junctions'] + [f"{v}_prop" for v in junc_rename.values()]:
                 summary[cn] = 0
@@ -498,8 +598,14 @@ def calculate_metrics_per_cell(args, df):
         # the classification table. That CB column is the bulk of the per-cell-enriched
         # junctions file (~70GB for Isosceles, dense EM output), so excluding it from the
         # read is the difference between OOM and a few GB. Reads mode still needs it.
+        # RTS_junction + genomic coordinates feed the two RT-switching-by-SJ-type
+        # violins. They are small next to the CB column that dominates the isoforms
+        # junctions file (~70GB for dense EM output), so adding them keeps the read
+        # cheap while letting the metrics be computed here instead of re-exploding
+        # junctions x cells in the report.
         _junc_usecols = {'isoform','readID','read_id','ID','read_name','read',
-                         'junction_category','canonical'}
+                         'junction_category','canonical','RTS_junction',
+                         'genomic_start_coord','genomic_end_coord','chrom','chr','strand'}
         if args.mode != 'isoforms':
             _junc_usecols.add('CB')
         try:
@@ -719,6 +825,52 @@ def calculate_metrics_per_cell(args, df):
                         for jc in junc_cat_types:
                             if jc in wide.columns:
                                 summary[f"{tag}_{jc}_junctions"] = wide[jc].reindex(summary.index, fill_value=0)
+
+        # ---- RT-switching all-junction / unique-junction counts per cell ----
+        # Reads mode: each junction row already carries its read's CB (merged from
+        # the classification table when the junctions file lacks CB). The
+        # all-junction numerators count RTS rows per (CB, SJ type); the unique-junction
+        # metric collapses identical genomic introns per cell first (a junction is
+        # RTS if ANY supporting row is). Columns emitted only when RTS_junction (and,
+        # for the unique plot, genomic coordinates) are present, so the report skips a
+        # plot exactly when its columns are absent.
+        if (not junc.empty and {'junction_category', 'canonical', 'RTS_junction'}.issubset(junc.columns)):
+            jrt = junc.copy()
+            iso_col_j = next((c for c in ['isoform', 'readID', 'read_id', 'ID', 'read_name', 'read']
+                              if c in jrt.columns and c in cls_valid.columns), None)
+            if ('CB' not in jrt.columns or (jrt['CB'].fillna('') == '').all()) and iso_col_j is not None:
+                jrt = jrt.merge(cls_valid[[iso_col_j, 'CB']].dropna().drop_duplicates(iso_col_j),
+                                on=iso_col_j, how='left')
+            if 'CB' in jrt.columns:
+                jrt = jrt[(jrt['CB'].notna()) & (jrt['CB'] != '')].copy()
+                if not jrt.empty:
+                    jrt['jtype'] = jrt['junction_category'].astype(str) + '_' + jrt['canonical'].astype(str)
+                    jrt['rts'] = _rts_true(jrt['RTS_junction'])
+                    # all-junction RTS numerators (denominators = *_junctions totals)
+                    rts_all = (jrt[jrt['rts']].groupby(['CB', 'jtype']).size()
+                               .unstack(fill_value=0))
+                    for jc in junc_type_order:
+                        summary[rts_junc_name[jc]] = (rts_all[jc].reindex(summary.index, fill_value=0)
+                                                      if jc in rts_all.columns else 0)
+                    # unique-junction counts: distinct genomic introns per (CB, SJ type)
+                    _chrom_col = 'chrom' if 'chrom' in jrt.columns else ('chr' if 'chr' in jrt.columns else None)
+                    if _chrom_col is not None and {'genomic_start_coord', 'genomic_end_coord'}.issubset(jrt.columns):
+                        strand_s = jrt['strand'].astype(str) if 'strand' in jrt.columns else ''
+                        jrt['jkey'] = (jrt[_chrom_col].astype(str) + ':'
+                                       + jrt['genomic_start_coord'].astype(str) + ':'
+                                       + jrt['genomic_end_coord'].astype(str) + ':' + strand_s)
+                        valid = jrt['genomic_start_coord'].notna() & jrt['genomic_end_coord'].notna()
+                        ju = jrt[valid]
+                        if not ju.empty:
+                            dd = (ju.groupby(['CB', 'jkey'])
+                                    .agg(jtype=('jtype', 'first'), rts=('rts', 'any')).reset_index())
+                            uniq_tot = dd.groupby(['CB', 'jtype']).size().unstack(fill_value=0)
+                            uniq_rts = dd[dd['rts']].groupby(['CB', 'jtype']).size().unstack(fill_value=0)
+                            for jc in junc_type_order:
+                                summary[unique_junc_name[jc]] = (uniq_tot[jc].reindex(summary.index, fill_value=0)
+                                                                 if jc in uniq_tot.columns else 0)
+                                summary[rts_unique_junc_name[jc]] = (uniq_rts[jc].reindex(summary.index, fill_value=0)
+                                                                     if jc in uniq_rts.columns else 0)
 
         sublevels = {
             'full-splice_match': ['alternative_3end','alternative_3end5end','alternative_5end','reference_match','mono-exon'],
