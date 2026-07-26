@@ -113,6 +113,11 @@ def generate_multisample_report(args, df):
     if len(class_files) >= 2:
         class_files_flag = f' --class_files "{",".join(class_files)}"'
 
+    pca_features_flag = ""
+    pca_features = getattr(args, 'pca_features', None)
+    if pca_features:
+        pca_features_flag = f' --pca_features "{os.path.abspath(pca_features)}"'
+
     group_flags = ""
     if color_groups and any(v for v in color_groups):
         group_flags += f' --color_group "{",".join(color_groups)}"'
@@ -125,7 +130,7 @@ def generate_multisample_report(args, df):
         f"Rscript {reportAssetsPath}/SQANTI-sc_multisample_report.R "
         f"--files \"{files_arg}\" --out_dir \"{out_dir}\" "
         f"--mode {mode} --report {report_fmt} --prefix \"{prefix}\""
-        f"{class_files_flag}{group_flags}"
+        f"{class_files_flag}{pca_features_flag}{group_flags}"
     )
 
     print("**** Generating multisample SQANTI-sc report...", file=sys.stdout)

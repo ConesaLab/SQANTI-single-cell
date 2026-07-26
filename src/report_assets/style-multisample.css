@@ -455,3 +455,20 @@ p.date {
     display: block !important;
   }
 }
+
+/* ---------------------------------------------------------------
+   Per-sample QC overview (ggiraph widget)
+
+   girafe(opts_sizing(rescale = TRUE)) scales the SVG to the container
+   WIDTH only, so on a wide screen a tall figure still runs past the fold.
+   An inline SVG carrying a viewBox honours max-height and rescales
+   proportionally, so this caps the figure at the viewport instead and
+   leaves the aspect ratio alone.
+   --------------------------------------------------------------- */
+.girafe_container_std > svg,
+.girafe_container_std svg.girafe_svg {
+  max-height: 82vh;
+  max-width: 100%;
+  width: auto !important;
+  height: auto;
+}

@@ -68,6 +68,14 @@ def parse_args():
         help="Report format to generate (default: both).",
     )
     parser.add_argument(
+        "--pca_features", default=None,
+        help=(
+            "Optional file with one cell-summary column name per line, replacing the "
+            "curated feature set used for the QC overview and PCA. Blank lines and "
+            "lines starting with '#' are ignored."
+        ),
+    )
+    parser.add_argument(
         "--rscript", default="Rscript",
         help="Path to the Rscript executable (default: Rscript).",
     )
@@ -164,6 +172,8 @@ def main():
     ]
     if len(class_files) >= 2:
         cmd.extend(["--class_files", ",".join(class_files)])
+    if args.pca_features:
+        cmd.extend(["--pca_features", str(Path(args.pca_features).resolve())])
 
     # Pass group annotation vectors if any non-empty values were provided
     if any(v for v in color_groups):

@@ -36,6 +36,10 @@ def build_parser(version_str: str = '1.2.0'):
                      help='Generate a multisample cohort report from per-sample cell summaries.')
     apsc.add_argument('--multisample_report_prefix', default='SQANTI_sc_multisample_report',
                      help='Output prefix for the multisample report (default: SQANTI_sc_multisample_report).')
+    apsc.add_argument('--pca_features', default=None,
+                     help='Optional file with one cell-summary column name per line, replacing the curated '
+                          'feature set used for the multisample QC overview and PCA. Blank lines and '
+                          'lines starting with # are ignored.')
     apsc.add_argument('--write_per_cell_outputs', action='store_true', default=False,
                        help='When set, writes per-cell gene_counts.csv, ujc_counts.csv, and cv.csv for each sample.')
     apsc.add_argument('--export_h5ad', action='store_true', default=False,
