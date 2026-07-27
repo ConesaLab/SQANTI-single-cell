@@ -365,6 +365,37 @@ if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
 <div class="section-spacer-xl"></div>
 ```
 
+# Sample QC Overview
+
+```{r qc-overview-dims}
+# The canvas has to grow with the sample count, so the static fallback below
+# takes its fig.width/fig.height from the dimensions the report script computed.
+.qc_dims <- if (exists("multi_qc_overview_dims", envir = .GlobalEnv)) {
+  get("multi_qc_overview_dims", envir = .GlobalEnv)
+} else {
+  list(width = 12, height = 13)
+}
+# The interactive widget sizes itself to the container, so it only runs the
+# static chunk when ggiraph was unavailable.
+.qc_widget <- exists("multi_qc_overview_widget", envir = .GlobalEnv)
+```
+
+```{r qc-overview-interactive, eval=.qc_widget}
+get("multi_qc_overview_widget", envir = .GlobalEnv)
+```
+
+```{r qc-overview-static, eval=!.qc_widget, fig.width=.qc_dims$width, fig.height=.qc_dims$height}
+if (exists("multi_qc_overview_plot", envir = .GlobalEnv)) {
+  print(get("multi_qc_overview_plot", envir = .GlobalEnv))
+} else {
+  cat("The per-sample QC overview is not available.")
+}
+```
+
+```{=html}
+<div class="section-spacer-xl"></div>
+```
+
 # PCA Analysis {.tabset .tabset-fade}
 
 ## PCA Plot

@@ -43,7 +43,8 @@ parse_args <- function() {
   res <- list(
     files = NULL, class_files = NULL, out_dir = ".", mode = "reads",
     report = "pdf", prefix = "SQANTI_sc_multi_report",
-    color_group = NULL, shape_group = NULL, shade_group = NULL
+    color_group = NULL, shape_group = NULL, shade_group = NULL,
+    pca_features = NULL
   )
   i <- 1
   while (i <= length(args)) {
@@ -51,7 +52,7 @@ parse_args <- function() {
     if (startsWith(key, "--")) {
       k <- substring(key, 3)
       if (k %in% c("files", "class_files", "out_dir", "mode", "report", "prefix",
-                    "color_group", "shape_group", "shade_group")) {
+                    "color_group", "shape_group", "shade_group", "pca_features")) {
         if (i + 1 <= length(args)) {
           res[[k]] <- args[i + 1]
           i <- i + 2
@@ -418,6 +419,579 @@ attach_zoom_inset <- function(main_plot, plot_df, x_var, y_var,
     ggplotGrob(gp_inset),
     xmin = n_grps + 0.6 - n_grps * 0.5, xmax = n_grps + 0.6,
     ymin = 45,  ymax = 99
+  )
+}
+
+# ── Curated feature registry ─────────────────────────────────────────────────
+#
+# The per-cell summary carries >300 numeric columns, and most of them are
+# decompositions of one another: abundance bins sum to the gene count, the
+# per-category junction breakdown sums to total_junctions, per-subcategory
+# proportions sum to their parent category. Feeding every numeric column to
+# prcomp(scale. = TRUE) weights each feature *family* by how many columns it
+# happens to have rather than by how much it says, so a 36-column junction
+# breakdown outvotes transcript length 36:1 and sets the direction of PC1.
+#
+# The registry keeps one feature per concept, prefers rates over raw counts
+# (counts track sequencing depth, which otherwise becomes PC1) and tags each
+# feature with an interpretable block. Decomposed families are not dropped from
+# the report -- they keep their own dedicated figures; they just stop voting.
+#
+# conditional = TRUE marks features that only carry information when the
+# matching SQANTI3 run flag was used. Those columns are written unconditionally
+# by cell_metrics.py, filled with a constant sentinel when the flag is absent
+# (e.g. NMD_prop_in_cell = 0, PolyA_motif_support_prop = 0), so a plain
+# "column exists in every sample" test does not catch them -- see
+# curated_feature_table().
+# Entries are named vectors: name = cell-summary column, value = display label.
+# Curating the feature set includes curating how it reads, so labels are
+# explicit here rather than derived from the column name.
+curated_feature_registry <- function(mode) {
+  is_iso <- identical(mode, "isoforms")
+  count_col <- if (is_iso) "Transcripts_in_cell" else "Reads_in_cell"
+  count_lab <- if (is_iso) "Transcripts per cell" else "Reads per cell"
+  unit <- if (is_iso) "transcript" else "read"
+  unit_pl <- if (is_iso) "Transcripts" else "Reads"
+  # `conditional` lists the features in a block that are only computed when a
+  # SQANTI3 run flag was passed; the rest are always present. It is per feature,
+  # not per block, because the good/bad quality blocks mix the two.
+  reg <- list(
+    # The two per-unit features are derived (see derived_feature_defs). Raw
+    # counts are not comparable across samples because they track sequencing
+    # depth; dividing by the cell's own read count puts them on a detection-
+    # efficiency scale. The depth itself is kept as an explicit feature so an
+    # odd yield row can be read against it.
+    #
+    # Genes_in_cell and Novel_genes are deliberately absent. SQANTI3 mints a
+    # fresh novelGene_* id for almost every unassignable row (739 distinct ids
+    # across 741 rows in the reads test set), so Novel_genes is a count of
+    # unassignable reads rather than of genes, and Genes_in_cell -- which
+    # counts distinct ids over ALL rows -- inherits that inflation in
+    # proportion to the artifact rate. Annotated_genes is the clean one.
+    #
+    # MT_perc sits here rather than under a quality heading: it is
+    # MT_reads / total_reads, a description of what was captured, and cell
+    # types differ in mitochondrial expression for ordinary biological
+    # reasons. A high value is not by itself a quality verdict.
+    #
+    # In isoforms mode UJCs_in_cell is not written (cell_metrics.py skips it),
+    # so the derived per-unit feature resolves away and this block has one
+    # fewer row. There is currently no per-cell isoform-diversity column to put
+    # in its place -- Transcripts_in_cell is the FL sum, i.e. depth.
+    list(block = "Yield & detection", features = c(
+      stats::setNames(count_lab, count_col),
+      stats::setNames(paste("Annotated genes per", unit), paste0("Annotated_genes_per_", unit)),
+      stats::setNames(paste("UJCs per", unit), paste0("UJCs_per_", unit)),
+      MT_perc = "Mitochondrial (%)"
+    )),
+    list(block = "Transcript length", features = c(
+      Median_length_per_cell = "Median length (bp)"
+    )),
+    list(block = "Structural categories", features = c(
+      FSM_prop           = "FSM (%)",
+      ISM_prop           = "ISM (%)",
+      NIC_prop           = "NIC (%)",
+      NNC_prop           = "NNC (%)",
+      Genic_Genomic_prop = "Genic genomic (%)",
+      Antisense_prop     = "Antisense (%)",
+      Fusion_prop        = "Fusion (%)",
+      Intergenic_prop    = "Intergenic (%)",
+      Genic_intron_prop  = "Genic intron (%)"
+    )),
+    # The only per-JUNCTION features in the summary: these divide by
+    # total_junctions, everything else in the registry divides by the cell's
+    # read (or FL) count. Left as composition rather than split into good and
+    # bad, because novel canonical is genuinely ambiguous -- a real novel
+    # junction and a mapping artifact both land there.
+    list(block = "Splice junction composition", features = c(
+      Known_canonical_junctions_prop     = "Known canonical SJ (%)",
+      Known_non_canonical_junctions_prop = "Known non-canonical SJ (%)",
+      Novel_canonical_junctions_prop     = "Novel canonical SJ (%)",
+      Novel_non_canonical_junctions_prop = "Novel non-canonical SJ (%)"
+    )),
+    # No subcategory shares (*_reference_match_prop, *_3prime_fragment_prop and
+    # the rest of cell_metrics.py's sublevels table). There are ~30 of them and
+    # no principled way to pick a subset, while taking all of them would make
+    # subcategories the largest family in the registry and reintroduce the
+    # column-count weighting this curation exists to remove. They also divide
+    # by their parent CATEGORY rather than the cell's reads, so over a handful
+    # of ISMs the ratio swings on nothing. --pca_features is the escape hatch
+    # for anyone who wants them.
+    #
+    # Good/bad hold exactly what the per-sample report already declares as such
+    # (SQANTI-sc_report.R, "Good quality features" / "Bad quality features"),
+    # so one taxonomy covers both reports and this file invents no verdicts of
+    # its own. Every feature in both blocks is a proportion of the cell's reads.
+    list(block = "Good-quality indicators",
+         conditional = c("PolyA_motif_support_prop", "CAGE_peak_support_prop",
+                         "TSS_ratio_validated_prop", "srjunctions_support_prop"),
+         features = c(
+      TSSAnnotationSupport_prop = "TSS annotation support (%)",
+      PolyA_motif_support_prop  = "PolyA motif support (%)",
+      CAGE_peak_support_prop    = "CAGE peak support (%)",
+      TSS_ratio_validated_prop  = "TSS ratio validated (%)",
+      srjunctions_support_prop  = "Short-read SJ support (%)"
+    )),
+    list(block = "Bad-quality indicators",
+         conditional = "NMD_prop_in_cell",
+         features = c(
+      RTS_prop_in_cell           = "RT-switching (%)",
+      Intrapriming_prop_in_cell  = "Intrapriming (%)",
+      # NOT a junction proportion: the fraction of multi-exon reads whose
+      # all_canonical field is non_canonical, i.e. reads carrying at least one
+      # non-canonical junction. Named accordingly so it is not read as a share
+      # of junctions. Canonical_prop_in_cell is its exact complement over the
+      # same denominator, so including both would double-count.
+      Non_canonical_prop_in_cell = paste(unit_pl, "with non-canonical SJ (%)"),
+      NMD_prop_in_cell           = "Predicted NMD (%)"
+    ))
+  )
+  do.call(rbind, lapply(reg, function(b) {
+    data.frame(
+      feature = names(b$features), label = unname(b$features),
+      block = b$block,
+      conditional = names(b$features) %in%
+        (if (is.null(b$conditional)) character(0) else b$conditional),
+      stringsAsFactors = FALSE
+    )
+  }))
+}
+
+# Features computed from existing columns rather than read from the summary.
+#
+# These MUST be derived per cell and only then aggregated: the median of the
+# per-cell ratios is not the ratio of the per-cell medians. A cell with 10
+# genes from 10 reads and one with 1 gene from 100 reads have per-cell ratios
+# of 1.00 and 0.01 (median 0.505), while dividing the medians gives 0.10.
+derived_feature_defs <- function(mode) {
+  is_iso <- identical(mode, "isoforms")
+  count_col <- if (is_iso) "Transcripts_in_cell" else "Reads_in_cell"
+  unit <- if (is_iso) "transcript" else "read"
+  defs <- list()
+  defs[[paste0("Annotated_genes_per_", unit)]] <- list(
+    inputs = c("Annotated_genes", count_col),
+    fun = function(d) d[["Annotated_genes"]] / d[[count_col]]
+  )
+  defs[[paste0("UJCs_per_", unit)]] <- list(
+    inputs = c("UJCs_in_cell", count_col),
+    fun = function(d) d[["UJCs_in_cell"]] / d[[count_col]]
+  )
+  defs
+}
+
+# Append the derived columns to the merged per-cell table. Returns the
+# augmented table plus the names that were actually added, so the availability
+# check can treat them as present-in-every-sample (their INPUTS were).
+add_derived_features <- function(multi, lst, mode) {
+  defs <- derived_feature_defs(mode)
+  common_cols <- if (length(lst) >= 1) Reduce(intersect, lapply(lst, colnames)) else character(0)
+  added <- character(0)
+  for (nm in names(defs)) {
+    d <- defs[[nm]]
+    if (!all(d$inputs %in% common_cols) || !all(d$inputs %in% colnames(multi))) next
+    v <- suppressWarnings(as.numeric(d$fun(multi)))
+    v[!is.finite(v)] <- NA_real_   # a zero denominator must not become Inf
+    multi[[nm]] <- v
+    added <- c(added, nm)
+  }
+  list(multi = multi, added = added)
+}
+
+# Read a user-supplied feature whitelist (one feature name per line; blank
+# lines and lines starting with '#' ignored).
+read_feature_whitelist <- function(path) {
+  if (is.null(path) || !nzchar(path)) return(NULL)
+  if (!file.exists(path)) {
+    message(sprintf("[WARNING] --pca_features file not found, using the curated default: %s", path))
+    return(NULL)
+  }
+  lines <- trimws(readLines(path, warn = FALSE))
+  lines <- lines[nzchar(lines) & !startsWith(lines, "#")]
+  if (length(lines) == 0) {
+    message("[WARNING] --pca_features file is empty, using the curated default.")
+    return(NULL)
+  }
+  data.frame(
+    feature = lines,
+    label = vapply(lines, format_feature_display_name, character(1), USE.NAMES = FALSE),
+    block = "User-specified", conditional = FALSE,
+    stringsAsFactors = FALSE
+  )
+}
+
+# Resolve the registry against the data actually loaded. Returns the retained
+# feature/block table (possibly zero rows) and messages every exclusion.
+curated_feature_table <- function(lst, multi, mode, features_file = NULL,
+                                  derived = character(0)) {
+  reg <- read_feature_whitelist(features_file)
+  if (is.null(reg)) reg <- curated_feature_registry(mode)
+
+  # (1) present in every original summary. A column missing from one sample can
+  # reflect a different run flag rather than a true zero, so it is not usable
+  # for a cross-sample comparison. Derived columns qualify when their inputs
+  # passed the same test (add_derived_features only emits those).
+  common_cols <- c(
+    if (length(lst) >= 1) Reduce(intersect, lapply(lst, colnames)) else character(0),
+    derived
+  )
+  usable <- reg$feature %in% common_cols &
+    reg$feature %in% colnames(multi) &
+    vapply(reg$feature, function(f) {
+      f %in% colnames(multi) && is.numeric(multi[[f]]) && !all(is.na(multi[[f]]))
+    }, logical(1))
+  if (any(!usable)) {
+    message(sprintf(
+      "[INFO] Curated feature(s) not available in all samples, excluded: %s",
+      paste(sort(reg$feature[!usable]), collapse = ", ")
+    ))
+  }
+  reg <- reg[usable, , drop = FALSE]
+  if (nrow(reg) == 0) return(reg)
+
+  # (2) conditional features: the column exists everywhere, but is a constant
+  # sentinel in the samples whose run did not compute it. If a conditional
+  # feature does not vary within EVERY sample, the between-sample differences
+  # are a run-flag artifact (they would otherwise dominate PC1), so drop it.
+  varies_within_each_sample <- function(feat) {
+    parts <- split(multi[[feat]], multi$sampleID)
+    all(vapply(parts, function(v) {
+      v <- v[is.finite(v)]
+      length(v) > 1 && stats::sd(v) > 0
+    }, logical(1)))
+  }
+  cond_idx <- which(reg$conditional)
+  if (length(cond_idx) > 0) {
+    keep_cond <- vapply(reg$feature[cond_idx], varies_within_each_sample, logical(1))
+    drop_idx <- cond_idx[!keep_cond]
+    if (length(drop_idx) > 0) {
+      message(sprintf(
+        paste0("[INFO] Conditional feature(s) constant within at least one sample ",
+               "(the corresponding SQANTI3 run flag was not used everywhere), excluded: %s"),
+        paste(sort(reg$feature[drop_idx]), collapse = ", ")
+      ))
+      # NB: reg[-integer(0), ] drops every row, so only negate a non-empty index.
+      reg <- reg[-drop_idx, , drop = FALSE]
+    }
+  }
+
+  reg$block <- factor(reg$block, levels = unique(reg$block))
+  reg
+}
+
+# Helper: per-sample QC overview -- curated features x samples, coloured by how
+# far each sample sits from the cohort. This is the between-sample view in
+# directly readable form: you see which BLOCK a sample departs in, not just
+# that it sits somewhere on a PC.
+#
+# Colour is a per-feature ROBUST z-score across samples,
+# (x - median) / (1.4826 * MAD), computed row by row. Standardising per row is
+# what lets bp, counts and percentages share one colour scale, and it makes the
+# measure relative -- each feature is judged against how much IT varies across
+# the cohort, so a rare category (NNC, Fusion) registers a 4x departure just as
+# strongly as an abundant one.
+#
+# Robust rather than mean/sd for two reasons. The reference has to be the
+# cohort centre because no sample can be designated the baseline, and the
+# median is the honest centre. And one bad library otherwise inflates sd and
+# drags the mean toward itself, shrinking every other sample's score toward
+# zero and hiding the real differences among the good samples.
+#
+# MAD is zero whenever more than half the samples share a value, which is easy
+# to hit in small cohorts, so fall back to mean/sd in that case.
+#
+# Deliberately NOT log-transformed first. A z-score is already invariant to
+# scale, so features differing only by a constant factor get identical scores;
+# log2(x + 1) breaks that, because the +1 pseudocount is large relative to a
+# 0.5% value and compresses exactly the rare features we want treated fairly.
+# Zeros are not a problem here either -- they are ordinary values to a z-score,
+# unlike a fold-change, which would need x / 0.
+#
+# Flat-row guard: rows varying by less than this fraction of their centre are
+# reported as flat. Expressed as a coefficient of variation so it stays
+# relative rather than tied to any feature's units.
+QC_OVERVIEW_FLAT_CV <- 0.02
+
+# Above this many samples the per-tile medians stop being legible, so the
+# heatmap drops them and colour carries the plot on its own. The exact values
+# remain available in <prefix>_pca_feature_medians.tsv.
+QC_OVERVIEW_MAX_LABELLED_SAMPLES <- 8
+
+# Colour scale limit, in robust z units. Without a cap the gradient spans the
+# observed range, so a single extreme sample (|z| of 8 is easy to reach once
+# the denominator is a MAD) compresses every other sample into near-white and
+# the differences among the rest become invisible -- the same failure the
+# robust score was chosen to avoid. Beyond the cap the tile is simply the
+# most saturated colour; the sample is already unambiguously extreme.
+QC_OVERVIEW_Z_CAP <- 4
+
+# Robust z with a mean/sd fallback. Returns all-zero for a row that does not
+# meaningfully vary: z divides by the spread, so a cohort agreeing to within a
+# fraction of a percent would otherwise have that noise stretched across the
+# full colour range and read as a real difference.
+robust_zscore <- function(v) {
+  v <- suppressWarnings(as.numeric(v))
+  flat <- rep(0, length(v))
+  centre <- stats::median(v, na.rm = TRUE)
+  spread <- stats::mad(v, center = centre, na.rm = TRUE)
+  if (!is.finite(spread) || spread <= 0) {
+    centre <- mean(v, na.rm = TRUE)
+    spread <- stats::sd(v, na.rm = TRUE)
+  }
+  if (!is.finite(spread) || spread <= 0 || !is.finite(centre)) return(flat)
+  if (centre > 0 && spread / centre < QC_OVERVIEW_FLAT_CV) return(flat)
+  z <- (v - centre) / spread
+  z[!is.finite(z)] <- 0
+  z
+}
+
+# Order samples for the columns. Grouping beats clustering when the design
+# declares one: the user brought a hypothesis ("do my conditions separate?")
+# and reordering by similarity would answer a different question. With no
+# groups, cluster on the z-scored features so similar samples sit together.
+#
+# Returns the column order plus the group of each sample (NULL when there is no
+# grouping), because ordering alone leaves the groups invisible -- the caller
+# facets on them so the boundaries are drawn and named.
+order_overview_samples <- function(zmat, sample_levels, sample_group_map = NULL) {
+  grp <- NULL
+  if (!is.null(sample_group_map) && "color_group" %in% colnames(sample_group_map)) {
+    g <- sample_group_map$color_group[match(sample_levels, sample_group_map$sampleID)]
+    if (any(nzchar(g) & !is.na(g))) grp <- ifelse(is.na(g) | !nzchar(g), "ungrouped", g)
+  }
+  if (!is.null(grp)) {
+    ord <- order(grp, seq_along(sample_levels))
+    return(list(order = sample_levels[ord], groups = grp[ord]))
+  }
+  if (length(sample_levels) < 3) return(list(order = sample_levels, groups = NULL))
+  ord <- tryCatch({
+    # Columns are samples in zmat, so cluster the transpose.
+    d <- stats::dist(t(zmat[, sample_levels, drop = FALSE]))
+    if (!all(is.finite(d))) stop("non-finite distances")
+    sample_levels[stats::hclust(d, method = "average")$order]
+  }, error = function(e) sample_levels)
+  list(order = ord, groups = NULL)
+}
+
+# Is the interactive HTML renderer usable? ggiraph draws the real ggplot to
+# SVG, so the free-space facets, the block strips and the theme survive as-is;
+# plotly would re-implement the plot and drop space = "free", collapsing the
+# 9-row and 1-row blocks to equal heights. Absence is not fatal -- the static
+# figure is still rendered.
+qc_overview_interactive_ok <- function() {
+  requireNamespace("ggiraph", quietly = TRUE)
+}
+
+build_qc_overview_plot <- function(agg_median, feature_map, sample_levels,
+                                   is_html = FALSE, sample_group_map = NULL,
+                                   interactive = FALSE) {
+  feats <- as.character(feature_map$feature)
+  feats <- feats[feats %in% colnames(agg_median)]
+  n_samples <- nrow(agg_median)
+  if (length(feats) < 2 || n_samples < 2) return(NULL)
+
+  long <- do.call(rbind, lapply(feats, function(f) {
+    v <- suppressWarnings(as.numeric(agg_median[[f]]))
+    data.frame(
+      sampleID = agg_median$sampleID, feature = f, value = v, z = robust_zscore(v),
+      stringsAsFactors = FALSE
+    )
+  }))
+  long <- dplyr::left_join(long, feature_map, by = "feature")
+  # NB: keep this distinct from the joined `label` (the curated feature name),
+  # which supplies the y-axis levels below.
+  long$tile_text <- vapply(long$value, function(v) {
+    if (!is.finite(v)) return("")
+    # trimws: formatC pads to the requested width, which would push the
+    # centred tile label off-centre.
+    trimws(if (abs(v) >= 1000) formatC(v, format = "d", big.mark = ",")
+           else formatC(signif(v, 3), format = "fg", digits = 3))
+  }, character(1))
+
+  # Rows top-to-bottom in registry order, blocks stacked in registry order.
+  lab_levels <- feature_map$label[match(feats, feature_map$feature)]
+  long$feature_lab <- factor(long$label, levels = rev(unique(lab_levels)))
+
+  sample_levels <- sample_levels[sample_levels %in% long$sampleID]
+  zmat <- stats::reshape(long[, c("feature", "sampleID", "z")], idvar = "feature",
+                         timevar = "sampleID", direction = "wide")
+  colnames(zmat) <- sub("^z\\.", "", colnames(zmat))
+  col_order <- order_overview_samples(zmat, sample_levels, sample_group_map)
+  long$sampleID <- factor(long$sampleID, levels = col_order$order)
+  if (!is.null(col_order$groups)) {
+    long$col_group <- factor(col_order$groups[match(long$sampleID, col_order$order)],
+                             levels = unique(col_order$groups))
+  }
+
+  # Everything below scales with the sample count: the row count is fixed by
+  # the registry, but the columns are however many samples the user brought.
+  show_values <- n_samples <= QC_OVERVIEW_MAX_LABELLED_SAMPLES
+  base_size <- if (is_html) 13 else 12
+  if (n_samples > 12) base_size <- base_size - 2
+  if (n_samples > 24) base_size <- base_size - 2
+  x_angle <- if (n_samples > 6) 45 else 30
+  tile_border <- if (n_samples > 20) 0.2 else 0.5
+
+  interactive <- isTRUE(interactive) && qc_overview_interactive_ok()
+
+  p <- ggplot(long, aes(x = sampleID, y = feature_lab, fill = z))
+  if (interactive) {
+    # The hover text carries what the tile cannot: the exact median AND the
+    # z-score behind the colour, which is otherwise only readable off the
+    # legend. This is also what lets the numbers be dropped from wide cohorts
+    # without losing them.
+    #
+    # Single line on purpose. ggiraph 0.8.12 rewrites "\n" to <br/> and then
+    # XML-escapes it, so the tooltip renders a literal "<br/>"; an explicit
+    # <br/> is mangled the same way. Separators are the only form that survives.
+    long$tooltip <- sprintf(
+      "%s | %s | median: %s | robust z: %s",
+      as.character(long$sampleID), long$label, long$tile_text,
+      ifelse(is.finite(long$z), formatC(long$z, format = "f", digits = 2), "n/a")
+    )
+    p <- ggplot(long, aes(x = sampleID, y = feature_lab, fill = z)) +
+      ggiraph::geom_tile_interactive(
+        aes(tooltip = tooltip, data_id = interaction(sampleID, feature)),
+        colour = "grey80", linewidth = tile_border
+      )
+  } else {
+    # Grey borders, not white: when every feature is flat across samples the
+    # fill is white everywhere and white borders make the grid disappear.
+    p <- p + geom_tile(colour = "grey80", linewidth = tile_border)
+  }
+  if (show_values) {
+    p <- p + geom_text(aes(label = tile_text),
+                       size = if (is_html) 3.4 else 3.0, colour = "grey15")
+  }
+  # Only what cannot be inferred from the figure itself: what the printed
+  # number is. The colour scale is named in the legend and explained in the
+  # documentation; repeating it here just crowds the page.
+  caption <- if (show_values) {
+    "Tile label: per-sample median."
+  } else if (interactive) {
+    "Hover a tile for its median and z-score."
+  } else NULL
+
+  # Colour limit adapts to the cohort, up to the cap. A fixed +/-cap would fix
+  # the outlier case but break the ordinary one: a cohort whose largest
+  # deviation is 0.7 would be drawn entirely in the palest tenth of the
+  # gradient. Taking the observed maximum uses the full gradient when nothing
+  # is extreme, and only clamps once a sample exceeds the cap.
+  zmax <- suppressWarnings(max(abs(long$z), na.rm = TRUE))
+  if (!is.finite(zmax) || zmax <= 0) zmax <- 1
+  lim <- min(QC_OVERVIEW_Z_CAP, zmax)
+  is_capped <- zmax > QC_OVERVIEW_Z_CAP
+
+  # Columns faceted by group when there is one, so the boundaries are drawn and
+  # the conditions named; row blocks are faceted either way. Block names are
+  # wrapped to ~12 chars so each word stacks onto its own line (e.g. "Splice /
+  # junction / composition") -- keeps the horizontal strip readable while cutting
+  # its width ~45% vs the unwrapped label. Vertical (rotated) strip text was
+  # rejected: block heights are data-dependent and a 1-row block (e.g. Transcript
+  # length) cannot fit a rotated word without shrinking the font to ~4pt.
+  block_labeller <- labeller(block = label_wrap_gen(width = 12))
+  p <- p + if (is.null(long$col_group)) {
+    facet_grid(block ~ ., scales = "free_y", space = "free_y", switch = "y",
+               labeller = block_labeller)
+  } else {
+    facet_grid(block ~ col_group, scales = "free", space = "free", switch = "y",
+               labeller = block_labeller)
+  }
+
+  p +
+    scale_fill_gradient2(
+      low = "#0072B2", mid = "white", high = "#E69F00", midpoint = 0,
+      name = "Robust\nz-score",
+      limits = c(-lim, lim), oob = scales::squish,
+      # Only advertise clamping when something is actually being clamped.
+      breaks = if (is_capped) c(-lim, -lim / 2, 0, lim / 2, lim) else waiver(),
+      labels = if (is_capped) {
+        c(sprintf("<= -%g", lim), -lim / 2, 0, lim / 2, sprintf(">= %g", lim))
+      } else waiver()
+    ) +
+    theme_classic(base_size = base_size) +
+    labs(title = "Per-sample QC overview", caption = caption, x = NULL, y = NULL) +
+    theme(
+      # "plot" rather than the default "panel": centred on the whole figure,
+      # not on the tile grid, which the block strips and legend push off-centre.
+      plot.title.position = "plot",
+      plot.caption.position = "plot",
+      plot.title = element_text(size = base_size + 3, face = "bold", hjust = 0.5),
+      plot.caption = element_text(size = base_size - 2, hjust = 0.5, colour = "grey30"),
+      axis.text.x = element_text(size = base_size, angle = x_angle, hjust = 1),
+      axis.text.y = element_text(size = base_size - 1),
+      axis.line = element_blank(),
+      axis.ticks = element_blank(),
+      strip.placement = "outside",
+      strip.background = element_rect(fill = "grey92", colour = NA),
+      # The SVG renderer draws strip text ~12% wider than the layout measured
+      # it, so block names first got clipped mid-word ("Splice junction
+      # compositi") and then, with the clip off, spilled out of the grey box.
+      # ggplot sizes the strip as measured_width + margins and right-aligns the
+      # label at rect_right - r, so the overshoot is (actual - measured) - r:
+      # a generous right margin absorbs it outright, and clip = "off" keeps a
+      # larger-than-expected metric from ever truncating a word.
+      strip.clip = "off",
+      strip.text.y.left = element_text(angle = 0, face = "bold", size = base_size - 1,
+                                       hjust = 1, margin = margin(r = 30, l = 6)),
+      strip.text.x = element_text(face = "bold", size = base_size - 1,
+                                  margin = margin(t = 4, b = 4)),
+      panel.spacing.y = unit(4, "pt"),
+      panel.spacing.x = unit(6, "pt"),
+      legend.position = "right"
+    )
+}
+
+# Figure canvas for the QC overview. The row count is fixed by the registry, so
+# height is stable; width has to grow with the sample count or the columns are
+# squeezed into slivers. Capped so a 60-sample cohort does not produce a PDF
+# page metres wide.
+qc_overview_fig_dims <- function(n_samples, n_features) {
+  list(
+    width  = max(10, min(26, 6 + 0.55 * n_samples)),
+    height = max(7, min(20, 3 + 0.42 * n_features))
+  )
+}
+
+# Wrap the plot as a self-sizing SVG widget for the HTML report.
+#
+# The static PNG is rendered at a fixed inch size and then shown at that size,
+# which is why a 24-row figure needed scrolling. An SVG can be drawn at a
+# comfortable aspect ratio and then scaled by the browser without going soft,
+# so opts_sizing(rescale = TRUE) is what makes it fit at 100% zoom.
+#
+# The drawing aspect is deliberately wider and shorter than the PDF canvas.
+# rescale = TRUE fits the SVG to the container WIDTH, so the rendered height is
+# container_width * (height_svg / width_svg). The content column is NOT the
+# full 1300px of .main-container -- the floating TOC takes a chunk, leaving
+# roughly 800px -- so the aspect can be close to square and still fit: ~800px
+# wide at this ratio is ~720px tall. The stylesheet caps the SVG at 82vh, which
+# is what actually protects short windows, so this only needs to avoid being
+# gratuitously tall rather than guarantee the fit on its own.
+QC_OVERVIEW_SVG_MAX_ASPECT <- 0.9
+
+qc_overview_widget <- function(plot, n_samples, n_features) {
+  if (is.null(plot) || !qc_overview_interactive_ok()) return(NULL)
+  dims <- qc_overview_fig_dims(n_samples, n_features)
+  tryCatch(
+    ggiraph::girafe(
+      ggobj = plot,
+      width_svg = dims$width,
+      height_svg = min(dims$height, QC_OVERVIEW_SVG_MAX_ASPECT * dims$width),
+      options = list(
+        ggiraph::opts_sizing(rescale = TRUE, width = 1),
+        ggiraph::opts_tooltip(
+          css = paste0("background-color:#333; color:#fff; padding:6px 8px;",
+                       "border-radius:4px; font-size:12px; max-width:340px;"),
+          opacity = 0.95
+        ),
+        ggiraph::opts_hover(css = "stroke:#333; stroke-width:1.5px;"),
+        ggiraph::opts_toolbar(saveaspng = TRUE)
+      )
+    ),
+    error = function(e) {
+      message(sprintf("[WARNING] Could not build the interactive QC overview: %s", e$message))
+      NULL
+    }
   )
 }
 
@@ -1055,26 +1629,34 @@ main <- function() {
 
   multi_pca_loading_distribution_plots_local <- list()
 
-  # -------- PCA (all numeric features present in every sample, per-sample medians) --------
-  # 1) Select numeric columns from the merged summary.
-  num_cols <- names(multi)[sapply(multi, function(x) is.numeric(x) && !all(is.na(x)))]
-  # 2) Keep only features present in all original sample summaries.
-  # Missing columns can reflect different run flags rather than true zero values,
-  # so they are excluded from cross-sample PCA comparisons.
-  common_cols <- if (length(lst) >= 1) Reduce(intersect, lapply(lst, colnames)) else character(0)
-  pca_cols <- intersect(num_cols, common_cols)
-  excluded_cols <- setdiff(num_cols, pca_cols)
-  if (length(excluded_cols) > 0) {
+  multi_qc_overview_plot_local <- NULL
+
+  # -------- Curated feature set (drives the QC overview and the PCA) --------
+  # Selecting "all numeric columns" weights each feature family by its column
+  # count and lets run-flag sentinels in as real signal; curated_feature_table()
+  # resolves the registry against the data and reports every exclusion.
+  derived_res <- add_derived_features(multi, lst, params$mode)
+  multi <- derived_res$multi
+  feature_map <- curated_feature_table(lst, multi, params$mode, params$pca_features,
+                                       derived = derived_res$added)
+  pca_cols <- as.character(feature_map$feature)
+  if (length(pca_cols) > 0) {
     message(sprintf(
-      "[INFO] Excluding %d numeric feature(s) from PCA because they are not present in all samples: %s",
-      length(excluded_cols),
-      paste(sort(excluded_cols), collapse = ", ")
+      "[INFO] Using %d curated feature(s) across %d block(s): %s",
+      length(pca_cols), nlevels(feature_map$block),
+      paste(levels(feature_map$block), collapse = ", ")
     ))
+  } else {
+    message("[WARNING] No curated features available; skipping the QC overview and PCA.")
   }
-  # 3) Aggregate per-sample medians across retained numeric features
+
+  # Aggregate per-sample medians across retained features
   agg_median <- multi %>%
     group_by(sampleID) %>%
     summarise(across(all_of(pca_cols), ~ median(., na.rm = TRUE)), .groups = "drop")
+  agg_median$sampleID <- factor(agg_median$sampleID, levels = sample_levels_global)
+  agg_median <- agg_median[order(agg_median$sampleID), , drop = FALSE]
+  agg_median$sampleID <- as.character(agg_median$sampleID)
 
   # Write the per-sample feature medians table so users can inspect / reuse PCA input
   medians_out <- file.path(out_dir, paste0(params$prefix, "_pca_feature_medians.tsv"))
@@ -1086,8 +1668,41 @@ main <- function() {
     error = function(e) message(sprintf("[WARNING] Could not write PCA feature medians: %s", e$message))
   )
 
+  # -------- Per-sample QC overview heatmap --------
+  # Two renders from one builder: the PDF gets plain geom_tile, the HTML gets
+  # the interactive tiles wrapped in a self-sizing SVG widget. The PDF must
+  # stay static, so it cannot simply reuse the interactive object.
+  if (length(pca_cols) >= 2 && nrow(agg_median) >= 2) {
+    build_overview <- function(interactive) {
+      tryCatch(
+        build_qc_overview_plot(agg_median, feature_map, sample_levels_global,
+                               is_html = is_html_output,
+                               sample_group_map = sample_group_map,
+                               interactive = interactive),
+        error = function(e) {
+          message(sprintf("[WARNING] Could not build the QC overview heatmap: %s", e$message))
+          NULL
+        }
+      )
+    }
+    multi_qc_overview_plot_local <- build_overview(interactive = FALSE)
+    if (!is.null(multi_qc_overview_plot_local)) {
+      assign("multi_qc_overview_plot", multi_qc_overview_plot_local, envir = .GlobalEnv)
+      assign("multi_qc_overview_dims",
+             qc_overview_fig_dims(nrow(agg_median), length(pca_cols)), envir = .GlobalEnv)
+    }
+    if (is_html_output) {
+      if (!qc_overview_interactive_ok()) {
+        message("[INFO] ggiraph not available; the QC overview will be a static figure.")
+      }
+      widget <- qc_overview_widget(build_overview(interactive = TRUE),
+                                   nrow(agg_median), length(pca_cols))
+      if (!is.null(widget)) assign("multi_qc_overview_widget", widget, envir = .GlobalEnv)
+    }
+  }
+
   if (nrow(agg_median) >= 2 && ncol(agg_median) >= 2) {
-    # 3) Drop features with zero variance across samples
+    # Drop features with zero variance across samples
     feat_sds <- sapply(agg_median %>% select(-sampleID), function(x) stats::sd(x, na.rm = TRUE))
     feat_keep <- names(feat_sds)[is.finite(feat_sds) & !is.na(feat_sds) & feat_sds > 0]
 
@@ -1417,6 +2032,14 @@ main <- function() {
         print(gp + theme_pdf_paper)
       }
       print(p_cats + theme_pdf_paper)
+    }
+
+    # No theme_pdf_paper here: its larger base sizes blow the tile text out of
+    # the tiles. The PDF page is a fixed A4 landscape for the whole device, so
+    # a wide cohort is absorbed by the font scaling inside the builder rather
+    # than by a wider canvas.
+    if (!is.null(multi_qc_overview_plot_local)) {
+      print(multi_qc_overview_plot_local)
     }
 
     if (!is.null(multi_pca_scores_plot_local)) {
