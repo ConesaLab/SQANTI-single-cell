@@ -2274,7 +2274,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   bad_specs <- list(
     list(suffix = "_intrapriming_prop", title = "Intrapriming by Structural Category", color = "#78C679", name = "gg_intrapriming_by_category"),
     list(suffix = "_RTS_prop", title = "RT-switching by Structural Category", color = "#FF9933", name = "gg_RTS_by_category"),
-    list(suffix = "_noncanon_prop", title = "Non-Canonical Junctions by Structural Category", color = "#41B6C4", name = "gg_noncanon_by_category")
+    list(suffix = "_noncanon_prop", title = paste(entity_label_plural, "with Non-Canonical SJ by Structural Category"), color = "#41B6C4", name = "gg_noncanon_by_category")
   )
   invisible(lapply(bad_specs, function(sp) {
     cols <- cat_cols(sp$suffix)
@@ -2308,7 +2308,11 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   all_bad_features_map <- list(
     "Intrapriming_prop_in_cell" = list(label = "Intrapriming", color = "#78C679"),
     "RTS_prop_in_cell" = list(label = "RT-switching", color = "#FF9933"),
-    "Non_canonical_prop_in_cell" = list(label = "Non-Canonical Junctions", color = "#41B6C4"),
+    # NOT a junction proportion: the fraction of multi-exon reads/transcripts whose
+    # all_canonical field is non_canonical, i.e. entities carrying at least one
+    # non-canonical junction. Named accordingly so it is not read as a share of
+    # junctions (matches SQANTI-sc_multisample_report.R's Non_canonical_prop_in_cell label).
+    "Non_canonical_prop_in_cell" = list(label = paste0(entity_label_plural, " with\nNon-canonical SJ"), color = "#41B6C4"),
     "NMD_prop_in_cell" = list(label = "Predicted NMD", color = "#969696")
   )
 
