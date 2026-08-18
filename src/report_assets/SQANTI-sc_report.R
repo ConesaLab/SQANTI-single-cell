@@ -1359,6 +1359,24 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   )
   single_violin(SQANTI_cell_summary, cfg_reads)
 
+  # 1b. Number of Unique Isoforms Across Cells (isoforms mode only). The isoforms-mode
+  # counterpart of the UJC violin below: count_col above is the FL sum (depth), this is
+  # the number of distinct collapsed models detected in the cell (diversity).
+  if (mode == "isoforms" && "Isoforms_in_cell" %in% names(SQANTI_cell_summary) &&
+      !all(is.na(SQANTI_cell_summary$Isoforms_in_cell)) &&
+      max(SQANTI_cell_summary$Isoforms_in_cell, na.rm = TRUE) > 0) {
+    cfg_isoforms <- list(
+      column = "Isoforms_in_cell",
+      name = "gg_isoforms_in_cells",
+      title = "Number of Unique Isoforms\nAcross Cells",
+      fill = "#CC6633",
+      y_label = "Isoforms, count",
+      x_label = "Cells",
+      plot_args = common_plot_args
+    )
+    single_violin(SQANTI_cell_summary, cfg_isoforms)
+  }
+
   # 2. Number of UMIs Across Cells (only if not isoforms mode)
   if (mode != "isoforms") {
     cfg_umis <- list(
@@ -3169,51 +3187,43 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       gp = gpar(fontface = "italic", fontsize = 28), vjust = 0.5, hjust = 0.5
     )
 
-    # 1. Unique Genes and Unique Junction Chains summary table
-    unique_genes_stats <- c(
-      Mean = mean(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
-      Median = median(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
-      Min = min(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
-      Max = max(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
-      IQR = IQR(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
-      SD = sd(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE)
+    # 1. Unique Genes / Junction Chains / Isoforms summary table.
+    # Rows are built for every mode and the mode-specific ones dropped below, so the
+    # stats must tolerate a column that does not exist in this mode: `$missing` is NULL,
+    # and median(NULL) returns NULL, which c() would silently DROP from the named vector
+    # (leaving 5 slots, not 6) while min/max(NULL) return +/-Inf.
+    cell_stats <- function(x) {
+      if (is.null(x) || !is.numeric(x) || all(is.na(x))) {
+        return(c(Mean = NA_real_, Median = NA_real_, Min = NA_real_,
+                 Max = NA_real_, IQR = NA_real_, SD = NA_real_))
+      }
+      c(Mean = mean(x, na.rm = TRUE), Median = median(x, na.rm = TRUE),
+        Min = min(x, na.rm = TRUE), Max = max(x, na.rm = TRUE),
+        IQR = IQR(x, na.rm = TRUE), SD = sd(x, na.rm = TRUE))
+    }
+    unique_genes_stats <- cell_stats(SQANTI_cell_summary$Genes_in_cell)
+    unique_junctions_stats <- cell_stats(SQANTI_cell_summary$UJCs_in_cell)
+    unique_isoforms_stats <- cell_stats(SQANTI_cell_summary$Isoforms_in_cell)
+    reads_stats <- cell_stats(SQANTI_cell_summary[[count_col]])
+    umis_stats <- cell_stats(SQANTI_cell_summary$UMIs_in_cell)
+    stat_rows <- list(
+      reads_stats, umis_stats, unique_genes_stats,
+      unique_junctions_stats, unique_isoforms_stats
     )
-    unique_junctions_stats <- c(
-      Mean = mean(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
-      Median = median(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
-      Min = min(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
-      Max = max(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
-      IQR = IQR(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
-      SD = sd(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE)
-    )
-    reads_stats <- c(
-      Mean = mean(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
-      Median = median(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
-      Min = min(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
-      Max = max(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
-      IQR = IQR(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
-      SD = sd(SQANTI_cell_summary[[count_col]], na.rm = TRUE)
-    )
-    umis_stats <- c(
-      Mean = mean(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
-      Median = median(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
-      Min = min(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
-      Max = max(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
-      IQR = IQR(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
-      SD = sd(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE)
-    )
+    pick <- function(stat) vapply(stat_rows, function(s) unname(s[[stat]]), numeric(1))
     summary_table1 <- data.frame(
-      Feature = c(paste(entity_label_plural, "in cell"), "UMIs in cell", "Unique Genes", "Unique Junction Chains"),
-      Mean = c(reads_stats["Mean"], umis_stats["Mean"], unique_genes_stats["Mean"], unique_junctions_stats["Mean"]),
-      Median = c(reads_stats["Median"], umis_stats["Median"], unique_genes_stats["Median"], unique_junctions_stats["Median"]),
-      Min = c(reads_stats["Min"], umis_stats["Min"], unique_genes_stats["Min"], unique_junctions_stats["Min"]),
-      Max = c(reads_stats["Max"], umis_stats["Max"], unique_genes_stats["Max"], unique_junctions_stats["Max"]),
-      IQR = c(reads_stats["IQR"], umis_stats["IQR"], unique_genes_stats["IQR"], unique_junctions_stats["IQR"]),
-      SD = c(reads_stats["SD"], umis_stats["SD"], unique_genes_stats["SD"], unique_junctions_stats["SD"])
+      Feature = c(paste(entity_label_plural, "in cell"), "UMIs in cell", "Unique Genes",
+                  "Unique Junction Chains", "Unique Isoforms"),
+      Mean = pick("Mean"), Median = pick("Median"), Min = pick("Min"),
+      Max = pick("Max"), IQR = pick("IQR"), SD = pick("SD")
     )
-    # If isoforms mode, drop Unique Junction Chains from summary table
+    # Drop the rows whose source column this mode does not produce: UJCs/UMIs are
+    # reads-only, Isoforms_in_cell is isoforms-only.
     if (mode == "isoforms" || !("UJCs_in_cell" %in% names(SQANTI_cell_summary)) || all(is.na(SQANTI_cell_summary$UJCs_in_cell)) || max(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE) == 0) {
       summary_table1 <- summary_table1[!(summary_table1$Feature %in% c("Unique Junction Chains", "UMIs in cell")), , drop = FALSE]
+    }
+    if (mode != "isoforms" || !("Isoforms_in_cell" %in% names(SQANTI_cell_summary)) || all(is.na(SQANTI_cell_summary$Isoforms_in_cell)) || max(SQANTI_cell_summary$Isoforms_in_cell, na.rm = TRUE) == 0) {
+      summary_table1 <- summary_table1[summary_table1$Feature != "Unique Isoforms", , drop = FALSE]
     }
     summary_table1[, 2:7] <- round(summary_table1[, 2:7], 3)
     table_summary1 <- tableGrob(summary_table1, rows = NULL, theme = big_table_theme)
@@ -3374,6 +3384,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # Per-cell Library Size section
     section_page("Per-cell Library Size")
     render_pdf_plot_centered("gg_reads_in_cells", width_frac = 0.5)
+    if (exists("gg_isoforms_in_cells")) render_pdf_plot_centered("gg_isoforms_in_cells", width_frac = 0.5)
     render_pdf_plot_centered("gg_umis_in_cells", width_frac = 0.5)
     if (exists("gg_JCs_in_cell")) render_pdf_plot_centered("gg_JCs_in_cell", width_frac = 0.5)
 

@@ -80,8 +80,9 @@ def calculate_metrics_per_cell(args, df):
         into three flat arrays (row=transcript idx, col=cell idx, data=FL weight) and
         express every per-cell metric as a masked column-sum over those arrays. All
         transcript-level conditions are evaluated on the small T-row frame, so peak
-        memory is a few GB (the nnz arrays) rather than the exploded frame. Output is
-        byte-identical to the previous explode()-based implementation.
+        memory is a few GB (the nnz arrays) rather than the exploded frame. Output
+        matches the previous explode()-based implementation column for column, plus
+        Isoforms_in_cell (see below), which that implementation never computed.
         """
         cls = cls.reset_index(drop=True)
         T = len(cls)
@@ -223,6 +224,19 @@ def calculate_metrics_per_cell(args, df):
             summary[f"{tag}_prop"] = safe_prop(summary[tag], summary['total_reads'])
 
         summary['Genes_in_cell'] = distinct(gene_code)
+        # Per-cell isoform DIVERSITY, the isoforms-mode counterpart of reads mode's
+        # UJCs_in_cell. Every (transcript, cell) pair in the COO arrays is one
+        # collapsed model detected in one cell -- a barcode absent from a transcript's
+        # CB list never appears in that row, so there is no FL > 0 filter to apply --
+        # which makes the count of pairs per cell the distinct-model count.
+        # Deliberately NOT msum(): that weights by FL and yields depth
+        # (Transcripts_in_cell, i.e. transcript copies), not diversity.
+        # distinct() rather than a bare bincount(col) because it dedupes on
+        # row * Cn + col: the cell-association TSV path takes a barcode list verbatim
+        # from a user-supplied file and may repeat a barcode within one row (the MEX
+        # path cannot). Naming follows anno_gene_transcripts_bin_* (FL-weighted
+        # abundance) vs anno_gene_isoforms_bin_* (distinct models).
+        summary['Isoforms_in_cell'] = distinct(np.arange(T, dtype=np.int64))
 
         mito_chroms = ['MT', 'chrM', 'chrMT', 'mt', 'Mt']
         mt_mask = pd.Series(chrom).isin(mito_chroms).to_numpy()

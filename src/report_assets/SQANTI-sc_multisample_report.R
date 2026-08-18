@@ -455,6 +455,20 @@ curated_feature_registry <- function(mode) {
   # `conditional` lists the features in a block that are only computed when a
   # SQANTI3 run flag was passed; the rest are always present. It is per feature,
   # not per block, because the good/bad quality blocks mix the two.
+  #
+  # Each mode contributes its own per-cell DIVERSITY feature to "Yield & detection",
+  # so that block has the same number of rows either way. Reads mode divides
+  # UJCs_in_cell (distinct junction chains) by the read count; isoforms mode divides
+  # Isoforms_in_cell (distinct collapsed models) by the FL sum. The denominator is
+  # depth in both cases -- Transcripts_in_cell is the FL sum, i.e. transcript copies,
+  # which is why it is not itself a diversity feature. Only one of the two source
+  # columns exists per mode, so naming just the applicable one here keeps
+  # curated_feature_table() from reporting the other as an exclusion every run.
+  div_feat <- if (is_iso) {
+    stats::setNames(paste("Isoforms per", unit), paste0("Isoforms_per_", unit))
+  } else {
+    stats::setNames(paste("UJCs per", unit), paste0("UJCs_per_", unit))
+  }
   reg <- list(
     # The two per-unit features are derived (see derived_feature_defs). Raw
     # counts are not comparable across samples because they track sequencing
@@ -474,14 +488,11 @@ curated_feature_registry <- function(mode) {
     # types differ in mitochondrial expression for ordinary biological
     # reasons. A high value is not by itself a quality verdict.
     #
-    # In isoforms mode UJCs_in_cell is not written (cell_metrics.py skips it),
-    # so the derived per-unit feature resolves away and this block has one
-    # fewer row. There is currently no per-cell isoform-diversity column to put
-    # in its place -- Transcripts_in_cell is the FL sum, i.e. depth.
+    # div_feat (defined above) is this mode's diversity feature.
     list(block = "Yield & detection", features = c(
       stats::setNames(count_lab, count_col),
       stats::setNames(paste("Annotated genes per", unit), paste0("Annotated_genes_per_", unit)),
-      stats::setNames(paste("UJCs per", unit), paste0("UJCs_per_", unit)),
+      div_feat,
       MT_perc = "Mitochondrial (%)"
     )),
     list(block = "Transcript length", features = c(
@@ -575,6 +586,15 @@ derived_feature_defs <- function(mode) {
   defs[[paste0("UJCs_per_", unit)]] <- list(
     inputs = c("UJCs_in_cell", count_col),
     fun = function(d) d[["UJCs_in_cell"]] / d[[count_col]]
+  )
+  # Each mode has exactly one per-cell diversity column, and it is the other mode's
+  # that is missing: UJCs_in_cell is reads-only (it needs the jxn_string that
+  # annotate_with_ujc_hash writes, which isoforms mode skips), Isoforms_in_cell is
+  # isoforms-only. Defining both unconditionally is safe -- add_derived_features()
+  # drops whichever def has missing inputs -- and keeps the two symmetric here.
+  defs[[paste0("Isoforms_per_", unit)]] <- list(
+    inputs = c("Isoforms_in_cell", count_col),
+    fun = function(d) d[["Isoforms_in_cell"]] / d[[count_col]]
   )
   defs
 }
