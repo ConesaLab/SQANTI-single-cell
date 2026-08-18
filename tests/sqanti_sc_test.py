@@ -1499,6 +1499,45 @@ class TestFLWeightingIsoformsMode:
         assert sum(cb1[b] for b in self.ANNO_ISO_BINS) == 2
 
     # ------------------------------------------------------------------
+    # Test 5f — Isoforms_in_cell is DIVERSITY, Transcripts_in_cell is DEPTH
+    # ------------------------------------------------------------------
+
+    def test_isoforms_in_cell_counts_models_not_fl(self, mock_args, tmpdir):
+        """
+        Isoforms_in_cell must count distinct collapsed models detected in the cell,
+        while Transcripts_in_cell stays the FL sum. The two are easy to conflate --
+        Transcripts_in_cell is literally total_reads renamed -- so pin the case where
+        they diverge while depth is held equal:
+
+          CB1: ONE model with FL=3        -> depth 3, 1 distinct isoform
+          CB2: THREE models with FL=1 each -> depth 3, 3 distinct isoforms
+        """
+        cls_rows = [
+            self._cls_row("iso1", "CB1,CB2", "3,1", "full-splice_match"),
+            self._cls_row("iso2", "CB2", "1", "full-splice_match"),
+            self._cls_row("iso3", "CB2", "1", "full-splice_match"),
+        ]
+        summary = self._run(mock_args, tmpdir, cls_rows)
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        cb2 = summary[summary["CB"] == "CB2"].iloc[0]
+
+        # Depth is identical in both cells...
+        assert cb1["Transcripts_in_cell"] == 3
+        assert cb2["Transcripts_in_cell"] == 3
+
+        # ...but diversity is not. Counting rows or summing FL would give the same
+        # number for both cells; only a distinct-model count separates them.
+        assert cb1["Isoforms_in_cell"] == 1, (
+            f"CB1 has one model carrying FL=3, got {cb1['Isoforms_in_cell']}"
+        )
+        assert cb2["Isoforms_in_cell"] == 3, (
+            f"CB2 has three models of FL=1, got {cb2['Isoforms_in_cell']}"
+        )
+
+        # Diversity can never exceed depth, since every FL entry is >= 1.
+        assert (summary["Isoforms_in_cell"] <= summary["Transcripts_in_cell"]).all()
+
+    # ------------------------------------------------------------------
     # Test 6 — reads mode uses 1 count per row regardless of FL column
     # ------------------------------------------------------------------
 
@@ -1557,6 +1596,14 @@ class TestFLWeightingIsoformsMode:
         assert cb1["Novel_genes_reads"] == 0
         assert cb1["anno_gene_reads_bin_1"] == 0
         assert cb1["anno_gene_reads_bin_3"] == 1
+
+        # Isoforms_in_cell is the isoforms-mode diversity metric; reads mode measures
+        # diversity with UJCs_in_cell instead. The reports key off column presence, so
+        # emitting it here would surface an isoforms-only figure in a reads report.
+        assert "Isoforms_in_cell" not in summary.columns, (
+            "Isoforms_in_cell must not be written in reads mode"
+        )
+        assert "UJCs_in_cell" in summary.columns
         anno_read_bins = [f"anno_gene_reads_bin_{i}" for i in range(1, 11)] + [
             "anno_gene_reads_bin_10plus"
         ]

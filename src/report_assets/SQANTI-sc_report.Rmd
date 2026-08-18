@@ -219,53 +219,46 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
 
 ```{r cells-basic-features}
 if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
-  # 1. Unique Genes and Unique Junction Chains summary table
-  unique_genes_stats <- c(
-    Mean = mean(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
-    Median = median(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
-    Min = min(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
-    Max = max(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
-    IQR = IQR(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE),
-    SD = sd(SQANTI_cell_summary$Genes_in_cell, na.rm = TRUE)
-  )
-  unique_junctions_stats <- c(
-    Mean = mean(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
-    Median = median(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
-    Min = min(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
-    Max = max(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
-    IQR = IQR(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE),
-    SD = sd(SQANTI_cell_summary$UJCs_in_cell, na.rm = TRUE)
-  )
-  reads_stats <- c(
-    Mean = mean(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
-    Median = median(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
-    Min = min(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
-    Max = max(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
-    IQR = IQR(SQANTI_cell_summary[[count_col]], na.rm = TRUE),
-    SD = sd(SQANTI_cell_summary[[count_col]], na.rm = TRUE)
-  )
-  umis_stats <- c(
-    Mean = mean(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
-    Median = median(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
-    Min = min(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
-    Max = max(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
-    IQR = IQR(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE),
-    SD = sd(SQANTI_cell_summary$UMIs_in_cell, na.rm = TRUE)
-  )
+  # 1. Unique Genes / Junction Chains / Isoforms summary table.
+  # Rows are built for every mode and the mode-specific ones dropped below, so the
+  # stats must tolerate a column that does not exist in this mode: `$missing` is NULL,
+  # and median(NULL) returns NULL, which c() would silently DROP from the named vector
+  # (leaving 5 slots, not 6) while min/max(NULL) return +/-Inf.
+  cell_stats <- function(x) {
+    if (is.null(x) || !is.numeric(x) || all(is.na(x))) {
+      return(c(Mean = NA_real_, Median = NA_real_, Min = NA_real_,
+               Max = NA_real_, IQR = NA_real_, SD = NA_real_))
+    }
+    c(Mean = mean(x, na.rm = TRUE), Median = median(x, na.rm = TRUE),
+      Min = min(x, na.rm = TRUE), Max = max(x, na.rm = TRUE),
+      IQR = IQR(x, na.rm = TRUE), SD = sd(x, na.rm = TRUE))
+  }
+  unique_genes_stats <- cell_stats(SQANTI_cell_summary$Genes_in_cell)
+  unique_junctions_stats <- cell_stats(SQANTI_cell_summary$UJCs_in_cell)
+  unique_isoforms_stats <- cell_stats(SQANTI_cell_summary$Isoforms_in_cell)
+  reads_stats <- cell_stats(SQANTI_cell_summary[[count_col]])
+  umis_stats <- cell_stats(SQANTI_cell_summary$UMIs_in_cell)
+  stat_rows <- list(reads_stats, umis_stats, unique_genes_stats,
+                    unique_junctions_stats, unique_isoforms_stats)
+  pick <- function(stat) vapply(stat_rows, function(s) unname(s[[stat]]), numeric(1))
   summary_table1 <- data.frame(
-    Feature = c(entity_label_plural, "UMIs", "Unique Genes", "Unique Junction Chains"),
-    Mean = c(reads_stats["Mean"], umis_stats["Mean"], unique_genes_stats["Mean"], unique_junctions_stats["Mean"]),
-    Median = c(reads_stats["Median"], umis_stats["Median"], unique_genes_stats["Median"], unique_junctions_stats["Median"]),
-    Min = c(reads_stats["Min"], umis_stats["Min"], unique_genes_stats["Min"], unique_junctions_stats["Min"]),
-    Max = c(reads_stats["Max"], umis_stats["Max"], unique_genes_stats["Max"], unique_junctions_stats["Max"]),
-    IQR = c(reads_stats["IQR"], umis_stats["IQR"], unique_genes_stats["IQR"], unique_junctions_stats["IQR"]),
-    SD = c(reads_stats["SD"], umis_stats["SD"], unique_genes_stats["SD"], unique_junctions_stats["SD"])
+    Feature = c(entity_label_plural, "UMIs", "Unique Genes",
+                "Unique Junction Chains", "Unique Isoforms"),
+    Mean = pick("Mean"), Median = pick("Median"), Min = pick("Min"),
+    Max = pick("Max"), IQR = pick("IQR"), SD = pick("SD")
   )
 
   if (mode == "isoforms" || !("Unique Junction Chains" %in% summary_table1$Feature) || all(is.na(SQANTI_cell_summary$UJCs_in_cell))) {
     summary_table1 <- summary_table1[!summary_table1$Feature %in% c("UMIs", "Unique Junction Chains"), ]
   } else if (all(SQANTI_cell_summary$UJCs_in_cell == 0, na.rm = TRUE)) {
     summary_table1 <- summary_table1[!summary_table1$Feature == "Unique Junction Chains", ]
+  }
+
+  # Isoforms_in_cell is isoforms-mode only (reads mode has UJCs instead).
+  if (mode != "isoforms" || !("Isoforms_in_cell" %in% names(SQANTI_cell_summary)) ||
+      all(is.na(SQANTI_cell_summary$Isoforms_in_cell)) ||
+      all(SQANTI_cell_summary$Isoforms_in_cell == 0, na.rm = TRUE)) {
+    summary_table1 <- summary_table1[!summary_table1$Feature == "Unique Isoforms", ]
   }
 
   summary_table1[, 2:7] <- round(summary_table1[, 2:7], 3)
@@ -616,6 +609,28 @@ if (exists("gg_reads_in_cells")) {
 
 ```{=html}
 </div>
+```
+
+```{r depth-isoforms-header, results='asis'}
+if (mode == "isoforms" && exists("gg_isoforms_in_cells")) {
+  cat("## Number of Unique Isoforms Across Cells\n")
+}
+```
+
+```{r depth-isoforms-check, include=FALSE}
+show_isoforms <- (mode == "isoforms" && exists("gg_isoforms_in_cells"))
+```
+
+```{r depth-isoforms-div-start, results='asis'}
+if (show_isoforms) cat('<div class="narrow-plot">\n')
+```
+
+```{r depth-isoforms, fig.height=7, fig.width=5, eval=show_isoforms}
+print(gg_isoforms_in_cells)
+```
+
+```{r depth-isoforms-div-end, results='asis'}
+if (show_isoforms) cat("</div>\n")
 ```
 
 ```{r depth-umis-header, results='asis'}
@@ -1694,6 +1709,11 @@ if (mode == "reads") {
   cat("
 <script>
 $(document).ready(function() {
+  // Hide the isoforms-only Unique Isoforms tab in Per-cell Library Size (mirrors the
+  // isoforms-mode block above hiding UMIs/UJCs). The ## header is not emitted in reads
+  // mode either, so this is belt-and-suspenders.
+  $('a[href=\"#number-of-unique-isoforms-across-cells\"]').parent().hide();
+
   // Hide Coding Prediction tab in Read Structural Characterization section
   // Use a more robust selector that finds the tab link by text content
   // Use a broad selector to find any tab link containing the text
