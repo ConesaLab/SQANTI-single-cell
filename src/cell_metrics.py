@@ -224,13 +224,14 @@ def calculate_metrics_per_cell(args, df):
             summary[f"{tag}_prop"] = safe_prop(summary[tag], summary['total_reads'])
 
         summary['Genes_in_cell'] = distinct(gene_code)
-        # Per-cell isoform DIVERSITY, the isoforms-mode counterpart of reads mode's
+        # UNIQUE ISOFORMS PER CELL -- how many distinct collapsed transcript models
+        # were detected in each cell. The isoforms-mode counterpart of reads mode's
         # UJCs_in_cell. Every (transcript, cell) pair in the COO arrays is one
         # collapsed model detected in one cell -- a barcode absent from a transcript's
         # CB list never appears in that row, so there is no FL > 0 filter to apply --
         # which makes the count of pairs per cell the distinct-model count.
         # Deliberately NOT msum(): that weights by FL and yields depth
-        # (Transcripts_in_cell, i.e. transcript copies), not diversity.
+        # (Transcripts_in_cell, i.e. transcript copies) rather than a count of models.
         # distinct() rather than a bare bincount(col) because it dedupes on
         # row * Cn + col: the cell-association TSV path takes a barcode list verbatim
         # from a user-supplied file and may repeat a barcode within one row (the MEX

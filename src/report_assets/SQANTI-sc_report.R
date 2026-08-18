@@ -1360,8 +1360,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   single_violin(SQANTI_cell_summary, cfg_reads)
 
   # 1b. Number of Unique Isoforms Across Cells (isoforms mode only). The isoforms-mode
-  # counterpart of the UJC violin below: count_col above is the FL sum (depth), this is
-  # the number of distinct collapsed models detected in the cell (diversity).
+  # counterpart of the UJC violin below: count_col above is the FL sum (transcript
+  # copies), this is how many distinct collapsed models were detected in the cell.
   if (mode == "isoforms" && "Isoforms_in_cell" %in% names(SQANTI_cell_summary) &&
       !all(is.na(SQANTI_cell_summary$Isoforms_in_cell)) &&
       max(SQANTI_cell_summary$Isoforms_in_cell, na.rm = TRUE) > 0) {
