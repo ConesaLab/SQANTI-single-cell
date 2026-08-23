@@ -703,21 +703,18 @@ curated_feature_table <- function(lst, multi, mode, features_file = NULL,
 # directly readable form: you see which BLOCK a sample departs in, not just
 # that it sits somewhere on a PC.
 #
-# Colour is a per-feature ROBUST z-score across samples,
-# (x - median) / (1.4826 * MAD), computed row by row. Standardising per row is
-# what lets bp, counts and percentages share one colour scale, and it makes the
-# measure relative -- each feature is judged against how much IT varies across
-# the cohort, so a rare category (NNC, Fusion) registers a 4x departure just as
-# strongly as an abundant one.
+# Colour is (sample median - cohort median) / pooled within-sample CELL spread,
+# computed row by row. Standardising per row is what lets bp, counts and
+# percentages share one colour scale; dividing by cell spread rather than by the
+# spread of the medians themselves is what lets a row say that a metric
+# separates nothing (see qc_cell_deviation).
 #
-# Robust rather than mean/sd for two reasons. The reference has to be the
-# cohort centre because no sample can be designated the baseline, and the
-# median is the honest centre. And one bad library otherwise inflates sd and
-# drags the mean toward itself, shrinking every other sample's score toward
-# zero and hiding the real differences among the good samples.
+# The centre has to be the cohort median: no sample can be designated the
+# baseline, and one bad library would otherwise drag a mean toward itself.
 #
-# MAD is zero whenever more than half the samples share a value, which is easy
-# to hit in small cohorts, so fall back to mean/sd in that case.
+# robust_zscore() below is the pre-#1a colour and is still the fallback whenever
+# per-cell values are unavailable; it also supplies the side-by-side value in
+# the HTML tooltip.
 #
 # Deliberately NOT log-transformed first. A z-score is already invariant to
 # scale, so features differing only by a constant factor get identical scores;
@@ -736,13 +733,20 @@ QC_OVERVIEW_FLAT_CV <- 0.02
 # remain available in <prefix>_pca_feature_medians.tsv.
 QC_OVERVIEW_MAX_LABELLED_SAMPLES <- 8
 
-# Colour scale limit, in robust z units. Without a cap the gradient spans the
-# observed range, so a single extreme sample (|z| of 8 is easy to reach once
-# the denominator is a MAD) compresses every other sample into near-white and
-# the differences among the rest become invisible -- the same failure the
-# robust score was chosen to avoid. Beyond the cap the tile is simply the
-# most saturated colour; the sample is already unambiguously extreme.
-QC_OVERVIEW_Z_CAP <- 4
+# Colour scale limit, in cell MADs. Two samples on opposite sides of the centre
+# are 2x this far apart, so at 4 their cell distributions no longer overlap at
+# all: past that point a larger number does not change the reading, and letting
+# it stretch the gradient would compress every other row into near-white -- the
+# failure this figure exists to avoid. Measured on the 4-sample cohort, the
+# choice is flat between 3 and 6 (one row of 24 moves), so it is not finely
+# tuned. Deliberately NOT calibrated to that cohort's own break at 5-6: two
+# tools differ far more than the biological replicates this must also serve.
+QC_OVERVIEW_DEV_CAP <- 4
+
+# Restates a normal's 10-90 range on the scale stats::mad()'s default
+# constant (1.4826) puts MAD on, so the fallback below is commensurable with
+# the MAD it replaces rather than a second, silently different unit.
+QC_OVERVIEW_P10_P90_TO_MAD <- 2.563
 
 # Robust z with a mean/sd fallback. Returns all-zero for a row that does not
 # meaningfully vary: z divides by the spread, so a cohort agreeing to within a
@@ -762,6 +766,58 @@ robust_zscore <- function(v) {
   z <- (v - centre) / spread
   z[!is.finite(z)] <- 0
   z
+}
+
+# Spread of ONE sample's cell values for one feature, in MAD units. The
+# quantile branch catches zero-inflation: a feature that is 0 in more than half
+# a sample's cells has a cell MAD of exactly 0. NA rather than 0 when even the
+# 10-90 range is empty, so such a sample drops out of the pool below instead of
+# flattening a row the other samples can still separate on.
+qc_cell_spread <- function(v) {
+  v <- suppressWarnings(as.numeric(v))
+  v <- v[is.finite(v)]
+  if (length(v) < 2) return(NA_real_)
+  s <- stats::mad(v)
+  if (!is.finite(s) || s <= 0) {
+    q <- stats::quantile(v, c(0.10, 0.90), names = FALSE)
+    s <- (q[2] - q[1]) / QC_OVERVIEW_P10_P90_TO_MAD
+  }
+  if (!is.finite(s) || s <= 0) return(NA_real_)
+  s
+}
+
+qc_cell_spread_table <- function(multi, feats) {
+  feats <- feats[feats %in% colnames(multi)]
+  if (length(feats) == 0 || !"sampleID" %in% colnames(multi)) return(NULL)
+  parts <- split(seq_len(nrow(multi)), as.character(multi$sampleID))
+  do.call(rbind, lapply(feats, function(f) {
+    data.frame(
+      feature = f, sampleID = names(parts),
+      cell_spread = vapply(parts, function(i) qc_cell_spread(multi[[f]][i]), numeric(1)),
+      row.names = NULL, stringsAsFactors = FALSE
+    )
+  }))
+}
+
+# How far each sample sits from the cohort centre, in cells' worth of spread.
+#
+# Pooled with the median rather than used per sample: dividing each sample by
+# its own spread lets a noisy sample shrink its own tile and leaves one row's
+# tiles in different units. Cohen's d pools for the same reason.
+#
+# No flat-CV guard here. That guard exists because the old denominator collapsed
+# together with the numerator, which cannot happen once the denominator comes
+# from within samples; applying it would veto exactly the small-but-consistent
+# differences this score exists to detect.
+qc_cell_deviation <- function(v, spreads) {
+  v <- suppressWarnings(as.numeric(v))
+  flat <- list(z = rep(0, length(v)), pooled = NA_real_)
+  centre <- stats::median(v, na.rm = TRUE)
+  pooled <- stats::median(suppressWarnings(as.numeric(spreads)), na.rm = TRUE)
+  if (!is.finite(centre) || !is.finite(pooled) || pooled <= 0) return(flat)
+  z <- (v - centre) / pooled
+  z[!is.finite(z)] <- 0
+  list(z = z, pooled = pooled)
 }
 
 # Order samples for the columns. Grouping beats clustering when the design
@@ -803,19 +859,37 @@ qc_overview_interactive_ok <- function() {
 
 build_qc_overview_plot <- function(agg_median, feature_map, sample_levels,
                                    is_html = FALSE, sample_group_map = NULL,
-                                   interactive = FALSE) {
+                                   interactive = FALSE, cell_spread = NULL) {
   feats <- as.character(feature_map$feature)
   feats <- feats[feats %in% colnames(agg_median)]
   n_samples <- nrow(agg_median)
   if (length(feats) < 2 || n_samples < 2) return(NULL)
 
+  use_cell <- is.data.frame(cell_spread) && nrow(cell_spread) > 0 &&
+    all(c("feature", "sampleID", "cell_spread") %in% colnames(cell_spread))
+
   long <- do.call(rbind, lapply(feats, function(f) {
     v <- suppressWarnings(as.numeric(agg_median[[f]]))
+    own <- rep(NA_real_, length(v))
+    if (use_cell) {
+      i <- match(paste(f, agg_median$sampleID),
+                 paste(cell_spread$feature, cell_spread$sampleID))
+      own <- suppressWarnings(as.numeric(cell_spread$cell_spread))[i]
+    }
+    z_mad <- robust_zscore(v)
+    dev <- if (use_cell) qc_cell_deviation(v, own) else NULL
     data.frame(
-      sampleID = agg_median$sampleID, feature = f, value = v, z = robust_zscore(v),
+      sampleID = agg_median$sampleID, feature = f, value = v,
+      z = if (is.null(dev)) z_mad else dev$z,
+      z_mad = z_mad,
+      cell_spread = own,
+      pooled_spread = if (is.null(dev)) NA_real_ else dev$pooled,
       stringsAsFactors = FALSE
     )
   }))
+  # The row headline. Not the maximum: (0, 0, 0, 2.5) and (-2.5, -0.8, 0.8, 2.5)
+  # share a maximum but not a range, and only the second is the cohort splitting.
+  long$row_range <- ave(long$z, long$feature, FUN = function(z) diff(range(z)))
   long <- dplyr::left_join(long, feature_map, by = "feature")
   # NB: keep this distinct from the joined `label` (the curated feature name),
   # which supplies the y-axis levels below.
@@ -863,11 +937,24 @@ build_qc_overview_plot <- function(agg_median, feature_map, sample_levels,
     # Single line on purpose. ggiraph 0.8.12 rewrites "\n" to <br/> and then
     # XML-escapes it, so the tooltip renders a literal "<br/>"; an explicit
     # <br/> is mangled the same way. Separators are the only form that survives.
-    long$tooltip <- sprintf(
-      "%s | %s | median: %s | robust z: %s",
-      as.character(long$sampleID), long$label, long$tile_text,
-      ifelse(is.finite(long$z), formatC(long$z, format = "f", digits = 2), "n/a")
-    )
+    num2 <- function(x) ifelse(is.finite(x), formatC(x, format = "f", digits = 2), "n/a")
+    num3 <- function(x) ifelse(is.finite(x), formatC(signif(x, 3), format = "fg", digits = 3), "n/a")
+    long$tooltip <- if (use_cell) {
+      # No apostrophes: ggiraph escapes them to &#39; and the surrounding markup
+      # escapes the & again, so the browser shows a literal "&#39;".
+      sprintf(
+        paste0("%s | %s | median: %s | deviation: %s cell MADs | sample spread: %s",
+               " | pooled spread: %s | row range: %s | robust z: %s"),
+        as.character(long$sampleID), long$label, long$tile_text,
+        num2(long$z), num3(long$cell_spread), num3(long$pooled_spread),
+        num2(long$row_range), num2(long$z_mad)
+      )
+    } else {
+      sprintf(
+        "%s | %s | median: %s | robust z: %s",
+        as.character(long$sampleID), long$label, long$tile_text, num2(long$z)
+      )
+    }
     p <- ggplot(long, aes(x = sampleID, y = feature_lab, fill = z)) +
       ggiraph::geom_tile_interactive(
         aes(tooltip = tooltip, data_id = interaction(sampleID, feature)),
@@ -888,7 +975,8 @@ build_qc_overview_plot <- function(agg_median, feature_map, sample_levels,
   caption <- if (show_values) {
     "Tile label: per-sample median."
   } else if (interactive) {
-    "Hover a tile for its median and z-score."
+    if (use_cell) "Hover a tile for its median and deviation."
+    else "Hover a tile for its median and z-score."
   } else NULL
 
   # Colour limit adapts to the cohort, up to the cap. A fixed +/-cap would fix
@@ -898,8 +986,8 @@ build_qc_overview_plot <- function(agg_median, feature_map, sample_levels,
   # is extreme, and only clamps once a sample exceeds the cap.
   zmax <- suppressWarnings(max(abs(long$z), na.rm = TRUE))
   if (!is.finite(zmax) || zmax <= 0) zmax <- 1
-  lim <- min(QC_OVERVIEW_Z_CAP, zmax)
-  is_capped <- zmax > QC_OVERVIEW_Z_CAP
+  lim <- min(QC_OVERVIEW_DEV_CAP, zmax)
+  is_capped <- zmax > QC_OVERVIEW_DEV_CAP
 
   # Columns faceted by group when there is one, so the boundaries are drawn and
   # the conditions named; row blocks are faceted either way. Block names are
@@ -920,7 +1008,7 @@ build_qc_overview_plot <- function(agg_median, feature_map, sample_levels,
   p +
     scale_fill_gradient2(
       low = "#0072B2", mid = "white", high = "#E69F00", midpoint = 0,
-      name = "Robust\nz-score",
+      name = if (use_cell) "Deviation\n(cell MADs)" else "Robust\nz-score",
       limits = c(-lim, lim), oob = scales::squish,
       # Only advertise clamping when something is actually being clamped.
       breaks = if (is_capped) c(-lim, -lim / 2, 0, lim / 2, lim) else waiver(),
@@ -1693,12 +1781,20 @@ main <- function() {
   # the interactive tiles wrapped in a self-sizing SVG widget. The PDF must
   # stay static, so it cannot simply reuse the interactive object.
   if (length(pca_cols) >= 2 && nrow(agg_median) >= 2) {
+    cell_spread_tbl <- tryCatch(
+      qc_cell_spread_table(multi, pca_cols),
+      error = function(e) {
+        message(sprintf("[WARNING] Could not compute per-cell spreads: %s", e$message))
+        NULL
+      }
+    )
     build_overview <- function(interactive) {
       tryCatch(
         build_qc_overview_plot(agg_median, feature_map, sample_levels_global,
                                is_html = is_html_output,
                                sample_group_map = sample_group_map,
-                               interactive = interactive),
+                               interactive = interactive,
+                               cell_spread = cell_spread_tbl),
         error = function(e) {
           message(sprintf("[WARNING] Could not build the QC overview heatmap: %s", e$message))
           NULL
