@@ -472,3 +472,15 @@ p.date {
   width: auto !important;
   height: auto;
 }
+
+/* svglite writes the RENDER host's resolved font name into every <text> as a
+   presentation attribute (font-family='DejaVu Sans' when knitted on Linux), so
+   a reader whose machine lacks that font gets the browser default -- serif --
+   and the figure stops matching the rest of the report. A CSS rule outranks a
+   presentation attribute, so restating the report's own stack here fixes it for
+   every viewer regardless of where the HTML was produced. The browser was
+   already substituting a font, so this changes which substitute is used, not
+   whether one is used. */
+.ggiraph-svg text {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
