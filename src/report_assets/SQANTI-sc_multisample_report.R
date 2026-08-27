@@ -14,7 +14,6 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(gridExtra)
   library(grid)
-  library(ggdist)
   library(stringr)
   library(rmarkdown)
 })
@@ -132,7 +131,7 @@ safe_read_summary <- function(fpath) {
   df
 }
 
-# Helper: tidy feature names for titles and subtitles
+# Helper: tidy feature names for figure titles
 format_feature_display_name <- function(feature) {
   cleaned <- feature
   cleaned <- gsub(
@@ -198,6 +197,11 @@ format_feature_display_name <- function(feature) {
 # Helper: derive axis labels and scaling behaviour from feature metadata
 infer_feature_metadata <- function(feature, values) {
   name_lower <- tolower(feature)
+  # A per-read/per-transcript rate: the numerator names the domain, so the
+  # suffix is stripped before the rules below run, and the values (<= 1) must
+  # not trip the "looks like a fraction, call it a percentage" branch.
+  rate_unit <- stringr::str_match(name_lower, "_per_(read|transcript)$")[, 2]
+  if (!is.na(rate_unit)) name_lower <- sub("_per_(read|transcript)$", "", name_lower)
   domain <- "Value"
   if (stringr::str_detect(name_lower, "length")) domain <- "Length"
   if (stringr::str_detect(name_lower, "length") && stringr::str_detect(name_lower, "prop|perc|pct|ratio|fraction")) {
@@ -216,7 +220,7 @@ infer_feature_metadata <- function(feature, values) {
   if (stringr::str_detect(name_lower, "^anno_.*_bin") || stringr::str_detect(name_lower, "^novel_.*_bin")) domain <- "Genes"
   if (stringr::str_detect(name_lower, "umi")) domain <- "UMIs"
   if (stringr::str_detect(name_lower, "junction")) domain <- "Junctions"
-  if (name_lower == "ujcs_in_cell") domain <- "UJCs"
+  if (stringr::str_detect(name_lower, "^ujcs?(_|$)")) domain <- "UJCs"
   structural_keywords <- c(
     "(?<![a-z])fsm(?![a-z])", "(?<![a-z])ism(?![a-z])",
     "(?<![a-z])nic(?![a-z])", "(?<![a-z])nnc(?![a-z])",
@@ -239,7 +243,7 @@ infer_feature_metadata <- function(feature, values) {
     if (unit == "%" && maxv <= 1.5) {
       scale_to_percent <- TRUE
     }
-    if (unit == "count" && !is_prop_keyword && maxv <= 1.5 && minv >= 0) {
+    if (unit == "count" && !is_prop_keyword && is.na(rate_unit) && maxv <= 1.5 && minv >= 0) {
       unit <- "%"
       scale_to_percent <- TRUE
     }
@@ -261,6 +265,14 @@ infer_feature_metadata <- function(feature, values) {
     value_label <- "Value"
   }
   value_label <- infer_junction_display_label(feature, value_label)
+  # Last, so the junction rule cannot append ", junctions" to UJCs per read --
+  # that rate counts junction CHAINS per read, not junctions. Its own unit, not
+  # "count": counts span orders of magnitude and get a log axis, while these
+  # ratios sit inside (0, 1].
+  if (!is.na(rate_unit)) {
+    unit <- "rate"
+    value_label <- sprintf("%s per %s", domain, rate_unit)
+  }
   list(
     display_name = format_feature_display_name(feature),
     value_label = value_label,
@@ -446,6 +458,26 @@ attach_zoom_inset <- function(main_plot, plot_df, x_var, y_var,
 # Entries are named vectors: name = cell-summary column, value = display label.
 # Curating the feature set includes curating how it reads, so labels are
 # explicit here rather than derived from the column name.
+#
+# Block names are constants because the report layout keys off them (see
+# QC_BLOCKS_PLOTTED_ELSEWHERE): a literal string in both places would let a
+# rename silently duplicate or drop a whole section of figures.
+QC_BLOCK_YIELD      <- "Yield & detection"
+QC_BLOCK_LENGTH     <- "Transcript length"
+QC_BLOCK_STRUCTURAL <- "Structural categories"
+QC_BLOCK_JUNCTIONS  <- "Splice junction composition"
+QC_BLOCK_GOOD       <- "Good-quality features"
+QC_BLOCK_BAD        <- "Bad-quality features"
+
+# Blocks whose per-feature violins already exist earlier in the report: the
+# entity count and MT share under library size, the two per-unit rates under
+# gene characterisation, the per-cell median length under length, and all nine
+# structural categories under structural categories. Those figures are richer
+# than a generic panel (per-category colour, zoom insets, the combined
+# comparison figure), so the sections built from this registry skip them rather
+# than drawing a second, plainer copy.
+QC_BLOCKS_PLOTTED_ELSEWHERE <- c(QC_BLOCK_YIELD, QC_BLOCK_LENGTH, QC_BLOCK_STRUCTURAL)
+
 curated_feature_registry <- function(mode) {
   is_iso <- identical(mode, "isoforms")
   count_col <- if (is_iso) "Transcripts_in_cell" else "Reads_in_cell"
@@ -489,16 +521,16 @@ curated_feature_registry <- function(mode) {
     # reasons. A high value is not by itself a quality verdict.
     #
     # div_feat (defined above) is this mode's diversity feature.
-    list(block = "Yield & detection", features = c(
+    list(block = QC_BLOCK_YIELD, features = c(
       stats::setNames(count_lab, count_col),
       stats::setNames(paste("Annotated genes per", unit), paste0("Annotated_genes_per_", unit)),
       div_feat,
       MT_perc = "Mitochondrial (%)"
     )),
-    list(block = "Transcript length", features = c(
+    list(block = QC_BLOCK_LENGTH, features = c(
       Median_length_per_cell = "Median length (bp)"
     )),
-    list(block = "Structural categories", features = c(
+    list(block = QC_BLOCK_STRUCTURAL, features = c(
       FSM_prop           = "FSM (%)",
       ISM_prop           = "ISM (%)",
       NIC_prop           = "NIC (%)",
@@ -514,7 +546,7 @@ curated_feature_registry <- function(mode) {
     # read (or FL) count. Left as composition rather than split into good and
     # bad, because novel canonical is genuinely ambiguous -- a real novel
     # junction and a mapping artifact both land there.
-    list(block = "Splice junction composition", features = c(
+    list(block = QC_BLOCK_JUNCTIONS, features = c(
       Known_canonical_junctions_prop     = "Known canonical SJ (%)",
       Known_non_canonical_junctions_prop = "Known non-canonical SJ (%)",
       Novel_canonical_junctions_prop     = "Novel canonical SJ (%)",
@@ -533,7 +565,7 @@ curated_feature_registry <- function(mode) {
     # (SQANTI-sc_report.R, "Good quality features" / "Bad quality features"),
     # so one taxonomy covers both reports and this file invents no verdicts of
     # its own. Every feature in both blocks is a proportion of the cell's reads.
-    list(block = "Good-quality indicators",
+    list(block = QC_BLOCK_GOOD,
          conditional = c("PolyA_motif_support_prop", "CAGE_peak_support_prop",
                          "TSS_ratio_validated_prop", "srjunctions_support_prop"),
          features = c(
@@ -543,7 +575,7 @@ curated_feature_registry <- function(mode) {
       TSS_ratio_validated_prop  = "TSS ratio validated (%)",
       srjunctions_support_prop  = "Short-read SJ support (%)"
     )),
-    list(block = "Bad-quality indicators",
+    list(block = QC_BLOCK_BAD,
          conditional = "NMD_prop_in_cell",
          features = c(
       RTS_prop_in_cell           = "RT-switching (%)",
@@ -1103,9 +1135,14 @@ qc_overview_widget <- function(plot, n_samples, n_features) {
   )
 }
 
-# Helper: build per-feature violin + boxplot for a PCA loading
-build_loading_feature_plot <- function(multi, feature_info, sample_levels, is_html = FALSE) {
-  feature_name <- as.character(feature_info$variable)[1]
+# Helper: build the violin + boxplot for one curated feature. Takes a row of the
+# curated feature table, so the panel is titled with the registry's own label --
+# the same string the QC overview heatmap puts on that feature's row. The block
+# only routes the panel to a section (see main()); it is not drawn, because no
+# other figure in the report subtitles itself and the section heading already
+# names the block.
+build_curated_feature_plot <- function(multi, feature_row, sample_levels, is_html = FALSE) {
+  feature_name <- as.character(feature_row$feature)[1]
   if (!feature_name %in% colnames(multi)) {
     return(NULL)
   }
@@ -1136,9 +1173,15 @@ build_loading_feature_plot <- function(multi, feature_info, sample_levels, is_ht
     group_by(sampleID) %>%
     summarise(unique_vals = n_distinct(value), .groups = "drop")
   use_violin <- any(uniqueness$unique_vals > 1)
-  loading_value <- as.numeric(feature_info$loading)[1]
-  loading_rank <- as.integer(feature_info$rank)[1]
-  pc_label <- as.character(feature_info$PC)[1]
+  # The label is why this reads "Reads with non-canonical SJ" rather than the
+  # column name's "Non canonical", which #44 established is a different claim.
+  # Its trailing unit is dropped -- the y axis already carries it.
+  feature_label <- as.character(feature_row$label)[1]
+  feature_title <- if (length(feature_label) == 1 && !is.na(feature_label) && nzchar(feature_label)) {
+    trimws(sub("\\s*\\((%|bp)\\)$", "", feature_label))
+  } else {
+    info$display_name
+  }
   gp <- ggplot(plot_df, aes(x = sampleID, y = value, fill = sampleID, colour = sampleID))
   if (use_violin) {
     gp <- gp + geom_violin(trim = TRUE, scale = "width", alpha = 0.7, linewidth = 0.3)
@@ -1156,8 +1199,7 @@ build_loading_feature_plot <- function(multi, feature_info, sample_levels, is_ht
     scale_fill_conesa(palette = "complete", drop = FALSE) +
     scale_color_conesa(palette = "complete", guide = "none", drop = FALSE) +
     labs(
-      title = sprintf("Per Sample %s Distribution Across Cells", info$display_name),
-      subtitle = sprintf("%s loading rank #%d (loading = %.3f)", pc_label, loading_rank, loading_value),
+      title = feature_title,
       x = "Sample",
       y = info$value_label
     ) +
@@ -1165,7 +1207,6 @@ build_loading_feature_plot <- function(multi, feature_info, sample_levels, is_ht
     theme(
       legend.position = "none",
       plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-      plot.subtitle = element_text(size = 13, hjust = 0.5),
       axis.title = element_text(size = 18),
       axis.text.x = element_text(size = 16, angle = 35, hjust = 1),
       axis.text.y = element_text(size = 16)
@@ -1389,7 +1430,28 @@ main <- function() {
   assign("entity_label_plural", entity_label_plural, envir = .GlobalEnv)
   assign("mode", params$mode, envir = .GlobalEnv)
 
+  # Derived before any plotting: the per-unit rates are shown as figures in the
+  # sections below as well as feeding the curated feature set.
+  derived_res <- add_derived_features(multi, lst, params$mode)
+  multi <- derived_res$multi
+
+  # Each count is followed by its per-unit rate. A raw count tracks how deeply
+  # the cell was sequenced, so it cannot be compared across samples of different
+  # depth; the rate is what survives that. These are the same derived columns the
+  # curated feature set and the QC overview use, and they are linear, not log:
+  # they sit inside (0, 1] rather than spanning orders of magnitude.
+  add_rate_spec <- function(specs, nm, col, y) {
+    if (col %in% colnames(multi)) specs[[nm]] <- list(col = col, y = y)
+    specs
+  }
+  rate_ent <- if (params$mode == "isoforms") "Transcript" else "Read"
+  rate_unit <- tolower(rate_ent)
+
   # -------- Per-Cell Library Size plots --------
+  # Section membership follows the per-sample report's taxonomy: the entity
+  # count, UMIs and the mode's distinct-structure count are all measures of what
+  # the cell's library holds. Anything gene-related lives in gene
+  # characterisation below, including the mitochondrial share.
   library_size_specs <- list()
   library_size_specs[[paste0(entity_label_plural, " per Cell")]] <- list(
     col = count_col, y = paste0(entity_label_plural, ", count"), log = TRUE
@@ -1397,14 +1459,19 @@ main <- function() {
   if (params$mode == "reads" && "UMIs_in_cell" %in% colnames(multi)) {
     library_size_specs[["UMIs per Cell"]] <- list(col = "UMIs_in_cell", y = "UMIs, count", log = TRUE)
   }
-  if ("Genes_in_cell" %in% colnames(multi)) {
-    library_size_specs[["Genes per Cell"]] <- list(col = "Genes_in_cell", y = "Genes, count", log = TRUE)
+  if (params$mode == "reads" && "UJCs_in_cell" %in% colnames(multi)) {
+    library_size_specs[["UJCs per Cell"]] <- list(col = "UJCs_in_cell", y = "UJCs, count", log = TRUE)
   }
-  if ("MT_perc" %in% colnames(multi)) {
-    library_size_specs[["Mitochondrial % per Cell"]] <- list(
-      col = "MT_perc", y = paste0(entity_label_plural, ", %")
+  if (params$mode == "isoforms" && "Isoforms_in_cell" %in% colnames(multi)) {
+    library_size_specs[["Isoforms per Cell"]] <- list(
+      col = "Isoforms_in_cell", y = "Isoforms, count", log = TRUE
     )
   }
+  rate_div <- if (params$mode == "isoforms") "Isoforms" else "UJCs"
+  library_size_specs <- add_rate_spec(
+    library_size_specs, paste0(rate_div, " per ", rate_ent),
+    paste0(rate_div, "_per_", rate_unit), paste0(rate_div, " per ", rate_unit)
+  )
 
 
   multi_library_size_plots <- list()
@@ -1426,12 +1493,24 @@ main <- function() {
   }
 
   # -------- Gene Characterization plots --------
+  # Everything gene-related, mitochondrial content included: MT_perc is
+  # MT-gene reads over total reads, so it belongs with the genes rather than
+  # with library size.
   gene_char_specs <- list()
+  if ("Genes_in_cell" %in% colnames(multi)) {
+    gene_char_specs[["Genes per Cell"]] <- list(col = "Genes_in_cell", y = "Genes, count", log = TRUE)
+  }
   if ("Annotated_genes" %in% colnames(multi)) {
     gene_char_specs[["Annotated Genes per Cell"]] <- list(col = "Annotated_genes", y = "Genes, count", log = TRUE)
   }
-  if (params$mode == "reads" && "UJCs_in_cell" %in% colnames(multi)) {
-    gene_char_specs[["UJCs per Cell"]] <- list(col = "UJCs_in_cell", y = "UJCs, count", log = TRUE)
+  gene_char_specs <- add_rate_spec(
+    gene_char_specs, paste0("Annotated Genes per ", rate_ent),
+    paste0("Annotated_genes_per_", rate_unit), paste0("Genes per ", rate_unit)
+  )
+  if ("MT_perc" %in% colnames(multi)) {
+    gene_char_specs[["Mitochondrial % per Cell"]] <- list(
+      col = "MT_perc", y = paste0(entity_label_plural, ", %")
+    )
   }
 
   multi_gene_char_plots <- list()
@@ -1630,55 +1709,6 @@ main <- function() {
       ) %>%
       mutate(prop = suppressWarnings(as.numeric(prop)))
 
-    p_cats <- ggplot(cats_long, aes(x = category, y = prop, fill = sampleID, colour = sampleID, group = sampleID)) +
-      ggdist::stat_slabinterval(
-        side = "left",
-        position = position_dodge(width = 0.6),
-        density = "unbounded",
-        bw = "nrd0",
-        normalize = "groups", scale = 0.85, adjust = 2.5, trim = TRUE,
-        show_point = FALSE, show_interval = FALSE, # slab only (fill only)
-        slab_colour = NA, alpha = 0.7
-      ) +
-      ggdist::stat_slabinterval(
-        side = "left",
-        position = position_dodge(width = 0.6),
-        density = "unbounded",
-        bw = "nrd0",
-        normalize = "groups", scale = 0.85, adjust = 2.5, trim = TRUE,
-        show_point = FALSE, show_interval = FALSE, # outline-only
-        mapping = aes(slab_colour = after_scale(colour)),
-        fill = NA, slab_linewidth = 0.05, show.legend = FALSE
-      ) +
-      # Draw medians as short horizontal lines centered within each dodged slab
-      stat_summary(
-        data = cats_long, aes(group = sampleID),
-        fun = median, fun.min = median, fun.max = median,
-        geom = "crossbar", width = 0.1,
-        position = position_dodge(width = 0.6),
-        color = "black", linewidth = 0.1, alpha = 1
-      ) +
-      # Add a small lower expansion so slabs don't touch the x-axis
-      scale_y_continuous(limits = c(0, 100), expand = expansion(add = c(1, 0))) +
-      scale_fill_conesa(palette = "complete") +
-      scale_color_conesa(palette = "complete", guide = "none") +
-      guides(
-        fill = guide_legend(override.aes = list(shape = 15, size = 5, alpha = 0.95, colour = NA, stroke = 0)),
-        linetype = "none", alpha = "none", size = "none", colour = "none"
-      ) +
-      theme_classic(base_size = 13) +
-      labs(
-        title = "Structural Category Proportions by Sample",
-        x = "Structural category", y = "Reads, %"
-      ) +
-      theme(
-        legend.position = "bottom",
-        axis.text.x = element_text(angle = 45, hjust = 1, size = 16),
-        axis.title = element_text(size = 18),
-        axis.text.y = element_text(size = 16),
-        plot.title = element_text(size = 14, face = "bold", hjust = 0.5)
-      )
-
     category_levels <- levels(cats_long$category)
     sample_levels_all <- levels(cats_long$sampleID)
     cat_to_col <- c(
@@ -1722,7 +1752,6 @@ main <- function() {
     })
     names(category_plots) <- as.character(category_levels)
 
-    assign("multi_structural_category_combined_plot", p_cats, envir = .GlobalEnv)
     assign("multi_structural_category_violin_plots", category_plots, envir = .GlobalEnv)
 
   }
@@ -1735,7 +1764,13 @@ main <- function() {
 
   multi_pca_top_loadings_plots_local <- NULL
 
-  multi_pca_loading_distribution_plots_local <- list()
+  multi_sj_composition_plots_local <- NULL
+
+  multi_good_quality_plots_local <- NULL
+
+  multi_bad_quality_plots_local <- NULL
+
+  multi_extra_feature_plots_local <- NULL
 
   multi_qc_overview_plot_local <- NULL
 
@@ -1743,8 +1778,6 @@ main <- function() {
   # Selecting "all numeric columns" weights each feature family by its column
   # count and lets run-flag sentinels in as real signal; curated_feature_table()
   # resolves the registry against the data and reports every exclusion.
-  derived_res <- add_derived_features(multi, lst, params$mode)
-  multi <- derived_res$multi
   feature_map <- curated_feature_table(lst, multi, params$mode, params$pca_features,
                                        derived = derived_res$added)
   pca_cols <- as.character(feature_map$feature)
@@ -1756,6 +1789,46 @@ main <- function() {
     ))
   } else {
     message("[WARNING] No curated features available; skipping the QC overview and PCA.")
+  }
+
+  # -------- Per-feature distributions for the blocks that lack a section -----
+  # Every curated feature gets a panel, in registry order, EXCEPT the blocks
+  # already drawn earlier in the report (QC_BLOCKS_PLOTTED_ELSEWHERE). The panels
+  # used to be the union of the top-10 |loading| on PC1 and PC2, which let the
+  # PCA decide which distributions the user is shown -- and loading rank answers
+  # "which features define the largest axis of variance", not "which features
+  # differ between samples", which is what these figures are read for.
+  block_plots <- list()
+  for (idx in seq_len(nrow(feature_map))) {
+    blk <- as.character(feature_map$block[idx])
+    if (blk %in% QC_BLOCKS_PLOTTED_ELSEWHERE) next
+    gp_feat <- build_curated_feature_plot(multi, feature_map[idx, ], sample_levels_global,
+                                          is_html = is_html_output)
+    if (is.null(gp_feat)) {
+      message(sprintf("[INFO] Skipping curated feature %s due to missing or constant data.",
+                      feature_map$feature[idx]))
+      next
+    }
+    block_plots[[blk]] <- c(block_plots[[blk]],
+                            stats::setNames(list(gp_feat), as.character(feature_map$label[idx])))
+  }
+  if (length(block_plots) > 0) {
+    message(sprintf("[INFO] Feature distribution section(s) built for: %s",
+                    paste(names(block_plots), collapse = ", ")))
+  }
+  multi_sj_composition_plots_local <- block_plots[[QC_BLOCK_JUNCTIONS]]
+  multi_good_quality_plots_local <- block_plots[[QC_BLOCK_GOOD]]
+  multi_bad_quality_plots_local <- block_plots[[QC_BLOCK_BAD]]
+  # Anything left over is a block the layout does not know about -- in practice
+  # the "User-specified" block a --pca_features whitelist produces. It still gets
+  # figures, in one catch-all section, rather than silently having none.
+  extra <- block_plots[setdiff(names(block_plots),
+                               c(QC_BLOCK_JUNCTIONS, QC_BLOCK_GOOD, QC_BLOCK_BAD))]
+  multi_extra_feature_plots_local <- do.call(c, unname(extra))
+  for (nm in c("multi_sj_composition_plots", "multi_good_quality_plots",
+               "multi_bad_quality_plots", "multi_extra_feature_plots")) {
+    v <- get(paste0(nm, "_local"))
+    if (length(v) > 0) assign(nm, v, envir = .GlobalEnv)
   }
 
   # Aggregate per-sample medians across retained features
@@ -2076,26 +2149,6 @@ main <- function() {
         loadings_plots <- list(PC1 = gp_load1, PC2 = gp_load2)
         multi_pca_top_loadings_plots_local <- loadings_plots
         assign("multi_pca_top_loadings_plots", loadings_plots, envir = .GlobalEnv)
-
-        # D) Distribution plots for top-loading features on PC1/PC2
-        sample_levels <- sample_levels_global
-        loading_plot_info <- bind_rows(top_pc1, top_pc2) %>%
-          distinct(variable, .keep_all = TRUE)
-        loading_distribution_plots <- list()
-        if (nrow(loading_plot_info) > 0) {
-          for (idx in seq_len(nrow(loading_plot_info))) {
-            gp_loading <- build_loading_feature_plot(multi, loading_plot_info[idx, ], sample_levels, is_html = is_html_output)
-            feat_name <- loading_plot_info$variable[idx]
-            if (is.null(gp_loading)) {
-              message(sprintf("[INFO] Skipping PCA loading feature %s due to missing or constant data.", feat_name))
-            } else {
-              loading_distribution_plots[[feat_name]] <- gp_loading
-            }
-          }
-        }
-        multi_pca_loading_distribution_plots_local <- loading_distribution_plots
-        assign("multi_pca_loading_distribution_plots", loading_distribution_plots, envir = .GlobalEnv)
-
       }
     }
   }
@@ -2133,6 +2186,16 @@ main <- function() {
     grid.draw(tbl_grob)
     popViewport()
 
+    # Straight after the summary table, same as the HTML: the overview is what
+    # tells the reader which of the distributions below are worth opening.
+    # No theme_pdf_paper here: its larger base sizes blow the tile text out of
+    # the tiles. The PDF page is a fixed A4 landscape for the whole device, so
+    # a wide cohort is absorbed by the font scaling inside the builder rather
+    # than by a wider canvas.
+    if (!is.null(multi_qc_overview_plot_local)) {
+      print(multi_qc_overview_plot_local)
+    }
+
     if (length(multi_library_size_plots) > 0) {
       for (plt in multi_library_size_plots) print(plt + theme_pdf_paper)
     }
@@ -2147,15 +2210,11 @@ main <- function() {
       for (gp in category_plots) {
         print(gp + theme_pdf_paper)
       }
-      print(p_cats + theme_pdf_paper)
     }
 
-    # No theme_pdf_paper here: its larger base sizes blow the tile text out of
-    # the tiles. The PDF page is a fixed A4 landscape for the whole device, so
-    # a wide cohort is absorbed by the font scaling inside the builder rather
-    # than by a wider canvas.
-    if (!is.null(multi_qc_overview_plot_local)) {
-      print(multi_qc_overview_plot_local)
+    for (plts in list(multi_sj_composition_plots_local, multi_good_quality_plots_local,
+                      multi_bad_quality_plots_local, multi_extra_feature_plots_local)) {
+      for (gp in plts) print(gp + theme_pdf_paper)
     }
 
     if (!is.null(multi_pca_scores_plot_local)) {
@@ -2173,11 +2232,6 @@ main <- function() {
       }
       if (!is.null(multi_pca_top_loadings_plots_local[["PC2"]])) {
         print(multi_pca_top_loadings_plots_local[["PC2"]] + theme_pdf_paper)
-      }
-    }
-    if (length(multi_pca_loading_distribution_plots_local) > 0) {
-      for (nm in names(multi_pca_loading_distribution_plots_local)) {
-        print(multi_pca_loading_distribution_plots_local[[nm]] + theme_pdf_paper)
       }
     }
 

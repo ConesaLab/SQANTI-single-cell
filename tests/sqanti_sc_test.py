@@ -1475,7 +1475,7 @@ class TestFLWeightingIsoformsMode:
         anno_gene_isoforms_bin_* must count distinct transcript MODELS per gene per
         cell, which is a different quantity from the FL-sum abundance bins. This is
         the distinction the old report collapsed by re-plotting abundance under the
-        "Unique Isoform Count" title.
+        "Isoform Count" title.
 
         Both genes have abundance 2 in CB1, but differ in model count:
           geneA: ONE model with FL=2      -> abundance 2, 1 distinct isoform

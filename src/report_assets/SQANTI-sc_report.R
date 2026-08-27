@@ -1359,7 +1359,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   )
   single_violin(SQANTI_cell_summary, cfg_reads)
 
-  # 1b. Number of Unique Isoforms Across Cells (isoforms mode only). The isoforms-mode
+  # 1b. Number of Isoforms Across Cells (isoforms mode only). The isoforms-mode
   # counterpart of the UJC violin below: count_col above is the FL sum (transcript
   # copies), this is how many distinct collapsed models were detected in the cell.
   if (mode == "isoforms" && "Isoforms_in_cell" %in% names(SQANTI_cell_summary) &&
@@ -1368,7 +1368,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     cfg_isoforms <- list(
       column = "Isoforms_in_cell",
       name = "gg_isoforms_in_cells",
-      title = "Number of Unique Isoforms\nAcross Cells",
+      title = "Number of Isoforms\nAcross Cells",
       fill = "#CC6633",
       y_label = "Isoforms, count",
       x_label = "Cells",
@@ -1587,7 +1587,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   if (mode == "isoforms") {
     gg_isoform_bins <<- build_gene_bin_violin(
       col_prefix = "anno_gene_isoforms_bin_",
-      plot_title = "Distribution of Annotated Genes by Unique Isoform Count Bins Across Cells",
+      plot_title = "Distribution of Annotated Genes by Isoform Count Bins Across Cells",
       bin_labels = exact_bin_labels,
       fill_hex = "#e37744"
     )
@@ -3122,7 +3122,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     if (mode == "isoforms") {
       unique_counts_text <- sprintf(
-        "Number of %s: %s\nUnique Isoforms: %s\nUnique Genes: %s",
+        "Number of %s: %s\nIsoforms: %s\nUnique Genes: %s",
         entity_label_plural,
         format(total_reads_count, big.mark = ","),
         format(unique_isoforms, big.mark = ","),
@@ -3213,7 +3213,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     pick <- function(stat) vapply(stat_rows, function(s) unname(s[[stat]]), numeric(1))
     summary_table1 <- data.frame(
       Feature = c(paste(entity_label_plural, "in cell"), "UMIs in cell", "Unique Genes",
-                  "Unique Junction Chains", "Unique Isoforms"),
+                  "Unique Junction Chains", "Isoforms"),
       Mean = pick("Mean"), Median = pick("Median"), Min = pick("Min"),
       Max = pick("Max"), IQR = pick("IQR"), SD = pick("SD")
     )
@@ -3223,7 +3223,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       summary_table1 <- summary_table1[!(summary_table1$Feature %in% c("Unique Junction Chains", "UMIs in cell")), , drop = FALSE]
     }
     if (mode != "isoforms" || !("Isoforms_in_cell" %in% names(SQANTI_cell_summary)) || all(is.na(SQANTI_cell_summary$Isoforms_in_cell)) || max(SQANTI_cell_summary$Isoforms_in_cell, na.rm = TRUE) == 0) {
-      summary_table1 <- summary_table1[summary_table1$Feature != "Unique Isoforms", , drop = FALSE]
+      summary_table1 <- summary_table1[summary_table1$Feature != "Isoforms", , drop = FALSE]
     }
     summary_table1[, 2:7] <- round(summary_table1[, 2:7], 3)
     table_summary1 <- tableGrob(summary_table1, rows = NULL, theme = big_table_theme)

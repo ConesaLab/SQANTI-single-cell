@@ -103,7 +103,7 @@ if (exists("Classification") && has_data(Classification)) {
   cat(paste0("**Number of ", entity_label_plural, ":** "), format(total_reads_count, big.mark = ","), "\n\n")
   if (mode == "isoforms") {
     unique_isoforms <- nrow(Classification)
-    cat("**Unique Isoforms:** ", format(unique_isoforms, big.mark = ","), "\n\n")
+    cat("**Isoforms:** ", format(unique_isoforms, big.mark = ","), "\n\n")
   }
   cat("**Unique Genes:** ", format(unique_genes, big.mark = ","), "\n\n")
   if (mode != "isoforms" && exists("unique_junctions") && !is.null(unique_junctions)) {
@@ -243,7 +243,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
   pick <- function(stat) vapply(stat_rows, function(s) unname(s[[stat]]), numeric(1))
   summary_table1 <- data.frame(
     Feature = c(entity_label_plural, "UMIs", "Unique Genes",
-                "Unique Junction Chains", "Unique Isoforms"),
+                "Unique Junction Chains", "Isoforms"),
     Mean = pick("Mean"), Median = pick("Median"), Min = pick("Min"),
     Max = pick("Max"), IQR = pick("IQR"), SD = pick("SD")
   )
@@ -258,7 +258,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
   if (mode != "isoforms" || !("Isoforms_in_cell" %in% names(SQANTI_cell_summary)) ||
       all(is.na(SQANTI_cell_summary$Isoforms_in_cell)) ||
       all(SQANTI_cell_summary$Isoforms_in_cell == 0, na.rm = TRUE)) {
-    summary_table1 <- summary_table1[!summary_table1$Feature == "Unique Isoforms", ]
+    summary_table1 <- summary_table1[!summary_table1$Feature == "Isoforms", ]
   }
 
   summary_table1[, 2:7] <- round(summary_table1[, 2:7], 3)
@@ -613,7 +613,7 @@ if (exists("gg_reads_in_cells")) {
 
 ```{r depth-isoforms-header, results='asis'}
 if (mode == "isoforms" && exists("gg_isoforms_in_cells")) {
-  cat("## Number of Unique Isoforms Across Cells\n")
+  cat("## Number of Isoforms Across Cells\n")
 }
 ```
 
@@ -1709,10 +1709,10 @@ if (mode == "reads") {
   cat("
 <script>
 $(document).ready(function() {
-  // Hide the isoforms-only Unique Isoforms tab in Per-cell Library Size (mirrors the
+  // Hide the isoforms-only Isoforms tab in Per-cell Library Size (mirrors the
   // isoforms-mode block above hiding UMIs/UJCs). The ## header is not emitted in reads
   // mode either, so this is belt-and-suspenders.
-  $('a[href=\"#number-of-unique-isoforms-across-cells\"]').parent().hide();
+  $('a[href=\"#number-of-isoforms-across-cells\"]').parent().hide();
 
   // Hide Coding Prediction tab in Read Structural Characterization section
   // Use a more robust selector that finds the tab link by text content

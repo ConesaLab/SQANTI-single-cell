@@ -54,6 +54,37 @@ if (exists("multi_summary_tbl_html", envir = .GlobalEnv)) {
 }
 ```
 
+# Sample QC Overview
+
+```{r qc-overview-dims}
+# The canvas has to grow with the sample count, so the static fallback below
+# takes its fig.width/fig.height from the dimensions the report script computed.
+.qc_dims <- if (exists("multi_qc_overview_dims", envir = .GlobalEnv)) {
+  get("multi_qc_overview_dims", envir = .GlobalEnv)
+} else {
+  list(width = 12, height = 13)
+}
+# The interactive widget sizes itself to the container, so it only runs the
+# static chunk when ggiraph was unavailable.
+.qc_widget <- exists("multi_qc_overview_widget", envir = .GlobalEnv)
+```
+
+```{r qc-overview-interactive, eval=.qc_widget}
+get("multi_qc_overview_widget", envir = .GlobalEnv)
+```
+
+```{r qc-overview-static, eval=!.qc_widget, fig.width=.qc_dims$width, fig.height=.qc_dims$height}
+if (exists("multi_qc_overview_plot", envir = .GlobalEnv)) {
+  print(get("multi_qc_overview_plot", envir = .GlobalEnv))
+} else {
+  cat("The per-sample QC overview is not available.")
+}
+```
+
+```{=html}
+<div class="section-spacer-xl"></div>
+```
+
 # Samples Per-Cell Library Size
 
 ```{r libsize-dropdown}
@@ -237,9 +268,7 @@ if (exists("multi_length_plots", envir = .GlobalEnv)) {
 <div class="section-spacer-xl"></div>
 ```
 
-# Samples `r entity_label_plural` Distributions per Structural Category {.tabset .tabset-fade}
-
-## Samples Comparison
+# Samples `r entity_label_plural` Distributions per Structural Category
 
 ```{=html}
 <div id="structcat-dropdown" class="dropdown-toolbar">
@@ -365,30 +394,227 @@ if (exists("multi_structural_category_violin_plots", envir = .GlobalEnv)) {
 <div class="section-spacer-xl"></div>
 ```
 
-# Sample QC Overview
+# Samples Splice Junction Composition
 
-```{r qc-overview-dims}
-# The canvas has to grow with the sample count, so the static fallback below
-# takes its fig.width/fig.height from the dimensions the report script computed.
-.qc_dims <- if (exists("multi_qc_overview_dims", envir = .GlobalEnv)) {
-  get("multi_qc_overview_dims", envir = .GlobalEnv)
+```{r sjcomp-dropdown}
+if (exists("multi_sj_composition_plots", envir = .GlobalEnv)) {
+  splots <- get("multi_sj_composition_plots", envir = .GlobalEnv)
+  sj_names <- names(splots)
+
+  if (length(sj_names) > 0) {
+    items_html <- paste(sapply(seq_along(sj_names), function(i) {
+      sprintf('      <li><a href="#" data-target="#sjcomp-%d">%s</a></li>',
+              i, htmltools::htmlEscape(sj_names[i]))
+    }), collapse = "\n")
+
+    htmltools::HTML(paste0(
+      '<div id="sjcomp-dropdown" class="dropdown-toolbar">\n',
+      '  <div class="btn-group">\n',
+      '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
+      '      <span class="label">', htmltools::htmlEscape(sj_names[1]), '</span> <span class="caret"></span>\n',
+      '    </button>\n',
+      '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
+      items_html, '\n',
+      '    </ul>\n',
+      '  </div>\n',
+      '</div>\n'
+    ))
+  }
 } else {
-  list(width = 12, height = 13)
+  cat("No splice junction composition plots available.")
 }
-# The interactive widget sizes itself to the container, so it only runs the
-# static chunk when ggiraph was unavailable.
-.qc_widget <- exists("multi_qc_overview_widget", envir = .GlobalEnv)
 ```
 
-```{r qc-overview-interactive, eval=.qc_widget}
-get("multi_qc_overview_widget", envir = .GlobalEnv)
+```{r sjcomp-panes, results='asis'}
+# Panes are addressed by position, not by name: a feature label is display text
+# and two of them can coincide under --pca_features.
+if (exists("multi_sj_composition_plots", envir = .GlobalEnv)) {
+  splots <- get("multi_sj_composition_plots", envir = .GlobalEnv)
+  for (i in seq_along(splots)) {
+    res <- knitr::knit_child(text = c(
+      sprintf('<div id="sjcomp-%d" class="%s" style="%s">', i,
+              if (i == 1L) "toggle-pane" else "toggle-pane hidden-pane",
+              if (i == 1L) "display:block;" else "display:none;"),
+      '',
+      sprintf('```{r sjcomp-plot-%d, fig.width=12, fig.height=8, echo=FALSE, warning=FALSE, message=FALSE}', i),
+      'sp <- get("multi_sj_composition_plots", envir = .GlobalEnv)',
+      sprintf('print(sp[[%d]])', i),
+      '```',
+      '',
+      '</div>'
+    ), envir = globalenv(), quiet = TRUE)
+    cat(res, sep = '\n')
+  }
+}
 ```
 
-```{r qc-overview-static, eval=!.qc_widget, fig.width=.qc_dims$width, fig.height=.qc_dims$height}
-if (exists("multi_qc_overview_plot", envir = .GlobalEnv)) {
-  print(get("multi_qc_overview_plot", envir = .GlobalEnv))
+```{=html}
+<div class="section-spacer-xl"></div>
+```
+
+# Samples Quality Features {.tabset .tabset-fade}
+
+## Features of Good Quality
+
+```{r goodqc-dropdown}
+if (exists("multi_good_quality_plots", envir = .GlobalEnv)) {
+  gqplots <- get("multi_good_quality_plots", envir = .GlobalEnv)
+  gq_names <- names(gqplots)
+
+  if (length(gq_names) > 0) {
+    items_html <- paste(sapply(seq_along(gq_names), function(i) {
+      sprintf('      <li><a href="#" data-target="#goodqc-%d">%s</a></li>',
+              i, htmltools::htmlEscape(gq_names[i]))
+    }), collapse = "\n")
+
+    htmltools::HTML(paste0(
+      '<div id="goodqc-dropdown" class="dropdown-toolbar">\n',
+      '  <div class="btn-group">\n',
+      '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
+      '      <span class="label">', htmltools::htmlEscape(gq_names[1]), '</span> <span class="caret"></span>\n',
+      '    </button>\n',
+      '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
+      items_html, '\n',
+      '    </ul>\n',
+      '  </div>\n',
+      '</div>\n'
+    ))
+  }
 } else {
-  cat("The per-sample QC overview is not available.")
+  cat("No good-quality feature plots available. These features are only computed when the matching SQANTI3 run flags were used.")
+}
+```
+
+```{r goodqc-panes, results='asis'}
+if (exists("multi_good_quality_plots", envir = .GlobalEnv)) {
+  gqplots <- get("multi_good_quality_plots", envir = .GlobalEnv)
+  for (i in seq_along(gqplots)) {
+    res <- knitr::knit_child(text = c(
+      sprintf('<div id="goodqc-%d" class="%s" style="%s">', i,
+              if (i == 1L) "toggle-pane" else "toggle-pane hidden-pane",
+              if (i == 1L) "display:block;" else "display:none;"),
+      '',
+      sprintf('```{r goodqc-plot-%d, fig.width=12, fig.height=8, echo=FALSE, warning=FALSE, message=FALSE}', i),
+      'gq <- get("multi_good_quality_plots", envir = .GlobalEnv)',
+      sprintf('print(gq[[%d]])', i),
+      '```',
+      '',
+      '</div>'
+    ), envir = globalenv(), quiet = TRUE)
+    cat(res, sep = '\n')
+  }
+}
+```
+
+## Features of Bad Quality
+
+```{r badqc-dropdown}
+if (exists("multi_bad_quality_plots", envir = .GlobalEnv)) {
+  bqplots <- get("multi_bad_quality_plots", envir = .GlobalEnv)
+  bq_names <- names(bqplots)
+
+  if (length(bq_names) > 0) {
+    items_html <- paste(sapply(seq_along(bq_names), function(i) {
+      sprintf('      <li><a href="#" data-target="#badqc-%d">%s</a></li>',
+              i, htmltools::htmlEscape(bq_names[i]))
+    }), collapse = "\n")
+
+    htmltools::HTML(paste0(
+      '<div id="badqc-dropdown" class="dropdown-toolbar">\n',
+      '  <div class="btn-group">\n',
+      '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
+      '      <span class="label">', htmltools::htmlEscape(bq_names[1]), '</span> <span class="caret"></span>\n',
+      '    </button>\n',
+      '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
+      items_html, '\n',
+      '    </ul>\n',
+      '  </div>\n',
+      '</div>\n'
+    ))
+  }
+} else {
+  cat("No bad-quality feature plots available.")
+}
+```
+
+```{r badqc-panes, results='asis'}
+if (exists("multi_bad_quality_plots", envir = .GlobalEnv)) {
+  bqplots <- get("multi_bad_quality_plots", envir = .GlobalEnv)
+  for (i in seq_along(bqplots)) {
+    res <- knitr::knit_child(text = c(
+      sprintf('<div id="badqc-%d" class="%s" style="%s">', i,
+              if (i == 1L) "toggle-pane" else "toggle-pane hidden-pane",
+              if (i == 1L) "display:block;" else "display:none;"),
+      '',
+      sprintf('```{r badqc-plot-%d, fig.width=12, fig.height=8, echo=FALSE, warning=FALSE, message=FALSE}', i),
+      'bq <- get("multi_bad_quality_plots", envir = .GlobalEnv)',
+      sprintf('print(bq[[%d]])', i),
+      '```',
+      '',
+      '</div>'
+    ), envir = globalenv(), quiet = TRUE)
+    cat(res, sep = '\n')
+  }
+}
+```
+
+```{=html}
+<div class="section-spacer-xl"></div>
+```
+
+```{r extrafeat-heading, results='asis'}
+# Only reachable via --pca_features: a whitelist produces a block the layout
+# does not know about, and its features would otherwise get no figure at all.
+if (exists("multi_extra_feature_plots", envir = .GlobalEnv)) {
+  cat("# Samples Additional Feature Distributions\n")
+}
+```
+
+```{r extrafeat-dropdown}
+if (exists("multi_extra_feature_plots", envir = .GlobalEnv)) {
+  xplots <- get("multi_extra_feature_plots", envir = .GlobalEnv)
+  x_names <- names(xplots)
+
+  if (length(x_names) > 0) {
+    items_html <- paste(sapply(seq_along(x_names), function(i) {
+      sprintf('      <li><a href="#" data-target="#extrafeat-%d">%s</a></li>',
+              i, htmltools::htmlEscape(x_names[i]))
+    }), collapse = "\n")
+
+    htmltools::HTML(paste0(
+      '<div id="extrafeat-dropdown" class="dropdown-toolbar">\n',
+      '  <div class="btn-group">\n',
+      '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
+      '      <span class="label">', htmltools::htmlEscape(x_names[1]), '</span> <span class="caret"></span>\n',
+      '    </button>\n',
+      '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
+      items_html, '\n',
+      '    </ul>\n',
+      '  </div>\n',
+      '</div>\n'
+    ))
+  }
+}
+```
+
+```{r extrafeat-panes, results='asis'}
+if (exists("multi_extra_feature_plots", envir = .GlobalEnv)) {
+  xplots <- get("multi_extra_feature_plots", envir = .GlobalEnv)
+  for (i in seq_along(xplots)) {
+    res <- knitr::knit_child(text = c(
+      sprintf('<div id="extrafeat-%d" class="%s" style="%s">', i,
+              if (i == 1L) "toggle-pane" else "toggle-pane hidden-pane",
+              if (i == 1L) "display:block;" else "display:none;"),
+      '',
+      sprintf('```{r extrafeat-plot-%d, fig.width=12, fig.height=8, echo=FALSE, warning=FALSE, message=FALSE}', i),
+      'xp <- get("multi_extra_feature_plots", envir = .GlobalEnv)',
+      sprintf('print(xp[[%d]])', i),
+      '```',
+      '',
+      '</div>'
+    ), envir = globalenv(), quiet = TRUE)
+    cat(res, sep = '\n')
+  }
 }
 ```
 
@@ -469,9 +695,7 @@ if (exists("multi_pca_scree_plot", envir = .GlobalEnv)) {
 
 </div>
 
-## Top 10 loadings by component {.tabset}
-
-### PC Loadings
+## Top 10 loadings by component
 
 ```{r pcaload-bar-dropdown}
 if (exists("multi_pca_top_loadings_plots", envir = .GlobalEnv)) {
@@ -516,63 +740,6 @@ if (exists("multi_pca_top_loadings_plots", envir = .GlobalEnv)) {
       sprintf('```{r pcaload-bar-%d, fig.width=12, fig.height=8, echo=FALSE, warning=FALSE, message=FALSE}', i),
       sprintf('lp <- get("multi_pca_top_loadings_plots", envir = .GlobalEnv)'),
       sprintf('print(lp[["%s"]])', pc_name),
-      '```',
-      '',
-      '</div>'
-    ), envir = globalenv(), quiet = TRUE)
-    cat(res, sep = '\n')
-  }
-}
-```
-
-### Feature Distributions
-
-```{r pcafeat-dist-dropdown}
-if (exists("multi_pca_loading_distribution_plots", envir = .GlobalEnv)) {
-  fplots <- get("multi_pca_loading_distribution_plots", envir = .GlobalEnv)
-  feat_names <- names(fplots)
-
-  if (length(feat_names) > 0) {
-    items_html <- paste(sapply(feat_names, function(name) {
-      target_id <- paste0("pcafeat-", gsub("[^A-Za-z0-9]", "-", tolower(name)))
-      sprintf('      <li><a href="#" data-target="#%s">%s</a></li>', target_id, htmltools::htmlEscape(name))
-    }), collapse = "\n")
-
-    htmltools::HTML(paste0(
-      '<div id="pcafeat-dropdown" class="dropdown-toolbar">\n',
-      '  <div class="btn-group">\n',
-      '    <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">\n',
-      '      <span class="label">', htmltools::htmlEscape(feat_names[1]), '</span> <span class="caret"></span>\n',
-      '    </button>\n',
-      '    <ul class="dropdown-menu dropdown-menu-right" role="menu">\n',
-      items_html, '\n',
-      '    </ul>\n',
-      '  </div>\n',
-      '</div>\n'
-    ))
-  }
-} else {
-  cat("No feature distribution plots available.")
-}
-```
-
-```{r pcafeat-dist-panes, results='asis'}
-if (exists("multi_pca_loading_distribution_plots", envir = .GlobalEnv)) {
-  fplots <- get("multi_pca_loading_distribution_plots", envir = .GlobalEnv)
-  first <- TRUE
-  for (i in seq_along(names(fplots))) {
-    feat_name <- names(fplots)[i]
-    target_id <- paste0("pcafeat-", gsub("[^A-Za-z0-9]", "-", tolower(feat_name)))
-    css_class <- if (first) "toggle-pane" else "toggle-pane hidden-pane"
-    css_style <- if (first) "display:block;" else "display:none;"
-    first <- FALSE
-
-    res <- knitr::knit_child(text = c(
-      sprintf('<div id="%s" class="%s" style="%s">', target_id, css_class, css_style),
-      '',
-      sprintf('```{r pcafeat-dist-%d, fig.width=12, fig.height=8, echo=FALSE, warning=FALSE, message=FALSE}', i),
-      sprintf('fp <- get("multi_pca_loading_distribution_plots", envir = .GlobalEnv)'),
-      sprintf('print(fp[["%s"]])', feat_name),
       '```',
       '',
       '</div>'
@@ -628,7 +795,10 @@ if (exists("multi_pca_loading_distribution_plots", envir = .GlobalEnv)) {
     setupDropdown("structcat-dropdown");
     setupDropdown("pca-sample-group-dropdown");
     setupDropdown("pcaload-dropdown");
-    setupDropdown("pcafeat-dropdown");
+    setupDropdown("sjcomp-dropdown");
+    setupDropdown("goodqc-dropdown");
+    setupDropdown("badqc-dropdown");
+    setupDropdown("extrafeat-dropdown");
   });
 })();
 </script>
