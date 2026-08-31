@@ -1135,6 +1135,253 @@ qc_overview_widget <- function(plot, n_samples, n_features) {
   )
 }
 
+# ── Per-cell PCA ─────────────────────────────────────────────────────────────
+#
+# Rows are CELLS, not one median per sample. A matrix of n per-sample medians
+# spans at most n-1 dimensions, so a four-sample cohort reports PC1+PC2 near 84%
+# of the variance whatever the data says -- pure Gaussian noise reproduces that
+# number, which makes it worthless as evidence of separation. Cells make the row
+# count real. The columns are the same curated registry, so this changes what is
+# scored, not which features get to vote.
+#
+# What it costs: a per-cell component can be large for reasons that have nothing
+# to do with the samples -- cell type and sequencing depth are the obvious ones.
+# So every component also reports the share of its variance lying between
+# samples (pca_between_sample_share), and a big axis that is really cell
+# heterogeneity can be told apart from one that is really about samples.
+
+# A curated feature missing from more than this fraction of cells is dropped
+# instead of being allowed to evict every cell it is missing from: the fit needs
+# complete rows, so one sparsely populated column would otherwise decide which
+# cells are in the figure at all.
+PCA_CELL_MAX_NA_FRAC <- 0.2
+
+# Cap on points actually DRAWN. Every cell still enters the fit; this only thins
+# the scatter, because an 80k-point SVG is slow to open and past a few thousand
+# points the extra ink only hides the samples underneath.
+PCA_CELL_PLOT_MAX_POINTS <- 20000
+
+# Assemble the per-cell matrix, reporting every exclusion the way
+# curated_feature_table() does. Returns NULL when too little survives to fit.
+build_pca_cell_matrix <- function(multi, feats) {
+  feats <- feats[feats %in% colnames(multi)]
+  if (length(feats) < 2 || !"sampleID" %in% colnames(multi)) return(NULL)
+
+  dat <- lapply(feats, function(f) {
+    v <- suppressWarnings(as.numeric(multi[[f]]))
+    v[!is.finite(v)] <- NA_real_
+    v
+  })
+  names(dat) <- feats
+
+  na_frac <- vapply(dat, function(v) mean(is.na(v)), numeric(1))
+  sparse <- names(na_frac)[na_frac > PCA_CELL_MAX_NA_FRAC]
+  if (length(sparse) > 0) {
+    message(sprintf(
+      "[INFO] Curated feature(s) missing in more than %.0f%% of cells, excluded from the PCA: %s",
+      100 * PCA_CELL_MAX_NA_FRAC, paste(sort(sparse), collapse = ", ")
+    ))
+    dat <- dat[setdiff(names(dat), sparse)]
+  }
+  if (length(dat) < 2) return(NULL)
+
+  keep <- Reduce(`&`, lapply(dat, function(v) !is.na(v)))
+  n_dropped <- sum(!keep)
+  if (n_dropped > 0) {
+    message(sprintf("[INFO] %d of %d cell(s) excluded from the PCA for missing values.",
+                    n_dropped, length(keep)))
+  }
+  if (sum(keep) < 3) return(NULL)
+
+  mat <- do.call(cbind, lapply(dat, function(v) v[keep]))
+  colnames(mat) <- names(dat)
+
+  sds <- apply(mat, 2, stats::sd)
+  const <- colnames(mat)[!is.finite(sds) | sds <= 0]
+  if (length(const) > 0) {
+    message(sprintf("[INFO] Curated feature(s) constant across every cell, excluded from the PCA: %s",
+                    paste(sort(const), collapse = ", ")))
+    mat <- mat[, setdiff(colnames(mat), const), drop = FALSE]
+  }
+  if (ncol(mat) < 2) return(NULL)
+
+  list(mat = mat, sampleID = as.character(multi$sampleID)[keep],
+       n_cells = sum(keep), n_dropped = n_dropped)
+}
+
+# Share of one component's variance that lies BETWEEN samples (eta-squared).
+#
+# This is the question a per-cell PCA otherwise leaves open. It is an effect
+# size, so it does not inflate with cell count -- a trivial difference scores
+# ~0.00 at 50 and at 50,000 cells per sample -- which is what makes it usable
+# where a p-value is not (with ~20k cells per sample every feature returns p=0).
+pca_between_sample_share <- function(scores, sampleID) {
+  g <- as.character(sampleID)
+  vapply(seq_len(ncol(scores)), function(j) {
+    v <- scores[, j]
+    ok <- is.finite(v)
+    vj <- v[ok]
+    gj <- g[ok]
+    if (length(vj) < 2 || length(unique(gj)) < 2) return(NA_real_)
+    grand <- mean(vj)
+    ss_tot <- sum((vj - grand)^2)
+    if (!is.finite(ss_tot) || ss_tot <= 0) return(NA_real_)
+    mu <- tapply(vj, gj, mean)
+    n <- tapply(vj, gj, length)
+    max(0, min(1, sum(n * (mu - grand)^2) / ss_tot))
+  }, numeric(1))
+}
+
+# Thin the scatter proportionally, so each sample keeps its share of the cloud,
+# and SYSTEMATICALLY rather than at random: a report re-rendered from the same
+# data must produce the same figure, and a seed is one more thing to keep in
+# sync between the HTML and PDF passes.
+thin_pca_points <- function(sampleID, max_points = PCA_CELL_PLOT_MAX_POINTS) {
+  n <- length(sampleID)
+  if (n <= max_points) return(seq_len(n))
+  parts <- split(seq_len(n), sampleID)
+  idx <- unlist(lapply(parts, function(i) {
+    k <- max(1L, as.integer(round(length(i) * max_points / n)))
+    if (k >= length(i)) return(i)
+    i[unique(as.integer(round(seq(1, length(i), length.out = k))))]
+  }), use.names = FALSE)
+  sort(idx)
+}
+
+# Fraction of cells the panel is framed around. 1 = frame on every cell, and
+# that is deliberately the default: an outlier cell is exactly what a QC figure
+# should not hide, and unlike the thinning below -- which subsamples evenly and
+# preserves the shape of each cloud -- cropping discards specifically the
+# extremes.
+#
+# Lower it if the whitespace dominates (0.999 reclaims a lot): a handful of
+# extreme cells otherwise set the limits and, at the alpha these clouds need, a
+# lone cell is invisible, so the panel reserves most of its area for points
+# nobody can see. Framing goes through coord_cartesian, which clips the VIEW
+# only -- every cell still enters prcomp and every ellipse is still fitted on
+# all of them. Scale limits would instead drop points before the stats run and
+# silently refit the ellipses on the clipped data.
+PCA_CELL_VIEW_QUANTILE <- 1
+
+# Symmetric quantile window with a little headroom, plus the count left outside
+# so the caller can say how much is off-panel rather than hiding it silently.
+pca_view_limits <- function(cells) {
+  lim <- function(v) {
+    q <- stats::quantile(v, c(1 - PCA_CELL_VIEW_QUANTILE, PCA_CELL_VIEW_QUANTILE),
+                         na.rm = TRUE, names = FALSE)
+    pad <- 0.06 * diff(q)
+    if (!all(is.finite(q)) || !is.finite(pad) || pad <= 0) return(NULL)
+    c(q[1] - pad, q[2] + pad)
+  }
+  x <- lim(cells$PC1)
+  y <- lim(cells$PC2)
+  if (is.null(x) || is.null(y)) return(NULL)
+  outside <- sum(cells$PC1 < x[1] | cells$PC1 > x[2] |
+                 cells$PC2 < y[1] | cells$PC2 > y[2], na.rm = TRUE)
+  list(x = x, y = y, n_outside = outside)
+}
+
+# Centroid marker geometry. Constants because the by-sample and by-group plots
+# draw it from separate branches, and written as literals they drifted apart:
+# ggplot adds `stroke` to a point's rendered radius on top of `size`, so the
+# shaped branch came out visibly larger than the plain one.
+PCA_CENTROID_SIZE <- 4.2
+PCA_CENTROID_STROKE <- 1
+PCA_CENTROID_HALO_SIZE <- 5.6
+PCA_CENTROID_HALO_STROKE <- 1.5
+
+# stat_ellipse(type = "t") fits a multivariate t, which is what keeps a handful
+# of extreme cells from inflating the envelope. MASS ships with r-base, so the
+# fallback is defensive rather than expected.
+pca_ellipse_type <- function() {
+  if (requireNamespace("MASS", quietly = TRUE)) "t" else "norm"
+}
+
+# Centre of each sample's cell cloud, taken from the SAME fit the ellipse uses.
+# Not the median: a marker sitting off-centre inside its own ellipse reads as a
+# bug, and the two would disagree on any skewed cloud.
+#
+# Grouped by group_key (always the sample) and not by colour_key, so two
+# replicates sharing a colour still get one centroid and one ellipse each.
+pca_cloud_centres <- function(df) {
+  robust <- identical(pca_ellipse_type(), "t")
+  carry <- intersect(c("group_key", "colour_key", "shape_key"), colnames(df))
+  parts <- split(seq_len(nrow(df)), as.character(df$group_key))
+  out <- do.call(rbind, lapply(parts, function(i) {
+    xy <- as.matrix(df[i, c("PC1", "PC2"), drop = FALSE])
+    ctr <- NULL
+    if (robust && nrow(xy) > 2) {
+      ctr <- tryCatch(as.numeric(MASS::cov.trob(xy)$center), error = function(e) NULL)
+    }
+    if (is.null(ctr) || !all(is.finite(ctr))) ctr <- as.numeric(colMeans(xy))
+    cbind(df[i[1], carry, drop = FALSE],
+          data.frame(PC1 = ctr[1], PC2 = ctr[2]))
+  }))
+  rownames(out) <- NULL
+  out
+}
+
+# The scatter itself. `cells` and `centroids` both carry PC1/PC2, a group_key
+# (the sample, which defines a cloud) and a colour_key; shape_key is optional
+# and only the group-annotated variant supplies it.
+#
+# The legend is drawn from the CENTROID layer, so its keys are solid rather than
+# the near-transparent grey a 0.18-alpha point would contribute.
+build_cell_pca_plot <- function(cells, centroids, colour_scale, shape_scale = NULL,
+                                title = NULL, x_lab = "PC1", y_lab = "PC2",
+                                colour_guide = "legend", shape_guide = "legend",
+                                view = NULL) {
+  has_shape <- !is.null(shape_scale) && "shape_key" %in% colnames(cells)
+
+  gp <- ggplot(cells, aes(x = PC1, y = PC2)) +
+    geom_point(aes(colour = colour_key), size = 0.45, alpha = 0.3,
+               shape = 16, stroke = 0, show.legend = FALSE) +
+    stat_ellipse(aes(colour = colour_key, group = group_key),
+                 type = pca_ellipse_type(), level = 0.95,
+                 linewidth = 0.7, show.legend = FALSE)
+
+  # The white ring separates a centroid from the cloud it sits in; kept thin, so
+  # it reads as an outline rather than as a second, larger marker.
+  if (has_shape) {
+    gp <- gp +
+      geom_point(data = centroids, aes(shape = shape_key), colour = "white",
+                 size = PCA_CENTROID_HALO_SIZE, stroke = PCA_CENTROID_HALO_STROKE,
+                 show.legend = FALSE) +
+      geom_point(data = centroids, aes(colour = colour_key, shape = shape_key),
+                 size = PCA_CENTROID_SIZE, stroke = PCA_CENTROID_STROKE) +
+      shape_scale
+  } else {
+    gp <- gp +
+      geom_point(data = centroids, colour = "white", shape = 19,
+                 size = PCA_CENTROID_HALO_SIZE, stroke = PCA_CENTROID_HALO_STROKE,
+                 show.legend = FALSE) +
+      geom_point(data = centroids, aes(colour = colour_key), shape = 19,
+                 size = PCA_CENTROID_SIZE, stroke = PCA_CENTROID_STROKE)
+  }
+
+  if (!is.null(view)) gp <- gp + coord_cartesian(xlim = view$x, ylim = view$y)
+
+  gp <- gp + colour_scale +
+    theme_classic(base_size = 14) +
+    labs(title = title, x = x_lab, y = y_lab) +
+    scale_x_continuous(labels = function(x) sprintf("%.2f", x)) +
+    scale_y_continuous(labels = function(x) sprintf("%.2f", x)) +
+    theme(
+      legend.position = "bottom",
+      legend.text = element_text(size = 12),
+      legend.key = element_blank(),
+      legend.margin = margin(t = 12),
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      axis.title = element_text(size = 18),
+      axis.text.x = element_text(size = 16),
+      axis.text.y = element_text(size = 16)
+    )
+
+  guide_args <- list(colour = colour_guide)
+  if (has_shape) guide_args$shape <- shape_guide
+  gp + do.call(guides, guide_args)
+}
+
 # Helper: build the violin + boxplot for one curated feature. Takes a row of the
 # curated feature table, so the panel is titled with the registry's own label --
 # the same string the QC overview heatmap puts on that feature's row. The block
@@ -1839,7 +2086,10 @@ main <- function() {
   agg_median <- agg_median[order(agg_median$sampleID), , drop = FALSE]
   agg_median$sampleID <- as.character(agg_median$sampleID)
 
-  # Write the per-sample feature medians table so users can inspect / reuse PCA input
+  # Write the per-sample feature medians so the heatmap's tiles can be read back
+  # as numbers. This is no longer the PCA's input -- that is the per-cell matrix
+  # below -- but the filename is kept, because scripts/ and existing analyses
+  # read it by name.
   medians_out <- file.path(out_dir, paste0(params$prefix, "_pca_feature_medians.tsv"))
   tryCatch(
     {
@@ -1890,44 +2140,75 @@ main <- function() {
     }
   }
 
-  if (nrow(agg_median) >= 2 && ncol(agg_median) >= 2) {
-    # Drop features with zero variance across samples
-    feat_sds <- sapply(agg_median %>% select(-sampleID), function(x) stats::sd(x, na.rm = TRUE))
-    feat_keep <- names(feat_sds)[is.finite(feat_sds) & !is.na(feat_sds) & feat_sds > 0]
+  # -------- PCA on the curated features, with cells as rows --------
+  pca_cells <- if (length(pca_cols) >= 2) {
+    tryCatch(build_pca_cell_matrix(multi, pca_cols), error = function(e) {
+      message(sprintf("[WARNING] Could not assemble the per-cell PCA matrix: %s", e$message))
+      NULL
+    })
+  } else {
+    NULL
+  }
 
-    if (length(feat_keep) >= 2) {
-      mat <- as.matrix(agg_median[, feat_keep, drop = FALSE])
-      rownames(mat) <- agg_median$sampleID
-      pca_fit <- stats::prcomp(mat, center = TRUE, scale. = TRUE)
+  if (!is.null(pca_cells)) {
+    if (length(unique(pca_cells$sampleID)) >= 2) {
+      pca_fit <- stats::prcomp(pca_cells$mat, center = TRUE, scale. = TRUE)
       var_expl <- (pca_fit$sdev^2) / sum(pca_fit$sdev^2)
+      between_share <- pca_between_sample_share(pca_fit$x, pca_cells$sampleID)
+      message(sprintf(
+        "[INFO] PCA fitted on %d cells x %d curated feature(s); PC1 holds %.1f%% of the variance, %.0f%% of it between samples.",
+        pca_cells$n_cells, ncol(pca_cells$mat), 100 * var_expl[1], 100 * between_share[1]
+      ))
 
-      # A) PC1–PC2 scatter (first among PCA plots)
+      # The between-sample share belongs on the axis itself: "PC1 is 40% of the
+      # variance" says nothing about whether the samples differ until you know
+      # how much of PC1 is about samples rather than about cell heterogeneity.
+      pc_axis_label <- function(i) {
+        lab <- sprintf("PC%d (%.1f%% of variance", i, 100 * var_expl[i])
+        if (is.finite(between_share[i])) {
+          lab <- paste0(lab, sprintf(", %.0f%% between samples", 100 * between_share[i]))
+        }
+        paste0(lab, ")")
+      }
+      # The loadings bars are the likeliest place to over-read a component:
+      # they name features whatever the axis turns out to be about, so the
+      # share travels with the title.
+      loadings_title <- function(i) {
+        lab <- sprintf("Top 10 loadings: PC%d", i)
+        if (is.finite(between_share[i])) {
+          lab <- paste0(lab, sprintf(" (%.0f%% between samples)", 100 * between_share[i]))
+        }
+        lab
+      }
+
+      # A) PC1–PC2 cell clouds (first among PCA plots)
       if (ncol(pca_fit$x) >= 2) {
-        scores <- as.data.frame(pca_fit$x)
-        scores$sampleID <- rownames(scores)
-        gp_scores <- ggplot(scores, aes(x = PC1, y = PC2, colour = sampleID, label = sampleID)) +
-          geom_point(size = 4.5, alpha = 0.95, shape = 19, stroke = 0) +
-          scale_color_conesa(palette = "complete") +
-          theme_classic(base_size = 14) +
-          labs(
-            title = "PCA Plot Based on sampleID",
-            x = sprintf("PC1 (%.1f%%)", 100 * var_expl[1]),
-            y = sprintf("PC2 (%.1f%%)", 100 * var_expl[2])
-          ) +
-          scale_x_continuous(labels = function(x) sprintf("%.2f", x)) +
-          scale_y_continuous(labels = function(x) sprintf("%.2f", x)) +
-          theme(
-            legend.position = "bottom",
-            legend.title = element_blank(),
-            legend.text = element_text(size = 13),
-            legend.key = element_blank(),
-            legend.margin = margin(t = 16),
-            plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-            axis.title = element_text(size = 18),
-            axis.text.x = element_text(size = 16),
-            axis.text.y = element_text(size = 16)
-          ) +
-          guides(colour = guide_legend(override.aes = list(size = 5, alpha = 0.95, stroke = 0)))
+        scores_all <- data.frame(
+          PC1 = pca_fit$x[, 1], PC2 = pca_fit$x[, 2],
+          sampleID = pca_cells$sampleID, stringsAsFactors = FALSE
+        )
+        scores <- scores_all[thin_pca_points(scores_all$sampleID), , drop = FALSE]
+        scores$group_key <- factor(scores$sampleID, levels = sample_levels_global)
+        scores$colour_key <- scores$group_key
+
+        # One window for both variants, so the by-sample and by-group figures
+        # stay directly comparable.
+        pca_view <- pca_view_limits(scores)
+        if (!is.null(pca_view) && pca_view$n_outside > 0) {
+          message(sprintf(
+            "[INFO] PCA scatter framed on the central %.1f%% of cells; %d plotted cell(s) fall outside the panel.",
+            100 * PCA_CELL_VIEW_QUANTILE, pca_view$n_outside
+          ))
+        }
+        gp_scores <- build_cell_pca_plot(
+          scores, pca_cloud_centres(scores),
+          colour_scale = scale_color_conesa(palette = "complete"),
+          title = "Samples PCA",
+          x_lab = pc_axis_label(1), y_lab = pc_axis_label(2),
+          colour_guide = guide_legend(title = NULL,
+                                      override.aes = list(size = 5, alpha = 1, stroke = 0)),
+          view = pca_view
+        )
         multi_pca_scores_plot_local <- gp_scores
         assign("multi_pca_scores_plot", gp_scores, envir = .GlobalEnv)
 
@@ -1953,27 +2234,6 @@ main <- function() {
 
           shape_palette <- c(19L, 17L, 15L, 18L, 8L, 10L, 13L)
 
-          pca_x_label <- sprintf("PC1 (%.1f%%)", 100 * var_expl[1])
-          pca_y_label <- sprintf("PC2 (%.1f%%)", 100 * var_expl[2])
-
-          pca_group_theme <- list(
-            theme_classic(base_size = 14),
-            scale_x_continuous(labels = function(x) sprintf("%.2f", x)),
-            scale_y_continuous(labels = function(x) sprintf("%.2f", x)),
-            labs(title = "PCA Plot - Group Annotation",
-                 x = pca_x_label, y = pca_y_label),
-            theme(
-              legend.position  = "bottom",
-              legend.text      = element_text(size = 12),
-              legend.key       = element_blank(),
-              legend.margin    = margin(t = 12),
-              plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-              axis.title = element_text(size = 18),
-              axis.text.x = element_text(size = 16),
-              axis.text.y = element_text(size = 16)
-            )
-          )
-
           # When color_group has only 1 unique value the colour channel carries no
           # information: suppress its legend so only the informative channels show.
           color_is_trivial <- (n_color_vals == 1)
@@ -1990,7 +2250,7 @@ main <- function() {
                 vapply(lighten_amounts, function(a) lighten_hex(base_hues[[1]], a), character(1)),
                 shade_levels
               )
-              scores_grp$color_shade_key <- factor(scores_grp$shade_group, levels = shade_levels)
+              scores_grp$colour_key <- factor(scores_grp$shade_group, levels = shade_levels)
               color_scale <- scale_colour_manual(values = color_map, name = "Shade group", drop = FALSE)
             } else {
               color_map <- character(0)
@@ -2003,7 +2263,7 @@ main <- function() {
               legend_key_order <- unlist(lapply(unique_color_vals, function(cg) {
                 paste(cg, shade_levels, sep = " | ")
               }))
-              scores_grp$color_shade_key <- factor(
+              scores_grp$colour_key <- factor(
                 paste(scores_grp$color_group, scores_grp$shade_group, sep = " | "),
                 levels = legend_key_order
               )
@@ -2011,55 +2271,33 @@ main <- function() {
                                                  drop = FALSE)
             }
 
-            if (has_shape_grp) {
-              unique_shape_vals <- sort(unique(scores_grp$shape_group))
-              shape_map <- setNames(shape_palette[seq_len(min(length(unique_shape_vals), length(shape_palette)))],
-                                    unique_shape_vals)
-              scores_grp$shape_group <- factor(scores_grp$shape_group, levels = unique_shape_vals)
-              gp_grp <- ggplot(scores_grp,
-                aes(x = PC1, y = PC2, colour = color_shade_key, shape = shape_group)) +
-                geom_point(size = 4.5, alpha = 0.95, stroke = 0.5) +
-                color_scale +
-                scale_shape_manual(values = shape_map, name = "Shape group") +
-                guides(colour = color_guide,
-                       shape  = guide_legend(override.aes = list(size = 5, colour = "grey20")))
-            } else {
-              gp_grp <- ggplot(scores_grp,
-                aes(x = PC1, y = PC2, colour = color_shade_key)) +
-                geom_point(size = 4.5, alpha = 0.95, shape = 19L, stroke = 0) +
-                color_scale +
-                guides(colour = color_guide)
-            }
-
           } else {
             # No shade — plain hues only
-            scores_grp$color_group <- factor(scores_grp$color_group, levels = unique_color_vals)
+            scores_grp$colour_key <- factor(scores_grp$color_group, levels = unique_color_vals)
             color_scale <- scale_colour_manual(values = base_hues, name = "Color group", drop = FALSE)
-
-            if (has_shape_grp) {
-              unique_shape_vals <- sort(unique(scores_grp$shape_group))
-              shape_map <- setNames(shape_palette[seq_len(min(length(unique_shape_vals), length(shape_palette)))],
-                                    unique_shape_vals)
-              scores_grp$shape_group <- factor(scores_grp$shape_group, levels = unique_shape_vals)
-              gp_grp <- ggplot(scores_grp,
-                aes(x = PC1, y = PC2, colour = color_group, shape = shape_group)) +
-                geom_point(size = 4.5, alpha = 0.95, stroke = 0.5) +
-                color_scale +
-                scale_shape_manual(values = shape_map, name = "Shape group") +
-                guides(
-                  colour = if (color_is_trivial) "none" else color_guide,
-                  shape  = guide_legend(override.aes = list(size = 5, colour = "grey20"))
-                )
-            } else {
-              gp_grp <- ggplot(scores_grp,
-                aes(x = PC1, y = PC2, colour = color_group)) +
-                geom_point(size = 4.5, alpha = 0.95, shape = 19L, stroke = 0) +
-                color_scale +
-                guides(colour = if (color_is_trivial) "none" else color_guide)
-            }
           }
 
-          gp_grp <- Reduce(`+`, c(list(gp_grp), pca_group_theme))
+          shape_scale <- NULL
+          if (has_shape_grp) {
+            unique_shape_vals <- sort(unique(scores_grp$shape_group))
+            shape_map <- setNames(shape_palette[seq_len(min(length(unique_shape_vals), length(shape_palette)))],
+                                  unique_shape_vals)
+            scores_grp$shape_key <- factor(scores_grp$shape_group, levels = unique_shape_vals)
+            shape_scale <- scale_shape_manual(values = shape_map, name = "Shape group")
+          }
+
+          # Clouds and centroids stay grouped by SAMPLE while colour and shape
+          # carry the design: two replicates in one group keep their own ellipse,
+          # which is the whole point of looking at a group annotation.
+          gp_grp <- build_cell_pca_plot(
+            scores_grp, pca_cloud_centres(scores_grp),
+            colour_scale = color_scale, shape_scale = shape_scale,
+            title = "Samples PCA",
+            x_lab = pc_axis_label(1), y_lab = pc_axis_label(2),
+            colour_guide = if (color_is_trivial && !has_shade_grp) "none" else color_guide,
+            shape_guide = guide_legend(override.aes = list(size = 5, colour = "grey20")),
+            view = pca_view
+          )
           multi_pca_group_plot_local <- gp_grp
           assign("multi_pca_group_plot", gp_grp, envir = .GlobalEnv)
         }
@@ -2067,20 +2305,32 @@ main <- function() {
       }
 
       # B) Scree plot (second)
+      #
+      # The between-sample series is the reason this figure is worth reading now
+      # that rows are cells: the largest components of a per-cell PCA are usually
+      # cell heterogeneity and depth, and a component only speaks to how the
+      # SAMPLES differ to the extent it sits high on that line. Its denominator
+      # is its own component's variance, not the total, so it is a share within
+      # each bar rather than a running fraction like the cumulative curve.
       k <- min(length(var_expl), 10)
       scree_df <- data.frame(
         PC = factor(paste0("PC", seq_len(k)), levels = paste0("PC", seq_len(k))),
         Proportion = var_expl[seq_len(k)],
-        Cumulative = cumsum(var_expl)[seq_len(k)]
+        Cumulative = cumsum(var_expl)[seq_len(k)],
+        Between = between_share[seq_len(k)]
       )
       gp_scree <- ggplot(scree_df, aes(x = PC)) +
-        geom_col(aes(y = Proportion, fill = "Proportion"), width = 0.8, colour = NA) +
-        geom_point(aes(y = Cumulative, colour = "Cumulative"), size = 2.2) +
-        geom_line(aes(y = Cumulative, colour = "Cumulative", group = 1), linewidth = 0.6) +
-        scale_fill_manual(values = c("Proportion" = "#6BAED6"), name = "") +
-        scale_color_manual(values = c("Cumulative" = "#4D4D4D"), name = "") +
+        geom_col(aes(y = Proportion, fill = "Variance explained"), width = 0.8, colour = NA) +
+        geom_point(aes(y = Cumulative, colour = "Cumulative variance"), size = 2.2) +
+        geom_line(aes(y = Cumulative, colour = "Cumulative variance", group = 1), linewidth = 0.6) +
+        geom_point(aes(y = Between, colour = "Between-sample share"), size = 2.2, shape = 17) +
+        geom_line(aes(y = Between, colour = "Between-sample share", group = 1),
+                  linewidth = 0.6, linetype = "22") +
+        scale_fill_manual(values = c("Variance explained" = "#6BAED6"), name = "") +
+        scale_color_manual(values = c("Cumulative variance" = "#4D4D4D",
+                                      "Between-sample share" = "#D55E00"), name = "") +
         theme_classic(base_size = 14) +
-        labs(title = "PCA scree plot", y = "Variance explained", x = "Principal component") +
+        labs(title = "PCA scree plot", y = "Fraction", x = "Principal component") +
         theme(
           plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
           axis.title = element_text(size = 18),
@@ -2095,7 +2345,14 @@ main <- function() {
       # C) Top loadings for PC1 and PC2 (third)
       if (ncol(pca_fit$rotation) >= 2) {
         rot <- as.data.frame(pca_fit$rotation)
-        rot$variable <- rownames(rot)
+        # Registry labels, not column names: format_feature_display_name() turns
+        # Non_canonical_prop_in_cell into "Non Canonical", the exact mislabel #44
+        # removed, and these bars sit next to figures already titled from the
+        # registry.
+        feat_labels <- stats::setNames(as.character(feature_map$label),
+                                       as.character(feature_map$feature))
+        rot$variable <- ifelse(rownames(rot) %in% names(feat_labels),
+                               feat_labels[rownames(rot)], rownames(rot))
         top_n <- 10L
         pick_top <- function(colname, n = top_n) {
           ord <- order(abs(rot[[colname]]), decreasing = TRUE)
@@ -2125,7 +2382,7 @@ main <- function() {
           coord_flip() +
           scale_fill_manual(values = c("Positive" = "#E69F00", "Negative" = "#0072B2"), name = "Sign", limits = c("Positive", "Negative"), drop = FALSE) +
           theme_classic(base_size = 14) +
-          labs(title = "Top 10 loadings: PC1", x = "Feature", y = "Absolute loading") +
+          labs(title = loadings_title(1), x = "Feature", y = "Absolute loading") +
           theme(
             plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
             axis.title = element_text(size = 18),
@@ -2138,7 +2395,7 @@ main <- function() {
           coord_flip() +
           scale_fill_manual(values = c("Positive" = "#E69F00", "Negative" = "#0072B2"), name = "Sign", limits = c("Positive", "Negative"), drop = FALSE) +
           theme_classic(base_size = 14) +
-          labs(title = "Top 10 loadings: PC2", x = "Feature", y = "Absolute loading") +
+          labs(title = loadings_title(2), x = "Feature", y = "Absolute loading") +
           theme(
             plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
             axis.title = element_text(size = 18),
