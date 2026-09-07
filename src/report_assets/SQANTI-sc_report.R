@@ -193,6 +193,21 @@ pivot_long <- function(df, cols) {
   out
 }
 
+# Above this the data would collide with the inset, which is anchored at y = 45 in the
+# main panel's coordinates — raise the two together or not at all.
+ZOOM_INSET_MAX_PCT <- 25
+
+# Window for the zoom inset's y axis. A degenerate range (every cell on the same value)
+# would collapse the panel, so it is widened rather than passed through.
+zoom_inset_limits <- function(max_val, min_val) {
+  if (!is.finite(max_val) || !is.finite(min_val)) return(c(0, 100))
+  if (max_val <= min_val) {
+    pad <- max(abs(max_val) * 0.05, 0.01)
+    return(c(min_val - pad, max_val + pad))
+  }
+  c(min_val, max_val)
+}
+
 # Helper: generic violin + box + mean-cross plot with shared theme
 build_violin_plot <- function(df_long,
                               title,
@@ -274,12 +289,13 @@ build_violin_plot <- function(df_long,
     p <- p + scale_y_log10(labels = scales::comma)
   }
 
-  # Zoomed inset for % plots (HTML and PDF): embedded in top-right whitespace
+  # Zoomed inset for % plots (HTML and PDF): embedded in top-right whitespace.
+  # Its y axis spans the observed range — on 0-100 it was a scaled-down copy of the panel.
   if (!isTRUE(log_scale) && identical(ylim, c(0, 100))) {
     finite_vals <- df_long$Value[is.finite(df_long$Value)]
     max_val_p <- if (length(finite_vals) > 0) max(finite_vals) else 0
     min_val_p <- if (length(finite_vals) > 0) min(finite_vals) else 0
-    if (max_val_p > 0 && max_val_p < 20) {
+    if (max_val_p > 0 && max_val_p < ZOOM_INSET_MAX_PCT) {
       n_grps <- nlevels(df_long$Variable)
       if (n_grps == 0) n_grps <- length(unique(df_long$Variable))
       gp_inset <- ggplot(df_long, aes(x = Variable, y = Value, fill = Variable)) +
@@ -291,10 +307,10 @@ build_violin_plot <- function(df_long,
                      color = "red", stroke = 1, show.legend = FALSE) +
         scale_fill_manual(values = fill_map) +
         scale_y_continuous(
-          limits = c(0, 100),
-          labels = function(x) as.integer(x),
-          expand = expansion(mult = c(0.02, 0.05))
+          breaks = scales::breaks_pretty(n = 4),
+          expand = expansion(mult = c(0.05, 0.08))
         ) +
+        coord_cartesian(ylim = zoom_inset_limits(max_val_p, min_val_p)) +
         theme_classic(base_size = 11) +
         theme(
           legend.position  = "none",

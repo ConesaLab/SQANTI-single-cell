@@ -373,13 +373,30 @@ get_conesa_palette_colors <- function(n, palette = "complete") {
   }
 }
 
+# Above this the data would collide with the inset, which is anchored at y = 45 in the
+# main panel's coordinates — raise the two together or not at all.
+ZOOM_INSET_MAX_PCT <- 25
+
+# Window for the zoom inset's y axis. A degenerate range (every cell on the same value)
+# would collapse the panel, so it is widened rather than passed through.
+zoom_inset_limits <- function(max_val, min_val) {
+  if (!is.finite(max_val) || !is.finite(min_val)) return(c(0, 100))
+  if (max_val <= min_val) {
+    pad <- max(abs(max_val) * 0.05, 0.01)
+    return(c(min_val - pad, max_val + pad))
+  }
+  c(min_val, max_val)
+}
+
 # Helper: embed a small zoomed inset into the top-right whitespace of a fixed 0-100% plot.
-# Conditions: max_val > 0 and max_val < 20 (data stays below 20%, leaving whitespace to fill).
+# Conditions: max_val > 0 and max_val < ZOOM_INSET_MAX_PCT (leaving whitespace to fill).
 # Shown in both HTML and PDF. Uses annotation_custom — no extra packages beyond ggplot2 + grid.
+# The inset's y axis spans the observed range, not 0-100: on a 0-100 axis it would be a
+# scaled-down copy of the main panel and resolve nothing.
 attach_zoom_inset <- function(main_plot, plot_df, x_var, y_var,
                                max_val, min_val, is_html,
                                use_violin = TRUE, fill_col = NULL) {
-  if (max_val == 0 || max_val >= 20) return(main_plot)
+  if (max_val == 0 || max_val >= ZOOM_INSET_MAX_PCT) return(main_plot)
   if (!is.factor(plot_df[[x_var]])) plot_df[[x_var]] <- factor(plot_df[[x_var]])
   n_grps <- nlevels(plot_df[[x_var]])
 
@@ -407,14 +424,16 @@ attach_zoom_inset <- function(main_plot, plot_df, x_var, y_var,
       scale_color_conesa(palette = "complete", guide = "none", drop = FALSE)
   }
 
+  zoom_lims <- zoom_inset_limits(max_val, min_val)
+
   gp_inset <- gp_inset +
     stat_summary(fun = mean, geom = "point", shape = 4, size = 1,
                  colour = "red", stroke = 0.45) +
     scale_y_continuous(
-      limits = c(0, 100),
-      labels = function(x) as.integer(x),
-      expand = expansion(mult = c(0.02, 0.05))
+      breaks = scales::breaks_pretty(n = 4),
+      expand = expansion(mult = c(0.05, 0.08))
     ) +
+    coord_cartesian(ylim = zoom_lims) +
     theme_classic(base_size = 11) +
     theme(
       legend.position  = "none",
