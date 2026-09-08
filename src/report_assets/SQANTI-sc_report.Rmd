@@ -2056,10 +2056,10 @@ if (show_len_cluster) {
 <div id="len-cluster-dropdown" class="dropdown-toolbar" style="`r if(!show_len_cluster) 'display:none;'`">
   <div class="btn-group">
     <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-      <span class="label">`r if(mode == "isoforms") "All Transcripts" else "All Reads"`</span> <span class="caret"></span>
+      <span class="label">`r all_entities_label`</span> <span class="caret"></span>
     </button>
     <ul class="dropdown-menu dropdown-menu-right" role="menu">
-      <li><a href="#" data-target="#len-cluster-All">`r if(mode == "isoforms") "All Transcripts" else "All Reads"`</a></li>
+      <li><a href="#" data-target="#len-cluster-All">`r all_entities_label`</a></li>
       <li><a href="#" data-target="#len-cluster-FSM">FSM</a></li>
       <li><a href="#" data-target="#len-cluster-ISM">ISM</a></li>
       <li><a href="#" data-target="#len-cluster-NIC">NIC</a></li>
@@ -2076,7 +2076,7 @@ if (show_len_cluster) {
 
 <div id="len-cluster-All" class="toggle-pane" style="display:block;">
 ```{r len-cluster-All, fig.height=8, fig.width=12, eval=show_len_cluster, out.width="100%"}
-all_lbl <- if (mode == "isoforms") "All Transcripts" else "All Reads"
+all_lbl <- all_entities_label
 if (show_len_cluster && !is.null(gg_len_cluster_plots[[all_lbl]])) {
   print(gg_len_cluster_plots[[all_lbl]])
 }
@@ -2172,10 +2172,10 @@ if (show_sr_cluster) {
 <div id="sr-cluster-dropdown" class="dropdown-toolbar" style="display:`r if(show_sr_cluster) 'block' else 'none'`">
   <div class="btn-group">
     <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-      <span class="label">All Transcripts</span> <span class="caret"></span>
+      <span class="label">`r all_entities_label`</span> <span class="caret"></span>
     </button>
     <ul class="dropdown-menu dropdown-menu-right" role="menu">
-      <li><a href="#" data-target="#sr-cluster-Global">All Transcripts</a></li>
+      <li><a href="#" data-target="#sr-cluster-Global">`r all_entities_label`</a></li>
       <li><a href="#" data-target="#sr-cluster-FSM">FSM</a></li>
       <li><a href="#" data-target="#sr-cluster-ISM">ISM</a></li>
       <li><a href="#" data-target="#sr-cluster-NIC">NIC</a></li>
@@ -2192,8 +2192,8 @@ if (show_sr_cluster) {
 
 <div id="sr-cluster-Global" class="toggle-pane" style="display:block;">
 ```{r sr-cluster-Global, fig.height=8, fig.width=12, eval=show_sr_cluster, out.width="100%"}
-if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["All Transcripts"]])) {
-  print(gg_sr_cluster_plots[["All Transcripts"]])
+if (show_sr_cluster && !is.null(gg_sr_cluster_plots[[all_entities_label]])) {
+  print(gg_sr_cluster_plots[[all_entities_label]])
 }
 ```
 </div>
@@ -2265,14 +2265,14 @@ if (show_sr_cluster && !is.null(gg_sr_cluster_plots[["Genic Intron"]])) {
 if (show_sr_cluster && exists("gg_sr_umap_plots") && length(gg_sr_umap_plots) > 0) {
   cat("\n### UMAPs\n")
 
-  cat('
+  cat(paste0('
 <div id="sr-umap-dropdown" class="dropdown-toolbar">
 <div class="btn-group">
 <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-<span class="label">All Transcripts</span> <span class="caret"></span>
+<span class="label">', all_entities_label, '</span> <span class="caret"></span>
 </button>
 <ul class="dropdown-menu dropdown-menu-right" role="menu">
-<li><a href="#" data-target="#sr-umap-Global">All Transcripts</a></li>
+<li><a href="#" data-target="#sr-umap-Global">', all_entities_label, '</a></li>
 <li><a href="#" data-target="#sr-umap-FSM">FSM</a></li>
 <li><a href="#" data-target="#sr-umap-ISM">ISM</a></li>
 <li><a href="#" data-target="#sr-umap-NIC">NIC</a></li>
@@ -2285,14 +2285,14 @@ if (show_sr_cluster && exists("gg_sr_umap_plots") && length(gg_sr_umap_plots) > 
 </ul>
 </div>
 </div>
-')
+'))
 }
 ```
 
 <div id="sr-umap-Global" class="toggle-pane" style="display:block;">
 ```{r sr-umap-Global, fig.height=6, fig.width=8, eval=show_sr_cluster, out.width="100%"}
-if (show_sr_cluster && !is.null(gg_sr_umap_plots[["All Transcripts"]])) {
-  gg_sr_umap_plots[["All Transcripts"]]
+if (show_sr_cluster && !is.null(gg_sr_umap_plots[[all_entities_label]])) {
+  gg_sr_umap_plots[[all_entities_label]]
 } else {
   print(ggplot2::ggplot() +
     ggplot2::annotate("text", x = 0.5, y = 0.5, label = "No data available") +
@@ -2429,10 +2429,10 @@ if (show_tss_cluster) {
 <div id="tss-cluster-dropdown" class="dropdown-toolbar" style="display:`r if(show_tss_cluster) 'block' else 'none'`">
   <div class="btn-group">
     <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-      <span class="label">All Transcripts</span> <span class="caret"></span>
+      <span class="label">`r all_entities_label`</span> <span class="caret"></span>
     </button>
     <ul class="dropdown-menu dropdown-menu-right" role="menu">
-      <li><a href="#" data-target="#tss-cluster-Global">All Transcripts</a></li>
+      <li><a href="#" data-target="#tss-cluster-Global">`r all_entities_label`</a></li>
       <li><a href="#" data-target="#tss-cluster-FSM">FSM</a></li>
       <li><a href="#" data-target="#tss-cluster-ISM">ISM</a></li>
       <li><a href="#" data-target="#tss-cluster-NIC">NIC</a></li>
@@ -2449,8 +2449,8 @@ if (show_tss_cluster) {
 
 <div id="tss-cluster-Global" class="toggle-pane" style="display:block;">
 ```{r tss-cluster-Global, fig.height=8, fig.width=12, eval=show_tss_cluster, out.width="100%"}
-if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["All Transcripts"]])) {
-  print(gg_tss_cluster_plots[["All Transcripts"]])
+if (show_tss_cluster && !is.null(gg_tss_cluster_plots[[all_entities_label]])) {
+  print(gg_tss_cluster_plots[[all_entities_label]])
 }
 ```
 </div>
@@ -2523,14 +2523,14 @@ if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Intergenic"]])) {
 if (show_tss_cluster && exists("gg_tss_umap_plots") && length(gg_tss_umap_plots) > 0) {
   cat("\n### UMAPs\n")
 
-  cat('
+  cat(paste0('
 <div id="tss-umap-dropdown" class="dropdown-toolbar">
 <div class="btn-group">
 <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-<span class="label">All Transcripts</span> <span class="caret"></span>
+<span class="label">', all_entities_label, '</span> <span class="caret"></span>
 </button>
 <ul class="dropdown-menu dropdown-menu-right" role="menu">
-<li><a href="#" data-target="#tss-umap-Global">All Transcripts</a></li>
+<li><a href="#" data-target="#tss-umap-Global">', all_entities_label, '</a></li>
 <li><a href="#" data-target="#tss-umap-FSM">FSM</a></li>
 <li><a href="#" data-target="#tss-umap-ISM">ISM</a></li>
 <li><a href="#" data-target="#tss-umap-NIC">NIC</a></li>
@@ -2543,14 +2543,14 @@ if (show_tss_cluster && exists("gg_tss_umap_plots") && length(gg_tss_umap_plots)
 </ul>
 </div>
 </div>
-')
+'))
 }
 ```
 
 <div id="tss-umap-Global" class="toggle-pane" style="display:block;">
 ```{r tss-umap-Global, fig.height=6, fig.width=8, eval=show_tss_cluster, out.width="100%"}
-if (show_tss_cluster && !is.null(gg_tss_umap_plots[["All Transcripts"]])) {
-  gg_tss_umap_plots[["All Transcripts"]]
+if (show_tss_cluster && !is.null(gg_tss_umap_plots[[all_entities_label]])) {
+  gg_tss_umap_plots[[all_entities_label]]
 } else {
   print(ggplot2::ggplot() +
     ggplot2::annotate("text", x = 0.5, y = 0.5, label = "No data available") +

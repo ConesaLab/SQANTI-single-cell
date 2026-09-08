@@ -123,6 +123,10 @@ if (mode == "isoforms") {
 entity_label_lower <- tolower(entity_label)
 entity_label_plural_lower <- tolower(entity_label_plural)
 
+# The "everything pooled" pane of the by-category dropdowns. Also used as the
+# list KEY for those panes, so the report Rmd has to look it up the same way.
+all_entities_label <- paste("All", entity_label_plural)
+
 # Print cell summary saving status
 if (ignore_cell_summary) {
   print("Cell summary table will not be saved (--ignore_cell_summary flag is active).")
@@ -571,7 +575,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
                   )
               }
 
-              all_label <- if (mode == "isoforms") "All Transcripts" else "All Reads"
+              all_label <- all_entities_label
               gg_len_cluster_plots <<- list()
               gg_len_cluster_plots[[all_label]] <<- build_len_cluster_plot(
                 cls_for_len, paste(all_label, "Length Distribution by Cluster")
@@ -624,21 +628,21 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
             if ("TSS_ratio_validated_prop" %in% colnames(merged_umap) && sum(merged_umap$TSS_ratio_validated_prop, na.rm = TRUE) > 0) {
               gg_tss_cluster_plots <<- list()
 
-              # 1. All Transcripts Plot - TSS
+              # 1. Pooled plot - TSS
               # Use Cluster Colors (same as Junctions Coverage)
               p_all_tss <- build_violin_plot(
                 df_long = prepare_violin_data(merged_umap, "TSS_ratio_validated_prop"),
-                title = "All Transcripts TSS Validation by Short Reads",
+                title = paste(all_entities_label, "TSS Validation by Short Reads"),
                 x_labels = levels(merged_umap$Cluster),
                 fill_map = cluster_colors,
                 x_title = "Cluster",
-                y_label = "TSS Ratio Validated, %",
+                y_label = paste0(entity_label_plural, " Validated, %"),
                 x_tickangle = 0,
                 violin_outline_fill = TRUE,
                 violin_alpha = 0.7,
                 box_alpha = 0.3
               )
-              gg_tss_cluster_plots[["All Transcripts"]] <<- p_all_tss
+              gg_tss_cluster_plots[[all_entities_label]] <<- p_all_tss
 
               # 2. Per-Category Plots - TSS
               # Use Category Color for ALL clusters
@@ -665,7 +669,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
                     x_labels = levels(merged_umap$Cluster),
                     fill_map = fixed_color_map,
                     x_title = "Cluster",
-                    y_label = "TSS Ratio Validated, %",
+                    y_label = paste0(entity_label_plural, " Validated, %"),
                     x_tickangle = 0,
                     violin_outline_fill = TRUE,
                     violin_alpha = 0.7,
@@ -683,12 +687,12 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
             global_data <- prepare_violin_data(merged_umap, "srjunctions_support_prop")
 
             # Use build_violin_plot (which returns a ggplot object)
-            gg_sr_cluster_plots[["All Transcripts"]] <<- build_violin_plot(
+            gg_sr_cluster_plots[[all_entities_label]] <<- build_violin_plot(
               df_long = global_data,
-              title = "All Transcripts Junction Coverage by Short Reads",
+              title = paste(all_entities_label, "Junction Coverage by Short Reads"),
               x_labels = levels(global_data$Variable),
               fill_map = cluster_colors,
-              y_label = "Transcripts Supported, %",
+              y_label = paste0(entity_label_plural, " Supported, %"),
               legend = FALSE,
               x_title = "Cluster",
               x_tickangle = 0,
@@ -724,7 +728,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
                   title = title,
                   x_labels = levels(cat_data$Variable),
                   fill_map = fixed_color_map, # Per-category uses the category color for all clusters
-                  y_label = "Transcripts Supported, %",
+                  y_label = paste0(entity_label_plural, " Supported, %"),
                   legend = FALSE,
                   x_title = "Cluster",
                   x_tickangle = 0,
@@ -795,10 +799,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   gg_sr_umap_plots <<- list()
   if (exists("merged_umap") && "srjunctions_support_prop" %in% colnames(merged_umap)) {
     # Global
-    gg_sr_umap_plots[["All Transcripts"]] <<- build_continuous_umap(
+    gg_sr_umap_plots[[all_entities_label]] <<- build_continuous_umap(
       merged_umap,
       "srjunctions_support_prop",
-      "All Transcripts Junction Coverage by Short Reads",
+      paste(all_entities_label, "Junction Coverage by Short Reads"),
       color_base = "#cd4f39"
     )
 
@@ -825,10 +829,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   gg_tss_umap_plots <<- list()
   if (exists("merged_umap") && "TSS_ratio_validated_prop" %in% colnames(merged_umap)) {
     # Global
-    gg_tss_umap_plots[["All Transcripts"]] <<- build_continuous_umap(
+    gg_tss_umap_plots[[all_entities_label]] <<- build_continuous_umap(
       merged_umap,
       "TSS_ratio_validated_prop",
-      "All Transcripts TSS Validation by Short Reads",
+      paste(all_entities_label, "TSS Validation by Short Reads"),
       color_base = "#ffc125"
     )
 
@@ -1445,7 +1449,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     columns = c("Annotated_genes", "Novel_genes"),
     title = "Number of Known/Novel Genes\nAcross Cells",
     x_labels = c("Annotated Genes", "Novel Genes"),
-    y_label = paste(entity_label_plural, ", count", sep = ""),
+    # Annotated_genes/Novel_genes are distinct gene ids per cell, not reads --
+    # the percentage figure built from the same two columns below says "Genes"
+    # already.
+    y_label = "Genes, count",
     fill_map = c("Annotated_genes" = fill_color_orange, "Novel_genes" = fill_color_orange),
     plot_args = c(pivot_defaults, list(log_scale = TRUE))
   ))
@@ -1813,7 +1820,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   cat_var_base <- c(FSM = "FSM", ISM = "ISM", NIC = "NIC", NNC = "NNC", Genic = "genic", Antisense = "antisense", Fusion = "fusion", Intergenic = "intergenic", Genic_intron = "genic_intron")
   make_len_plot <- function(prefix, pretty, color, mono = FALSE) {
     var_nm <- if (mono) paste0("gg_", cat_var_base[[prefix]], "_mono_read_distr") else paste0("gg_", cat_var_base[[prefix]], "_read_distr")
-    title_txt <- if (mono) paste0(pretty, " Mono-exonic Read Lengths Distribution Across Cells") else paste0(pretty, " Reads Length Distribution Across Cells")
+    title_txt <- if (mono) paste0(pretty, " Mono-exonic ", entity_label, " Lengths Distribution Across Cells") else paste0(pretty, " ", entity_label_plural, " Length Distribution Across Cells")
     assign(var_nm, build_len_violin_for_prefix(
       SQANTI_cell_summary,
       prefix = prefix,
@@ -3628,8 +3635,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       if (exists("gg_sr_cluster_plots") && !is.null(gg_sr_cluster_plots)) {
         # UMAPs first (Global then Category-specific if available)
         if (exists("gg_sr_umap_plots") && !is.null(gg_sr_umap_plots)) {
-          if (!is.null(gg_sr_umap_plots[["All Transcripts"]])) print(apply_pdf_theme(gg_sr_umap_plots[["All Transcripts"]]))
-          for (label in setdiff(names(gg_sr_umap_plots), "All Transcripts")) {
+          if (!is.null(gg_sr_umap_plots[[all_entities_label]])) print(apply_pdf_theme(gg_sr_umap_plots[[all_entities_label]]))
+          for (label in setdiff(names(gg_sr_umap_plots), all_entities_label)) {
             print(apply_pdf_theme(gg_sr_umap_plots[[label]]))
           }
         }
@@ -3644,8 +3651,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       if (exists("gg_tss_cluster_plots") && !is.null(gg_tss_cluster_plots)) {
         # UMAPs first
         if (exists("gg_tss_umap_plots") && !is.null(gg_tss_umap_plots)) {
-          if (!is.null(gg_tss_umap_plots[["All Transcripts"]])) print(apply_pdf_theme(gg_tss_umap_plots[["All Transcripts"]]))
-          for (label in setdiff(names(gg_tss_umap_plots), "All Transcripts")) {
+          if (!is.null(gg_tss_umap_plots[[all_entities_label]])) print(apply_pdf_theme(gg_tss_umap_plots[[all_entities_label]]))
+          for (label in setdiff(names(gg_tss_umap_plots), all_entities_label)) {
             print(apply_pdf_theme(gg_tss_umap_plots[[label]]))
           }
         }
