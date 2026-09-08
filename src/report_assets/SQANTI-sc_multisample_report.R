@@ -202,15 +202,16 @@ infer_feature_metadata <- function(feature, values) {
   # not trip the "looks like a fraction, call it a percentage" branch.
   rate_unit <- stringr::str_match(name_lower, "_per_(read|transcript)$")[, 2]
   if (!is.na(rate_unit)) name_lower <- sub("_per_(read|transcript)$", "", name_lower)
+  # What the cell summary counts in this mode. Every proportion below that is
+  # not explicitly per-gene, per-junction or per-exon divides by it.
+  entity <- if (exists("params") && identical(params$mode, "isoforms")) "Transcripts" else "Reads"
   domain <- "Value"
   if (stringr::str_detect(name_lower, "length")) domain <- "Length"
   if (stringr::str_detect(name_lower, "length") && stringr::str_detect(name_lower, "prop|perc|pct|ratio|fraction")) {
-    if (exists("params") && params$mode == "isoforms") domain <- "Transcripts" else domain <- "Reads"
+    domain <- entity
   }
-  if (stringr::str_detect(name_lower, "read")) {
-    if (exists("params") && params$mode == "isoforms") domain <- "Transcripts" else domain <- "Reads"
-  }
-  if (stringr::str_detect(name_lower, "\\bmt\\b") || stringr::str_detect(name_lower, "^mt_")) domain <- "Reads"
+  if (stringr::str_detect(name_lower, "read")) domain <- entity
+  if (stringr::str_detect(name_lower, "\\bmt\\b") || stringr::str_detect(name_lower, "^mt_")) domain <- entity
   if (stringr::str_detect(name_lower, "exon") && !stringr::str_detect(name_lower, "monoexon")) domain <- "Exons"
   if (stringr::str_detect(name_lower, "intron")) domain <- "Introns"
   if (stringr::str_detect(name_lower, "coverage")) domain <- "Coverage"
@@ -219,8 +220,18 @@ infer_feature_metadata <- function(feature, values) {
   if (stringr::str_detect(name_lower, "gene")) domain <- "Genes"
   if (stringr::str_detect(name_lower, "^anno_.*_bin") || stringr::str_detect(name_lower, "^novel_.*_bin")) domain <- "Genes"
   if (stringr::str_detect(name_lower, "umi")) domain <- "UMIs"
-  if (stringr::str_detect(name_lower, "junction")) domain <- "Junctions"
-  if (stringr::str_detect(name_lower, "^ujcs?(_|$)")) domain <- "UJCs"
+  # Junctions only when junctions are what is being COUNTED, i.e. the column
+  # name ends there. srjunctions_support_prop names a junction property but
+  # divides by the cell's read count -- it is the share of reads whose junctions
+  # are supported, and labelling its axis "Junctions" states the wrong
+  # denominator (the same error #44 fixed in the per-sample report).
+  if (stringr::str_detect(name_lower, "junctions?(_prop)?$")) domain <- "Junctions"
+  # Annotated_juction_strings_prop_in_cell divides by UJCs_in_cell rather than by
+  # the cell's reads, so the entity fallback below would state the wrong
+  # denominator for it. Its name is matched under the typo it actually ships
+  # with -- renaming the column would invalidate every summary already written.
+  if (stringr::str_detect(name_lower, "^ujcs?(_|$)") ||
+      stringr::str_detect(name_lower, "ju[n]?ction_strings")) domain <- "UJCs"
   structural_keywords <- c(
     "(?<![a-z])fsm(?![a-z])", "(?<![a-z])ism(?![a-z])",
     "(?<![a-z])nic(?![a-z])", "(?<![a-z])nnc(?![a-z])",
@@ -229,9 +240,7 @@ infer_feature_metadata <- function(feature, values) {
     "genic_intron", "genic intron"
   )
   if (any(stringr::str_detect(name_lower, structural_keywords))) {
-    if (domain != "Genes") {
-      if (exists("params") && params$mode == "isoforms") domain <- "Transcripts" else domain <- "Reads"
-    }
+    if (domain != "Genes") domain <- entity
   }
   is_prop_keyword <- stringr::str_detect(name_lower, "prop|perc|pct|ratio|fraction")
   finite_vals <- values[is.finite(values)]
@@ -252,6 +261,16 @@ infer_feature_metadata <- function(feature, values) {
     }
   } else {
     if (unit == "%") scale_to_percent <- TRUE
+  }
+  # A column that declares itself a proportion but names no other domain is a
+  # share of the cell's reads (or transcripts): every *_prop_in_cell and
+  # *_support_prop column in the summary divides by that count. Naming the
+  # entity is what makes these axes readable and keeps them agreeing with the
+  # per-sample report, which labels the same columns that way. Restricted to
+  # is_prop_keyword so the "count-like values <= 1.5 are really a fraction"
+  # promotion below cannot claim an unknown column for the entity.
+  if (unit == "%" && domain == "Value" && is_prop_keyword) {
+    domain <- entity
   }
   if (unit == "%" && domain == "Value") {
     domain <- "Percentage"
@@ -287,6 +306,14 @@ infer_junction_display_label <- function(feature_name, current_label) {
   
   # Gene bin features should not get junction annotations even if they contain "ujc"
   if (grepl("^anno_.*_bin", lower_name) || grepl("^novel_.*_bin", lower_name)) {
+    return(current_label)
+  }
+
+  # Only annotates an axis the domain rules left generic. Once the label names a
+  # real domain, appending ", junctions" contradicts it: Non_canonical_prop_in_cell
+  # is the share of READS carrying a non-canonical junction, not a share of
+  # junctions, and saying otherwise is exactly the claim #44 removed.
+  if (!grepl("^Value", current_label)) {
     return(current_label)
   }
 
@@ -482,7 +509,11 @@ attach_zoom_inset <- function(main_plot, plot_df, x_var, y_var,
 # QC_BLOCKS_PLOTTED_ELSEWHERE): a literal string in both places would let a
 # rename silently duplicate or drop a whole section of figures.
 QC_BLOCK_YIELD      <- "Yield & detection"
-QC_BLOCK_LENGTH     <- "Transcript length"
+# Not "Transcript length": in reads mode this block holds the median READ length
+# per cell. The block name is a partition key (see QC_BLOCKS_PLOTTED_ELSEWHERE)
+# so it cannot vary with the mode -- neutral wording is what keeps it honest in
+# both.
+QC_BLOCK_LENGTH     <- "Length"
 QC_BLOCK_STRUCTURAL <- "Structural categories"
 QC_BLOCK_JUNCTIONS  <- "Splice junction composition"
 QC_BLOCK_GOOD       <- "Good-quality features"
@@ -2001,7 +2032,8 @@ main <- function() {
         stat_summary(fun = mean, geom = "point", shape = 4, size = 1, colour = "red", stroke = 0.9) +
         scale_y_continuous(limits = c(0, 100), expand = expansion(add = c(1, 0))) +
         theme_classic(base_size = 13) +
-        labs(title = paste0("Per Sample ", cat_lab, " Reads Distribution Across Cells"), x = "Sample", y = "Reads, %") +
+        labs(title = paste0("Per Sample ", cat_lab, " ", entity_label_plural, " Distribution Across Cells"),
+             x = "Sample", y = paste0(entity_label_plural, ", %")) +
         theme(
           legend.position = "none",
           axis.text.x = element_text(angle = 35, hjust = 1, size = 16),
