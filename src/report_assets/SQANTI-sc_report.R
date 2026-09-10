@@ -384,6 +384,25 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
             "Genic_intron_prop" = "Genic Intron"
           )
 
+          # Per-category column prefix as written by cell_metrics.py's
+          # `cat_to_tag`: "genic" is tagged `Genic`, not `Genic_Genomic`, and
+          # `Genic_intron` keeps its lowercase "intron". Neither survives being
+          # derived from the display label above, which is how the short-read
+          # and TSS loops below each ended up silently skipping panes. One map,
+          # used everywhere a per-category column name is needed, so the two
+          # cannot drift apart again.
+          cat_col_prefixes <- c(
+            "FSM_prop" = "FSM",
+            "ISM_prop" = "ISM",
+            "NIC_prop" = "NIC",
+            "NNC_prop" = "NNC",
+            "Genic_Genomic_prop" = "Genic",
+            "Antisense_prop" = "Antisense",
+            "Fusion_prop" = "Fusion",
+            "Intergenic_prop" = "Intergenic",
+            "Genic_intron_prop" = "Genic_intron"
+          )
+
           for (cat_col in names(cat_colors)) {
             if (cat_col %in% colnames(merged_umap)) {
               cat_color <- cat_colors[[cat_col]]
@@ -648,14 +667,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
               # Use Category Color for ALL clusters
               for (cat_col in names(cat_colors)) {
                 tag <- cat_labels[[cat_col]]
-                prop_col <- paste0(tag, "_TSS_ratio_validated_prop")
-                if (tag == "Genic Genomic") prop_col <- "Genic_TSS_ratio_validated_prop" # Handle Genic weirdness if needed
-                if (tag == "Genic Intron") prop_col <- "Genic_intron_TSS_ratio_validated_prop"
-
-                # Clean up tag to match column naming convention if straightforward
-                simple_tag <- names(cat_labels)[which(cat_labels == tag)]
-                simple_tag <- gsub("_prop", "", simple_tag)
-                prop_col <- paste0(simple_tag, "_TSS_ratio_validated_prop")
+                prop_col <- paste0(cat_col_prefixes[[cat_col]], "_TSS_ratio_validated_prop")
 
                 if (prop_col %in% colnames(merged_umap)) {
                   # Define single color map
@@ -710,9 +722,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
             for (cat_col in names(cat_labels)) {
               # cat_labels[[cat_col]] is e.g. "FSM", "Genic Genomic"
               tag <- cat_labels[[cat_col]]
-              tag_clean <- gsub(" ", "_", tag)
-              # New column name format: {TAG}_srjunctions_support_prop
-              sr_col <- paste0(tag_clean, "_srjunctions_support_prop")
+              # New column name format: {PREFIX}_srjunctions_support_prop
+              sr_col <- paste0(cat_col_prefixes[[cat_col]], "_srjunctions_support_prop")
 
               if (sr_col %in% colnames(merged_umap)) {
                 cat_data <- prepare_violin_data(merged_umap, sr_col)
@@ -809,8 +820,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # Per-Category
     for (cat_col in names(cat_labels)) {
       tag <- cat_labels[[cat_col]]
-      tag_clean <- gsub(" ", "_", tag)
-      sr_col <- paste0(tag_clean, "_srjunctions_support_prop")
+      sr_col <- paste0(cat_col_prefixes[[cat_col]], "_srjunctions_support_prop")
 
       if (sr_col %in% colnames(merged_umap)) {
         gg_sr_umap_plots[[tag]] <<- build_continuous_umap(
@@ -839,11 +849,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # Per-Category
     for (cat_col in names(cat_labels)) {
       tag <- cat_labels[[cat_col]]
-      tag_clean <- gsub(" ", "_", tag)
-      # Handle special cases if any (e.g. Genic Genomic)
-      simple_tag <- names(cat_labels)[which(cat_labels == tag)]
-      simple_tag <- gsub("_prop", "", simple_tag)
-      tss_col <- paste0(simple_tag, "_TSS_ratio_validated_prop")
+      tss_col <- paste0(cat_col_prefixes[[cat_col]], "_TSS_ratio_validated_prop")
 
       if (tss_col %in% colnames(merged_umap)) {
         gg_tss_umap_plots[[tag]] <<- build_continuous_umap(
