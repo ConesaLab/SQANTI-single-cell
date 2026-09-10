@@ -2152,14 +2152,16 @@ if (!show_umap) {
 }
 ```
 
-```{r sr-cluster-header, results='asis'}
-if (mode != "reads" && exists("gg_sr_cluster_plots") && length(gg_sr_cluster_plots) > 0) {
-  cat("## Junctions Coverage by Short Reads {.tabset}\n")
-}
-```
-
 ```{r sr-cluster-check, include=FALSE}
 show_sr_cluster <- (exists("gg_sr_cluster_plots") && length(gg_sr_cluster_plots) > 0)
+```
+
+```{r sr-cluster-header, results='asis'}
+# Must be the same condition as every child below, or the sub-headers render
+# with no parent section and no tabset to sit in.
+if (show_sr_cluster) {
+  cat("## Junctions Coverage by Short Reads {.tabset}\n")
+}
 ```
 
 ```{r sr-dist-tab, results='asis'}
@@ -2409,14 +2411,16 @@ if (show_sr_cluster && !is.null(gg_sr_umap_plots[["Genic Intron"]])) {
 ```
 </div>
 
-```{r tss-cluster-header, results='asis'}
-if (mode != "reads" && exists("gg_tss_cluster_plots") && length(gg_tss_cluster_plots) > 0) {
-  cat("## TSS Coverage by Short Reads {.tabset}\n")
-}
-```
-
 ```{r tss-cluster-check, include=FALSE}
 show_tss_cluster <- (exists("gg_tss_cluster_plots") && length(gg_tss_cluster_plots) > 0)
+```
+
+```{r tss-cluster-header, results='asis'}
+# Must be the same condition as every child below, or the sub-headers render
+# with no parent section and no tabset to sit in.
+if (show_tss_cluster) {
+  cat("## TSS Coverage by Short Reads {.tabset}\n")
+}
 ```
 
 ```{r tss-dist-tab, results='asis'}
@@ -2515,6 +2519,14 @@ if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Fusion"]])) {
 ```{r tss-cluster-Intergenic, fig.height=8, fig.width=12, eval=show_tss_cluster, out.width="100%"}
 if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Intergenic"]])) {
   print(gg_tss_cluster_plots[["Intergenic"]])
+}
+```
+</div>
+
+<div id="tss-cluster-Genic_Intron" class="toggle-pane hidden-pane" style="display:block;">
+```{r tss-cluster-Genic_Intron, fig.height=8, fig.width=12, eval=show_tss_cluster, out.width="100%"}
+if (show_tss_cluster && !is.null(gg_tss_cluster_plots[["Genic Intron"]])) {
+  print(gg_tss_cluster_plots[["Genic Intron"]])
 }
 ```
 </div>
