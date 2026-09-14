@@ -18,13 +18,13 @@ def generate_report(args, df):
         if os.path.isfile(class_file):
             try:
                 flags = []
-                if args.ignore_cell_summary:
+                if getattr(args, 'ignore_cell_summary', False):
                     flags.append("--ignore_cell_summary")
                 if getattr(args, 'include_ORF', False):
                     flags.append("--include_ORF")
-                if args.CAGE_peak:
+                if getattr(args, 'CAGE_peak', None):
                     flags.append("--CAGE_peak")
-                if args.polyA_motif_list:
+                if getattr(args, 'polyA_motif_list', None):
                     flags.append("--polyA_motif_list")
                 
                 cell_summary_file = f"{outputPathPrefix}_SQANTI_cell_summary.txt.gz"

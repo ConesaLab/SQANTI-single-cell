@@ -491,6 +491,80 @@ The clustering process can be customized using the following arguments:
 *   **`--n_clusters`**: Number of clusters to force if using K-means clustering (Default: 10).
 
 
+<a name="cell-filter"></a>
+
+## Cell filter (`sqanti_sc_filter.py cells`)
+
+Once a QC run has finished, `sqanti_sc_filter.py` identifies low-quality cell barcodes from the per-cell metrics in `*_SQANTI_cell_summary.txt.gz`. It is a **separate entry point** so that thresholds can be retuned without re-running SQANTI3 QC, and it needs neither the genome FASTA nor the reference GTF:
+
+```bash
+python sqanti_sc_filter.py cells \
+    --design design.csv \
+    --mode isoforms \
+    --out_dir ./results
+```
+
+That writes the verdict without changing anything. Add `--apply` to also materialise the filtered dataset.
+
+**Nothing existing is ever modified.** The filter reads `*_classification.txt`, `*_junctions.txt` and `*_SQANTI_cell_summary.txt.gz` read-only and writes everything into `<out_dir>/<file_acc>/<run_name>/`, so different threshold trials can sit side by side (`--run_name depth10`, `--run_name depth50`) and be compared.
+
+### Output
+
+Always written, mirroring the SQANTI3 filter's contract:
+
+| File | Contents |
+|---|---|
+| `<sampleID>_CellFilter_cell_summary.txt.gz` | **Every** barcode, all its metrics, plus `filter_result` (`Cell`/`Artifact`), `filter_source` and `filter_reason`, and a `<criterion>_status` column per rule. Not a subset. |
+| `<sampleID>_pass_cells.txt` | Passing barcodes, one per line — usable directly as a Scanpy/Seurat subset |
+| `<sampleID>_cell_filtering_reasons.txt` | Discarded barcodes and why |
+| `<sampleID>_cell_filter_params.txt` | Every threshold used, plus the run statistics |
+
+With `--apply`, the filtered `*_classification.txt`, `*_junctions.txt` and `*_SQANTI_cell_summary.txt.gz` are written into the same directory along with `<out_dir>/<run_name>_design.csv`, which can be fed straight back to the report, clustering and export steps via `--report`, `--run_clustering`, `--export_h5ad` and `--multisample_report`.
+
+Note that filtering cells also removes transcript models that were observed **only** in discarded cells. The count is reported as `TranscriptModelsLostAllSupport`.
+
+### Rules and defaults
+
+Criteria live in a JSON file (`--rules`, default `src/filter_assets/cell_filter_default.json`) using the same vocabulary as the SQANTI3 rules filter: a list of two numbers is a `[min, max]` range, a bare number is a minimum, and a string or list of strings is category membership.
+
+```json
+{
+  "all": {
+    "@depth": 10,
+    "Annotated_genes": 10,
+    "MT_perc": [0, 50],
+    "RTS_prop_in_cell": [0, 5],
+    "Intrapriming_prop_in_cell": [0, 20],
+    "Non_canonical_prop_in_cell": [0, 10]
+  }
+}
+```
+
+`@depth` resolves to `Reads_in_cell` in reads mode and `Transcripts_in_cell` in isoforms mode, so one file works for both.
+
+**These are defaults, not recommendations.** They are deliberately loose, and the right values depend on your tissue, platform and library chemistry — edit the JSON for your data.
+
+*   **`@depth`** and **`Annotated_genes`** (min 10): below ~10 no proportion is estimable at better than 10% granularity. `Annotated_genes` rather than `Genes_in_cell`, because SQANTI3 mints a fresh `novelGene_*` id for nearly every unassignable read, so `Genes_in_cell` partly counts artifacts.
+*   **`MT_perc`** (max 50): a ruptured cell loses cytoplasmic mRNA while membrane-bound mitochondria stay, so high MT does indicate damage. But the familiar 5–10% thresholds come from 3′ short-read assays; MT transcripts are short and long-read protocols size-select, and some cell types (cardiomyocytes, neurons) genuinely run at 30–50%. Tighten it only once you have looked at MT% against `Annotated_genes` in your own data.
+*   **`RTS_prop_in_cell`** (max 5), **`Intrapriming_prop_in_cell`** (max 20), **`Non_canonical_prop_in_cell`** (max 10): SQANTI-specific artifact loads, and the criteria a general-purpose single-cell QC tool cannot compute. These three values are not yet calibrated against measured data.
+
+Criteria that are only computed when a SQANTI3 flag was supplied — `PolyA_motif_support_prop`, `CAGE_peak_support_prop`, `TSS_ratio_validated_prop`, `srjunctions_support_prop`, `NMD_prop_in_cell` — are deliberately absent from the defaults, because `cell_metrics.py` writes them as a constant when the flag was not used and a rule on one of them would reflect your command line rather than your data. Adding one is allowed; the filter warns if the column does not vary.
+
+### Shallow cells and `--min_depth_for_props`
+
+A proportion whose denominator is zero is written as `0`, and `0` is the *good* end of every artifact scale — so a cell with almost no multi-exonic reads would silently pass a `Non_canonical_prop_in_cell` rule on missing data. Each proportion is therefore only evaluated when **its own** denominator (the cell's depth, `total_*_no_monoexon`, or `total_junctions` as appropriate) reaches `--min_depth_for_props` (default 100). Below that the criterion is recorded as `not_evaluated` rather than passed: no evidence must not read as evidence of quality. Raw counts are never gated.
+
+### Manual barcode lists
+
+*   **`--keep_barcodes`**: retained unconditionally, bypassing every rule.
+*   **`--drop_barcodes`**: discarded unconditionally.
+*   **`--barcode_universe`**: restricts the run to the listed barcodes; listed barcodes still face the rules. Use this to import an external cell-calling result.
+
+Each takes one barcode per line (`#` comments and blank lines ignored), or two tab-separated columns `sampleID<TAB>barcode` to scope entries to one sample — which matters in a multi-sample design, since the same 16 bp barcode appears in every 10x sample. A `barcodes.tsv` from an MEX directory can be used as-is. Listing a barcode in both `--keep_barcodes` and `--drop_barcodes` is an error rather than a silent precedence rule.
+
+Barcodes that are not cells at all (`unassigned`, `NA`, `-`, `*`, empty) are excluded before any statistic and reported — an `unassigned` row aggregates every read that was never assigned to a cell, so it would otherwise dominate any depth-based statistic.
+
+
 <a name="understanding-the-output-of-sqanti-sc"></a>
 
 ## Understanding the output of SQANTI-sc
