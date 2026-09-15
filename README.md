@@ -535,6 +535,19 @@ The majority of SQANTI-reads-specific otuputs are not output by SQANTI-sc, with 
 
 The output `_SQANTI_cell_summary.txt.gz` has the following possible fields:
 
+> **Proportion columns can be `NA`.** Every `*_prop`, `*_perc` and `*_support` column
+> is a percentage of some denominator — the cell's reads, its junctions, or its reads
+> of one structural category. When that denominator is 0 the column is `NA`, because
+> there is no quantity to take a percentage of: a cell with no fusion reads has no
+> fusion RT-switching rate. This is distinct from a genuine `0`, which means the
+> denominator was positive and the numerator was 0 (for example 100 canonical and 0
+> non-canonical junctions is `0`, not `NA`). Count columns are never `NA` — a cell
+> with no fusion reads has a `Fusion` count of `0`. Filter or aggregate accordingly
+> (`na.rm = TRUE` in R, `skipna=True` is the pandas default); the denominator columns
+> (`Reads_in_cell` / `Transcripts_in_cell`, `total_junctions`,
+> `total_reads_no_monoexon` / `total_transcripts_no_monoexon`, and the per-category
+> counts) are all present in this file if you need to reconstruct which case applies.
+
 * **`CB`** : Cell Barcode identifier.  
 * **`Reads_in_cell`** / **`Transcripts_in_cell`** : Total number of reads (Reads Mode) or transcripts (Isoforms Mode) associated with the cell.  
 * **`UMIs_in_cell`** : Total number of unique Molecular Identifiers (UMIs) detected (Reads Mode only) in the cell.  

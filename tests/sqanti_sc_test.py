@@ -16,6 +16,8 @@ if sys.platform == 'win32':
     sys.modules['pysam'] = MagicMock()
 # --------------------------------
 
+import gzip
+
 import pandas as pd
 import pytest
 
@@ -1982,3 +1984,191 @@ def test_pipeline_main_with_export_h5ad(
     pipeline_main()
     assert mock_export.called
     assert mock_generate_report.called
+
+
+class TestUndefinedProportions:
+    """
+    A proportion whose denominator is 0 must be NA, not 0.
+
+    Three situations used to collapse onto the same value and became
+    indistinguishable the moment the summary was written:
+
+      * numerator 0 over a positive denominator -- a real 0%, must stay 0
+      * a cell missing from a groupby -- nothing of that kind, also a real 0
+      * denominator 0 -- no such quantity exists to take a percentage OF
+
+    Only the third is undefined, and the split is about the DENOMINATOR, not
+    about count-vs-proportion: a cell with 100 canonical and 0 non-canonical
+    junctions has a well-defined 0% and must keep appearing in the figures.
+    Counts are never affected -- "no fusion reads" is a true count of 0.
+    """
+
+    CLS_COLS = {
+        "associated_gene": "geneA", "associated_transcript": "txA",
+        "length": 500, "ref_length": 600, "chrom": "chr1",
+        "subcategory": "reference_match", "RTS_stage": "False",
+        "predicted_NMD": "False", "perc_A_downstream_TTS": "0",
+        "diff_to_gene_TSS": "0", "coding": "coding",
+    }
+
+    def _cls(self, isoform, cb, category, exons=2, canonical="canonical", fl=None):
+        row = dict(self.CLS_COLS, isoform=isoform, CB=cb,
+                   structural_category=category, exons=exons,
+                   all_canonical=canonical)
+        if fl is not None:
+            row["FL"] = fl
+        return row
+
+    def _junc(self, isoform, category="known", canonical="canonical"):
+        return {"isoform": isoform, "junction_category": category,
+                "canonical": canonical, "RTS_junction": "False",
+                "junction_number": "1", "chrom": "chr1", "strand": "+",
+                "genomic_start_coord": "1000", "genomic_end_coord": "2000"}
+
+    def _run(self, mock_args, tmpdir, cls_rows, junc_rows, mode):
+        out_dir = str(tmpdir.join("out_" + mode))
+        sample_dir = os.path.join(out_dir, "f1")
+        os.makedirs(sample_dir, exist_ok=True)
+        prefix = os.path.join(sample_dir, "s1")
+        mock_args.mode = mode
+        mock_args.out_dir = out_dir
+
+        pd.DataFrame(cls_rows).to_csv(f"{prefix}_classification.txt", sep="\t", index=False)
+        pd.DataFrame(junc_rows if junc_rows else None,
+                     columns=None if junc_rows else ["isoform"]).to_csv(
+            f"{prefix}_junctions.txt", sep="\t", index=False)
+
+        calculate_metrics_per_cell(
+            mock_args, pd.DataFrame({"sampleID": ["s1"], "file_acc": ["f1"]}))
+        path = f"{prefix}_SQANTI_cell_summary.txt.gz"
+        assert os.path.isfile(path), "Cell summary was not created"
+        return pd.read_csv(path, sep="\t", compression="gzip"), path
+
+    # ------------------------------------------------------------------
+    # The core distinction, in both directions
+    # ------------------------------------------------------------------
+
+    def test_real_zero_percent_survives(self, mock_args, tmpdir):
+        """A cell with multi-exonic reads that are all canonical is 0%, not NA."""
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=3),
+               self._cls("r2", "CB1", "full-splice_match", exons=3)]
+        summary, _ = self._run(mock_args, tmpdir, cls, None, "reads")
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        assert cb1["total_reads_no_monoexon"] == 2
+        assert cb1["Non_canonical_prop_in_cell"] == 0, (
+            "0 non-canonical out of 2 multi-exonic reads is a genuine 0%; "
+            f"got {cb1['Non_canonical_prop_in_cell']}"
+        )
+
+    def test_zero_denominator_is_na(self, mock_args, tmpdir):
+        """A cell with only mono-exonic reads has no multi-exonic denominator."""
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=1),
+               self._cls("r2", "CB1", "full-splice_match", exons=1)]
+        summary, _ = self._run(mock_args, tmpdir, cls, None, "reads")
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        assert cb1["total_reads_no_monoexon"] == 0
+        assert pd.isna(cb1["Non_canonical_prop_in_cell"]), (
+            "no multi-exonic reads means there is no percentage of them to report; "
+            f"got {cb1['Non_canonical_prop_in_cell']}"
+        )
+
+    def test_both_cells_in_one_run_stay_distinguishable(self, mock_args, tmpdir):
+        """The point of the change: the two cases must not land on one value."""
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=3),
+               self._cls("r2", "CB2", "full-splice_match", exons=1)]
+        summary, _ = self._run(mock_args, tmpdir, cls, None, "reads")
+        by_cb = summary.set_index("CB")["Non_canonical_prop_in_cell"]
+        assert by_cb["CB1"] == 0
+        assert pd.isna(by_cb["CB2"])
+
+    # ------------------------------------------------------------------
+    # Counts are untouched
+    # ------------------------------------------------------------------
+
+    def test_counts_never_become_na(self, mock_args, tmpdir):
+        """"No fusion reads" is a count of 0 and stays one."""
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=1)]
+        summary, _ = self._run(mock_args, tmpdir, cls, None, "reads")
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        for col in ["Reads_in_cell", "total_reads_no_monoexon", "Fusion", "total_junctions"]:
+            assert not pd.isna(cb1[col]), f"count column {col} must not be NA"
+        assert cb1["Fusion"] == 0
+
+    # ------------------------------------------------------------------
+    # Junction proportions: the compositional property §1n describes
+    # ------------------------------------------------------------------
+
+    JUNC_PROPS = ["Known_canonical_junctions_prop", "Known_non_canonical_junctions_prop",
+                  "Novel_canonical_junctions_prop", "Novel_non_canonical_junctions_prop"]
+
+    def test_junction_proportions_sum_to_100_when_defined(self, mock_args, tmpdir):
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=2)]
+        junc = [self._junc("r1"), self._junc("r1", canonical="non_canonical")]
+        summary, _ = self._run(mock_args, tmpdir, cls, junc, "reads")
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        assert cb1[self.JUNC_PROPS].sum() == pytest.approx(100.0)
+
+    def test_junction_proportions_na_when_cell_has_no_junctions(self, mock_args, tmpdir):
+        """
+        Previously all four read 0 and summed to 0 -- a cell that looked like it
+        had a junction composition adding up to nothing. NA restores the
+        property by making the cell simply absent from all four.
+        """
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=2),
+               self._cls("r2", "CB2", "full-splice_match", exons=1)]
+        junc = [self._junc("r1")]
+        summary, _ = self._run(mock_args, tmpdir, cls, junc, "reads")
+        cb2 = summary.set_index("CB").loc["CB2"]
+        assert cb2["total_junctions"] == 0
+        for col in self.JUNC_PROPS:
+            assert pd.isna(cb2[col]), f"{col} should be NA for a cell with no junctions"
+
+    # ------------------------------------------------------------------
+    # Per-structural-category proportions -- the ~50 call sites, and the
+    # ones that feed the "by Structural Category" violin panels
+    # ------------------------------------------------------------------
+
+    def test_absent_category_is_na_while_present_category_is_zero(self, mock_args, tmpdir):
+        """
+        A cell with FSM reads and no fusion reads gets 0% RT-switching for FSM
+        (measured, none found) and NA for Fusion (nothing to measure). Drawing
+        the second as 0 is what filled these violins with cells that have no
+        reads of the category at all.
+        """
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=2)]
+        summary, _ = self._run(mock_args, tmpdir, cls, None, "reads")
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        assert cb1["FSM_RTS_prop"] == 0
+        assert pd.isna(cb1["Fusion_RTS_prop"])
+
+    # ------------------------------------------------------------------
+    # Isoforms mode is a separate code path (_isoforms_summary)
+    # ------------------------------------------------------------------
+
+    def test_isoforms_mode_applies_the_same_rule(self, mock_args, tmpdir):
+        cls = [self._cls("i1", "CB1,CB2", "full-splice_match", exons=3, fl="4,0"),
+               self._cls("i2", "CB2", "full-splice_match", exons=1, fl="3")]
+        summary, _ = self._run(mock_args, tmpdir, cls, None, "isoforms")
+        by_cb = summary.set_index("CB")
+        assert by_cb.loc["CB1", "Non_canonical_prop_in_cell"] == 0
+        assert pd.isna(by_cb.loc["CB2", "Non_canonical_prop_in_cell"])
+        assert pd.isna(by_cb.loc["CB2", "Fusion_RTS_prop"])
+
+    # ------------------------------------------------------------------
+    # The on-disk representation R has to read
+    # ------------------------------------------------------------------
+
+    def test_undefined_is_written_as_NA_not_blank(self, mock_args, tmpdir):
+        """
+        data.table::fread and read.table both map the literal NA to R's NA for a
+        numeric column. An empty field is the pandas default and is far less
+        explicit, so it is set deliberately at the write.
+        """
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=1)]
+        _, path = self._run(mock_args, tmpdir, cls, None, "reads")
+        with gzip.open(path, "rt") as fh:
+            header = fh.readline().rstrip("\n").split("\t")
+            values = fh.readline().rstrip("\n").split("\t")
+        row = dict(zip(header, values))
+        assert row["Non_canonical_prop_in_cell"] == "NA"
+        assert float(row["total_reads_no_monoexon"]) == 0.0
