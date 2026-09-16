@@ -39,6 +39,7 @@ from qc_io import fill_design_table
 from sqanti3_qc_runner import run_sqanti3_qc
 from classification_enrichment import annotate_with_ujc_hash, annotate_with_cell_metadata, annotate_with_sample_support
 from qc_reports import generate_report, generate_multisample_report
+from qc_args import build_parser, warn_ignored_options
 from qc_pipeline import main as pipeline_main
 from cell_metrics import calculate_metrics_per_cell
 from sc_clustering import prepare_anndata, run_clustering_analysis
@@ -554,6 +555,49 @@ def test_pipeline_main_smoke(
     assert mock_generate_report.called
 
 
+class TestIncludeORFInReadsMode:
+    """--include_ORF is accepted but inert in reads mode; it must say so, not fail."""
+
+    def test_warns_in_reads_mode(self, mock_args, capsys):
+        mock_args.mode = 'reads'
+        mock_args.include_ORF = True
+
+        warn_ignored_options(mock_args)
+
+        err = capsys.readouterr().err
+        assert '[WARNING]' in err
+        assert '--include_ORF' in err
+        assert 'reads mode' in err
+
+    def test_silent_in_isoforms_mode(self, mock_args, capsys):
+        mock_args.mode = 'isoforms'
+        mock_args.include_ORF = True
+
+        warn_ignored_options(mock_args)
+
+        assert capsys.readouterr().err == ''
+
+    def test_silent_when_flag_absent(self, mock_args, capsys):
+        mock_args.mode = 'reads'
+        mock_args.include_ORF = False
+
+        warn_ignored_options(mock_args)
+
+        assert capsys.readouterr().err == ''
+
+    def test_reads_mode_still_accepts_the_flag(self):
+        args = build_parser().parse_args([
+            '--refFasta', 'g.fa', '--refGTF', 'a.gtf',
+            '--design', 'd.csv', '--mode', 'reads', '--include_ORF',
+        ])
+        assert args.include_ORF is True
+
+    def test_help_text_names_the_limitation(self):
+        orf_help = [a.help for a in build_parser()._actions
+                    if '--include_ORF' in a.option_strings][0]
+        assert 'reads' in orf_help
+
+
 def test_calculate_metrics_divzero_safety(tmpdir, mock_args):
     """Minimal file setup to ensure function writes summary even with zero denoms."""
     # Arrange: create minimal classification file with no CB → empty valid set
@@ -925,7 +969,7 @@ def test_generate_report_with_clustering_flag(mock_isfile, mock_run, mock_args):
 def test_generate_report_with_optional_flags(mock_isfile, mock_run, mock_args):
     """Flags like --include_ORF, --CAGE_peak, --polyA_motif_list should appear in command."""
     mock_isfile.return_value = True
-    mock_args.mode = "reads"
+    mock_args.mode = "isoforms"
     mock_args.include_ORF = True
     mock_args.CAGE_peak = True
     mock_args.polyA_motif_list = True
@@ -935,6 +979,26 @@ def test_generate_report_with_optional_flags(mock_isfile, mock_run, mock_args):
 
     actual_cmd = " ".join(mock_run.call_args[0][0].split())
     assert "--include_ORF" in actual_cmd
+    assert "--CAGE_peak" in actual_cmd
+    assert "--polyA_motif_list" in actual_cmd
+
+
+@patch('qc_reports.subprocess.run')
+@patch('qc_reports.os.path.isfile')
+@patch('qc_reports.reportAssetsPath', 'utilities')
+def test_generate_report_drops_include_ORF_in_reads_mode(mock_isfile, mock_run, mock_args):
+    """No ORF is predicted in reads mode, so the report must not be told there was."""
+    mock_isfile.return_value = True
+    mock_args.mode = "reads"
+    mock_args.include_ORF = True
+    mock_args.CAGE_peak = True
+    mock_args.polyA_motif_list = True
+    df = pd.DataFrame({"sampleID": ["sample1"], "file_acc": ["file1"]})
+
+    generate_report(mock_args, df)
+
+    actual_cmd = " ".join(mock_run.call_args[0][0].split())
+    assert "--include_ORF" not in actual_cmd
     assert "--CAGE_peak" in actual_cmd
     assert "--polyA_motif_list" in actual_cmd
 

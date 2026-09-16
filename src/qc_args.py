@@ -1,4 +1,5 @@
 import argparse
+import sys
 
 def build_parser(version_str: str = '1.2.0'):
     ap = argparse.ArgumentParser(
@@ -76,7 +77,9 @@ def build_parser(version_str: str = '1.2.0'):
     # SQANTI3 ORF prediction
     apo = ap.add_argument_group("SQANTI3 ORF prediction")
     apo.add_argument('--include_ORF', action="store_true", default=False,
-                     help="Include ORF prediction.")
+                     help="Include ORF prediction. Isoforms mode only: ignored in reads "
+                          "mode, where predicting an ORF for every read is prohibitively "
+                          "slow, so the coding, non-coding and NMD columns are NA.")
     apo.add_argument('--orf_input',
                      help="Input fasta for ORF prediction.")
 
@@ -142,3 +145,11 @@ def build_parser(version_str: str = '1.2.0'):
     return ap
 
 
+def warn_ignored_options(args):
+    # Warn rather than reject: an ignored flag is harmless, and erroring would break
+    # design files and scripts that carry it for both modes.
+    if getattr(args, 'mode', None) == 'reads' and getattr(args, 'include_ORF', False):
+        print("[WARNING] --include_ORF is ignored in reads mode. Predicting an ORF for "
+              "every read is prohibitively slow, so SQANTI-sc never runs it there, and "
+              "the coding, non-coding and NMD columns of the cell summary will be NA. "
+              "Use --mode isoforms if you need ORF predictions.", file=sys.stderr)
