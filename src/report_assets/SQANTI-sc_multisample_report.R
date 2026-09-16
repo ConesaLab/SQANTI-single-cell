@@ -497,9 +497,8 @@ attach_zoom_inset <- function(main_plot, plot_df, x_var, y_var,
 #
 # conditional = TRUE marks features that only carry information when the
 # matching SQANTI3 run flag was used. Those columns are written unconditionally
-# by cell_metrics.py, filled with a constant sentinel when the flag is absent
-# (e.g. NMD_prop_in_cell = 0, PolyA_motif_support_prop = 0), so a plain
-# "column exists in every sample" test does not catch them -- see
+# by cell_metrics.py, filled with NA in every cell when the flag is absent, so a
+# plain "column exists in every sample" test does not catch them -- see
 # curated_feature_table().
 # Entries are named vectors: name = cell-summary column, value = display label.
 # Curating the feature set includes curating how it reads, so labels are

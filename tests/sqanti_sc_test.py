@@ -2172,3 +2172,207 @@ class TestUndefinedProportions:
         row = dict(zip(header, values))
         assert row["Non_canonical_prop_in_cell"] == "NA"
         assert float(row["total_reads_no_monoexon"]) == 0.0
+
+
+class TestNeverMeasuredAttributes:
+    """
+    An attribute the run never evaluated must be NA, not 0.
+
+    SQANTI3 writes the literal NA for anything it could not compute -- no short
+    reads, no CAGE bed, no ORF prediction, or a read with no junction to cover.
+    cell_metrics.py used to fill those NAs with 0 and then test them against a
+    threshold, which reports "0% supported" for a criterion that was never
+    applied. The distinction the summary has to keep is:
+
+      * measured, and none passed -> 0%, a real result
+      * never measured           -> NA, no result to report
+
+    A read whose flag is NA therefore leaves the DENOMINATOR rather than
+    counting as a failure, which makes the whole-column case fall out on its
+    own: nothing measured anywhere means a zero denominator in every cell.
+    """
+
+    CLS_COLS = {
+        "associated_gene": "geneA", "associated_transcript": "txA",
+        "length": 500, "ref_length": 600, "chrom": "chr1",
+        "subcategory": "reference_match", "RTS_stage": "False",
+        "perc_A_downstream_TTS": "0", "diff_to_gene_TSS": "0",
+        "coding": "coding", "all_canonical": "canonical",
+    }
+
+    def _cls(self, isoform, cb, exons=2, fl=None, **attrs):
+        row = dict(self.CLS_COLS, isoform=isoform, CB=cb, exons=exons,
+                   structural_category="full-splice_match")
+        row.update(attrs)
+        if fl is not None:
+            row["FL"] = fl
+        return row
+
+    def _run(self, mock_args, tmpdir, cls_rows, mode="reads"):
+        out_dir = str(tmpdir.join("out_" + mode + str(len(cls_rows))))
+        sample_dir = os.path.join(out_dir, "f1")
+        os.makedirs(sample_dir, exist_ok=True)
+        prefix = os.path.join(sample_dir, "s1")
+        mock_args.mode = mode
+        mock_args.out_dir = out_dir
+
+        pd.DataFrame(cls_rows).to_csv(f"{prefix}_classification.txt", sep="\t", index=False)
+        pd.DataFrame(columns=["isoform"]).to_csv(f"{prefix}_junctions.txt", sep="\t", index=False)
+
+        calculate_metrics_per_cell(
+            mock_args, pd.DataFrame({"sampleID": ["s1"], "file_acc": ["f1"]}))
+        path = f"{prefix}_SQANTI_cell_summary.txt.gz"
+        assert os.path.isfile(path), "Cell summary was not created"
+        return pd.read_csv(path, sep="\t", compression="gzip").set_index("CB"), path
+
+    # ------------------------------------------------------------------
+    # Short-read support: the column SQANTI3 leaves entirely NA
+    # ------------------------------------------------------------------
+
+    def test_no_short_reads_is_na_not_zero_percent(self, mock_args, tmpdir):
+        """
+        min_cov is NA on every row when no short reads were given. The summary
+        used to assert 0% support, which reads as "measured and unsupported".
+        """
+        cls = [self._cls("r1", "CB1"), self._cls("r2", "CB1")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        assert pd.isna(summary.loc["CB1", "srjunctions_support_prop"])
+        assert pd.isna(summary.loc["CB1", "FSM_srjunctions_support_prop"])
+
+    def test_measured_but_unsupported_stays_zero(self, mock_args, tmpdir):
+        """The other direction: a real 0% must not be swept into NA."""
+        cls = [self._cls("r1", "CB1", min_cov="0"), self._cls("r2", "CB1", min_cov="0")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        assert summary.loc["CB1", "srjunctions_support_prop"] == 0
+
+    def test_unmeasured_reads_leave_the_denominator(self, mock_args, tmpdir):
+        """
+        One supported read, one measured-and-unsupported, one never measured:
+        50%, not the 33% that counting the NA read as a failure gives.
+        """
+        cls = [self._cls("r1", "CB1", min_cov="5"),
+               self._cls("r2", "CB1", min_cov="0"),
+               self._cls("r3", "CB1")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        assert summary.loc["CB1", "srjunctions_support_prop"] == pytest.approx(50.0)
+        assert summary.loc["CB1", "Reads_in_cell"] == 3
+
+    def test_tss_ratio_follows_the_same_rule(self, mock_args, tmpdir):
+        cls = [self._cls("r1", "CB1", ratio_TSS="10"),
+               self._cls("r2", "CB1"),
+               self._cls("r3", "CB2")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        assert summary.loc["CB1", "TSS_ratio_validated_prop"] == pytest.approx(100.0)
+        assert pd.isna(summary.loc["CB2", "TSS_ratio_validated_prop"])
+
+    # ------------------------------------------------------------------
+    # The run flags: the attribute is not in the data at all
+    # ------------------------------------------------------------------
+
+    def test_cage_and_polya_are_na_without_their_flags(self, mock_args, tmpdir):
+        cls = [self._cls("r1", "CB1")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        for col in ["CAGE_peak_support_prop", "FSM_CAGE_peak_support_prop",
+                    "PolyA_motif_support_prop", "FSM_PolyA_motif_support_prop"]:
+            assert pd.isna(summary.loc["CB1", col]), f"{col} was never measured"
+
+    def test_cage_is_measured_when_the_flag_is_given(self, mock_args, tmpdir):
+        mock_args.CAGE_peak = "cage.bed"
+        cls = [self._cls("r1", "CB1", within_CAGE_peak="TRUE"),
+               self._cls("r2", "CB1", within_CAGE_peak="FALSE")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        assert summary.loc["CB1", "CAGE_peak_support_prop"] == pytest.approx(50.0)
+
+    def test_coding_is_na_without_include_ORF(self, mock_args, tmpdir):
+        """
+        The old fallback claimed 0% coding and 100% non-coding for every cell --
+        a confident statement produced by a run that predicted no ORFs at all.
+        """
+        cls = [self._cls("r1", "CB1")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        for col in ["NMD_prop_in_cell", "FSM_coding_prop", "FSM_non_coding_prop"]:
+            assert pd.isna(summary.loc["CB1", col]), f"{col} was never measured"
+
+    def test_reads_mode_never_claims_coding_was_measured(self, mock_args, tmpdir):
+        """
+        --include_ORF is forwarded to SQANTI3 in isoforms mode only, so a reads-mode
+        run never predicts an ORF however the flag is set. `coding` is then the
+        string default "non_coding" on every row -- a value indistinguishable from a
+        measurement, which the old code published as 0% coding / 100% non-coding.
+        """
+        mock_args.include_ORF = True
+        cls = [self._cls("r1", "CB1", coding="non_coding"),
+               self._cls("r2", "CB1", coding="non_coding")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        for col in ["FSM_coding_prop", "FSM_non_coding_prop", "NMD_prop_in_cell"]:
+            assert pd.isna(summary.loc["CB1", col]), (
+                f"{col} must be NA: reads mode predicts no ORF, so nothing was measured"
+            )
+
+    def test_isoforms_mode_still_measures_coding_when_asked(self, mock_args, tmpdir):
+        """The gate must not swallow the case the flag genuinely does reach."""
+        mock_args.include_ORF = True
+        cls = [self._cls("i1", "CB1", fl="3", coding="coding"),
+               self._cls("i2", "CB1", fl="1", coding="non_coding")]
+        summary, _ = self._run(mock_args, tmpdir, cls, mode="isoforms")
+        assert summary.loc["CB1", "FSM_coding_prop"] == pytest.approx(75.0)
+        assert summary.loc["CB1", "FSM_non_coding_prop"] == pytest.approx(25.0)
+
+    def test_nmd_denominator_skips_entries_with_no_prediction(self, mock_args, tmpdir):
+        """
+        detect_nmd() is reached only for a coding entry and returns only for one
+        with junctions, so predicted_NMD is NA per-entry even in a run that did
+        predict ORFs. Those leave the denominator: 2 FL of 2 measured, not 2 of 7.
+        """
+        mock_args.include_ORF = True
+        cls = [self._cls("i1", "CB1", fl="2", predicted_NMD="TRUE"),
+               self._cls("i2", "CB1", fl="5", exons=1)]
+        summary, _ = self._run(mock_args, tmpdir, cls, mode="isoforms")
+        assert summary.loc["CB1", "NMD_prop_in_cell"] == pytest.approx(100.0)
+
+    # ------------------------------------------------------------------
+    # Isoforms mode is a separate code path (_isoforms_summary)
+    # ------------------------------------------------------------------
+
+    def test_isoforms_mode_applies_the_same_rule(self, mock_args, tmpdir):
+        cls = [self._cls("i1", "CB1,CB2", fl="4,2", min_cov="5"),
+               self._cls("i2", "CB2", fl="3")]
+        summary, _ = self._run(mock_args, tmpdir, cls, mode="isoforms")
+        assert summary.loc["CB1", "srjunctions_support_prop"] == pytest.approx(100.0)
+        # CB2 holds 2 FL of a measured, supported transcript and 3 FL of an
+        # unmeasured one. FL weighting applies to the measured pair only, so 100%
+        # -- counting the unmeasured 3 as failures gave 40%.
+        assert summary.loc["CB2", "srjunctions_support_prop"] == pytest.approx(100.0)
+        for col in ["CAGE_peak_support_prop", "PolyA_motif_support_prop",
+                    "NMD_prop_in_cell", "FSM_non_coding_prop",
+                    "TSS_ratio_validated_prop"]:
+            assert pd.isna(summary.loc["CB1", col]), f"{col} was never measured"
+
+    def test_isoforms_mode_has_no_ujc_denominator(self, mock_args, tmpdir):
+        """
+        Annotated_juction_strings_prop_in_cell divides by UJCs_in_cell, which
+        isoforms mode never computes. It was hardcoded to 0.
+        """
+        cls = [self._cls("i1", "CB1", fl="4")]
+        summary, _ = self._run(mock_args, tmpdir, cls, mode="isoforms")
+        assert pd.isna(summary.loc["CB1", "Annotated_juction_strings_prop_in_cell"])
+
+    # ------------------------------------------------------------------
+    # Counts and the on-disk form
+    # ------------------------------------------------------------------
+
+    def test_counts_are_untouched(self, mock_args, tmpdir):
+        cls = [self._cls("r1", "CB1")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        for col in ["Reads_in_cell", "FSM", "total_junctions", "Genes_in_cell"]:
+            assert not pd.isna(summary.loc["CB1", col]), f"count column {col} must not be NA"
+
+    def test_never_measured_is_written_as_NA(self, mock_args, tmpdir):
+        cls = [self._cls("r1", "CB1")]
+        _, path = self._run(mock_args, tmpdir, cls)
+        with gzip.open(path, "rt") as fh:
+            header = fh.readline().rstrip("\n").split("\t")
+            values = fh.readline().rstrip("\n").split("\t")
+        row = dict(zip(header, values))
+        assert row["srjunctions_support_prop"] == "NA"
+        assert row["CAGE_peak_support_prop"] == "NA"
