@@ -5,6 +5,30 @@ import pandas as pd
 import warnings
 from pandas.errors import PerformanceWarning
 
+
+def coerce_keeping_undefined(col):
+    """Numeric-coerce a summary column, filling only the NaNs coercion itself made.
+
+    A NaN already present is safe_prop()'s undefined marker and must reach the
+    file; a NaN that appears only after coercion is unparseable text, which this
+    pass has always turned into 0.
+    """
+    was_na = col.isna()
+    out = pd.to_numeric(col, errors='coerce')
+    return out.where(was_na | out.notna(), 0)
+
+
+def flag_measured(values):
+    """Reads whose SQANTI3 TRUE/FALSE flag was actually evaluated.
+
+    Anything else is SQANTI3's literal NA -- the attribute was never measured
+    for that read (no ORF, no junctions, the run flag absent) -- so the read
+    carries no evidence either way and leaves the denominator rather than
+    counting as a failure.
+    """
+    return (values == 'TRUE') | (values == 'FALSE')
+
+
 def calculate_metrics_per_cell(args, df):
     structural_categories = [
         'full-splice_match', 'incomplete-splice_match', 'novel_in_catalog',
@@ -38,11 +62,22 @@ def calculate_metrics_per_cell(args, df):
         tag = cat_to_tag[cat]
         return 'Genic_Genomic' if cat == 'genic' else tag
 
+    # --include_ORF reaches SQANTI3 in isoforms mode only (sqanti3_qc_runner.py:56),
+    # so in reads mode no ORF is ever predicted and `coding` is the dataclass default
+    # "non_coding" on every row. Unlike its siblings that column has no NA to signal
+    # "not evaluated", so the flag alone cannot be trusted -- ask what actually ran.
+    orf_predicted = bool(getattr(args, 'include_ORF', False)) and args.mode == 'isoforms'
+
     def safe_prop(numer, denom):
+        # NaN, not 0, when the denominator is 0: the cell has nothing of the kind
+        # the proportion is OF, so there is no percentage to report. Writing 0
+        # made "none of this cell's fusion reads are RT-switching" and "this cell
+        # has no fusion reads" the same value, and every figure downstream then
+        # drew the second as if it were the first. A genuine 0/n stays 0.
         numer = numer.astype(float)
         denom = denom.astype(float)
         with np.errstate(divide='ignore', invalid='ignore'):
-            arr = np.where(denom > 0, (numer / denom) * 100.0, 0.0)
+            arr = np.where(denom > 0, (numer / denom) * 100.0, np.nan)
         return pd.Series(arr, index=numer.index)
 
     # ---- RT-switching junction column naming (shared by both mode paths) ----
@@ -132,8 +167,8 @@ def calculate_metrics_per_cell(args, df):
         ref_length = _num('ref_length')
         percA = _num('perc_A_downstream_TTS')
         difftss = _num('diff_to_gene_TSS')
-        mincov = np.nan_to_num(_num('min_cov'), nan=0.0)
-        ratiotss = np.nan_to_num(_num('ratio_TSS'), nan=0.0)
+        mincov = _num('min_cov')
+        ratiotss = _num('ratio_TSS')
         sc = _str('structural_category')
         subcat = _str('subcategory')
         allcanon = _str('all_canonical')
@@ -360,8 +395,10 @@ def calculate_metrics_per_cell(args, df):
                         summary[unique_junc_name[jc]] = pd.Series(u_tot, index=cells_index)
                         summary[rts_unique_junc_name[jc]] = pd.Series(u_rts, index=cells_index)
         else:
-            for cn in list(junc_rename.values()) + ['total_junctions'] + [f"{v}_prop" for v in junc_rename.values()]:
+            for cn in list(junc_rename.values()) + ['total_junctions']:
                 summary[cn] = 0
+            for cn in [f"{v}_prop" for v in junc_rename.values()]:
+                summary[cn] = np.nan
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
                 for jc in junc_types:
@@ -381,7 +418,7 @@ def calculate_metrics_per_cell(args, df):
             denom = summary[final_count_name(cat)]
             for lv in sublevels[cat]:
                 numer = msum(m_cat(cat) & (subcat == lv))
-                summary[f"{cat_to_tag[cat]}_{lv.replace('-', '_')}_prop"] = safe_prop(numer, denom).fillna(0)
+                summary[f"{cat_to_tag[cat]}_{lv.replace('-', '_')}_prop"] = safe_prop(numer, denom)
 
         # ---- gene bins (annotated genes only): abundance + unique isoforms ----
         # Two per-cell distributions over annotated genes, both from a single pass over
@@ -437,22 +474,22 @@ def calculate_metrics_per_cell(args, df):
         lo = lenbin_masks(m_all)
         for dst, src in [('Total_250b_length_prop', 'two_fifty'), ('Total_500b_length_prop', 'five_hund'),
                          ('Total_short_length_prop', 'short'), ('Total_mid_length_prop', 'mid'), ('Total_long_length_prop', 'long')]:
-            summary[dst] = safe_prop(msum(lo[src]), summary['total_reads']).fillna(0)
+            summary[dst] = safe_prop(msum(lo[src]), summary['total_reads'])
         lm = lenbin_masks(m_eq1)
         for dst, src in [('Total_250b_length_mono_prop', 'two_fifty'), ('Total_500b_length_mono_prop', 'five_hund'),
                          ('Total_short_length_mono_prop', 'short'), ('Total_mid_length_mono_prop', 'mid'), ('Total_long_length_mono_prop', 'long')]:
-            summary[dst] = safe_prop(msum(lm[src]), summary['total_reads']).fillna(0)
+            summary[dst] = safe_prop(msum(lm[src]), summary['total_reads'])
         for cat in structural_categories:
             tag = cat_to_tag[cat]
             denom = summary[final_count_name(cat)]
             lc = lenbin_masks(m_cat(cat))
             for dst, src in [('250b_length_prop', 'two_fifty'), ('500b_length_prop', 'five_hund'),
                              ('short_length_prop', 'short'), ('mid_length_prop', 'mid'), ('long_length_prop', 'long')]:
-                summary[f"{tag}_{dst}"] = safe_prop(msum(lc[src]), denom).fillna(0)
+                summary[f"{tag}_{dst}"] = safe_prop(msum(lc[src]), denom)
             lcm = lenbin_masks(m_cat(cat) & m_eq1)
             for dst, src in [('250b_length_mono_prop', 'two_fifty'), ('500b_length_mono_prop', 'five_hund'),
                              ('short_length_mono_prop', 'short'), ('mid_length_mono_prop', 'mid'), ('long_length_mono_prop', 'long')]:
-                summary[f"{tag}_{dst}"] = safe_prop(msum(lcm[src]), denom).fillna(0)
+                summary[f"{tag}_{dst}"] = safe_prop(msum(lcm[src]), denom)
 
         # ---- reference body coverage (FSM/ISM only) ----
         ref_cov_min = float(getattr(args, 'ref_cov_min_pct', 45.0))
@@ -461,126 +498,132 @@ def calculate_metrics_per_cell(args, df):
         for cat in ['full-splice_match', 'incomplete-splice_match']:
             tag = cat_to_tag[cat]
             denom = summary[final_count_name(cat)]
-            summary[f"{tag}_ref_coverage_prop"] = safe_prop(msum(m_cat(cat) & ref_flag), denom).fillna(0)
+            summary[f"{tag}_ref_coverage_prop"] = safe_prop(msum(m_cat(cat) & ref_flag), denom)
         summary['ref_cov_min_pct'] = ref_cov_min
 
         # ---- RTS ----
         rts_true = rts == 'TRUE'
-        summary['RTS_prop_in_cell'] = safe_prop(msum(rts_true), summary['total_reads']).fillna(0)
+        summary['RTS_prop_in_cell'] = safe_prop(msum(rts_true), summary['total_reads'])
         for cat in structural_categories:
             tag = cat_to_tag[cat]
-            summary[f"{tag}_RTS_prop"] = safe_prop(msum(m_cat(cat) & rts_true), msum(m_cat(cat))).fillna(0)
+            summary[f"{tag}_RTS_prop"] = safe_prop(msum(m_cat(cat) & rts_true), msum(m_cat(cat)))
         for abbr, cat in abbr_pairs:
-            summary[f"{abbr}_RTS_prop"] = safe_prop(msum(m_cat(cat) & rts_true), msum(m_cat(cat))).fillna(0)
+            summary[f"{abbr}_RTS_prop"] = safe_prop(msum(m_cat(cat) & rts_true), msum(m_cat(cat)))
 
         # ---- non-canonical ----
         nc_mask = allcanon == 'non_canonical'
-        summary['Non_canonical_prop_in_cell'] = safe_prop(msum(nc_mask), summary['total_reads_no_monoexon']).fillna(0)
+        summary['Non_canonical_prop_in_cell'] = safe_prop(msum(nc_mask), summary['total_reads_no_monoexon'])
         for cat in structural_categories:
             tag = cat_to_tag[cat]
-            summary[f"{tag}_noncanon_prop"] = safe_prop(msum(m_cat(cat) & m_gt1 & nc_mask), msum(m_cat(cat) & m_gt1)).fillna(0)
+            summary[f"{tag}_noncanon_prop"] = safe_prop(msum(m_cat(cat) & m_gt1 & nc_mask), msum(m_cat(cat) & m_gt1))
         for abbr, cat in abbr_pairs:
-            summary[f"{abbr}_noncanon_prop"] = safe_prop(msum(m_cat(cat) & m_gt1 & nc_mask), msum(m_cat(cat) & m_gt1)).fillna(0)
+            summary[f"{abbr}_noncanon_prop"] = safe_prop(msum(m_cat(cat) & m_gt1 & nc_mask), msum(m_cat(cat) & m_gt1))
 
         # ---- intra-priming ----
         intr_mask = percA >= 60
-        summary['Intrapriming_prop_in_cell'] = safe_prop(msum(intr_mask), summary['total_reads']).fillna(0)
+        summary['Intrapriming_prop_in_cell'] = safe_prop(msum(intr_mask), summary['total_reads'])
         for cat in structural_categories:
             tag = cat_to_tag[cat]
-            summary[f"{tag}_intrapriming_prop"] = safe_prop(msum(m_cat(cat) & intr_mask), msum(m_cat(cat))).fillna(0)
+            summary[f"{tag}_intrapriming_prop"] = safe_prop(msum(m_cat(cat) & intr_mask), msum(m_cat(cat)))
         for abbr, cat in abbr_pairs:
-            summary[f"{abbr}_intrapriming_prop"] = safe_prop(msum(m_cat(cat) & intr_mask), msum(m_cat(cat))).fillna(0)
+            summary[f"{abbr}_intrapriming_prop"] = safe_prop(msum(m_cat(cat) & intr_mask), msum(m_cat(cat)))
 
         # ---- TSS annotation support ----
         tss_mask = np.abs(difftss) <= 50
-        summary['TSSAnnotationSupport_prop'] = safe_prop(msum(tss_mask), summary['total_reads']).fillna(0)
+        summary['TSSAnnotationSupport_prop'] = safe_prop(msum(tss_mask), summary['total_reads'])
         for cat in structural_categories:
             tag = cat_to_tag[cat]
-            summary[f"{tag}_TSSAnnotationSupport"] = safe_prop(msum(m_cat(cat) & tss_mask), msum(m_cat(cat))).fillna(0)
+            summary[f"{tag}_TSSAnnotationSupport"] = safe_prop(msum(m_cat(cat) & tss_mask), msum(m_cat(cat)))
         for abbr, cat in abbr_pairs:
-            summary[f"{abbr}_TSSAnnotationSupport"] = safe_prop(msum(m_cat(cat) & tss_mask), msum(m_cat(cat))).fillna(0)
+            summary[f"{abbr}_TSSAnnotationSupport"] = safe_prop(msum(m_cat(cat) & tss_mask), msum(m_cat(cat)))
 
-        summary['Annotated_genes_prop_in_cell'] = safe_prop(summary['Annotated_genes'], summary['Genes_in_cell']).fillna(0)
-        summary['Annotated_juction_strings_prop_in_cell'] = 0
+        summary['Annotated_genes_prop_in_cell'] = safe_prop(summary['Annotated_genes'], summary['Genes_in_cell'])
+        # Its denominator is UJCs_in_cell, which isoforms mode does not compute.
+        summary['Annotated_juction_strings_prop_in_cell'] = np.nan
 
         # ---- canonical ----
         can_mask = allcanon == 'canonical'
-        summary['Canonical_prop_in_cell'] = safe_prop(msum(can_mask), summary['total_reads_no_monoexon']).fillna(0)
+        summary['Canonical_prop_in_cell'] = safe_prop(msum(can_mask), summary['total_reads_no_monoexon'])
         for cat in structural_categories:
             tag = cat_to_tag[cat]
-            summary[f"{tag}_canon_prop"] = safe_prop(msum(m_cat(cat) & m_gt1 & can_mask), msum(m_cat(cat) & m_gt1)).fillna(0)
+            summary[f"{tag}_canon_prop"] = safe_prop(msum(m_cat(cat) & m_gt1 & can_mask), msum(m_cat(cat) & m_gt1))
         for abbr, cat in abbr_pairs:
-            summary[f"{abbr}_canon_prop"] = safe_prop(msum(m_cat(cat) & m_gt1 & can_mask), msum(m_cat(cat) & m_gt1)).fillna(0)
+            summary[f"{abbr}_canon_prop"] = safe_prop(msum(m_cat(cat) & m_gt1 & can_mask), msum(m_cat(cat) & m_gt1))
 
         # ---- NMD / coding ----
-        if args.include_ORF:
+        if orf_predicted:
+            nmd_known = flag_measured(nmd)
             nmd_true = nmd == 'TRUE'
-            summary['NMD_prop_in_cell'] = safe_prop(msum(nmd_true), summary['total_reads']).fillna(0)
+            summary['NMD_prop_in_cell'] = safe_prop(msum(nmd_true), msum(nmd_known))
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
                 coding_tag = tag if tag in ['FSM', 'ISM', 'NIC', 'NNC'] else tag.lower()
-                summary[f"{coding_tag}_NMD_prop"] = safe_prop(msum(m_cat(cat) & nmd_true), msum(m_cat(cat))).fillna(0)
+                summary[f"{coding_tag}_NMD_prop"] = safe_prop(msum(m_cat(cat) & nmd_true), msum(m_cat(cat) & nmd_known))
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
                 coding_tag = tag if tag in ['FSM', 'ISM', 'NIC', 'NNC'] else tag.lower()
                 denom = msum(m_cat(cat))
-                summary[f"{coding_tag}_coding_prop"] = safe_prop(msum(m_cat(cat) & (coding == 'coding')), denom).fillna(0)
-                summary[f"{coding_tag}_non_coding_prop"] = safe_prop(msum(m_cat(cat) & (coding == 'non_coding')), denom).fillna(0)
+                summary[f"{coding_tag}_coding_prop"] = safe_prop(msum(m_cat(cat) & (coding == 'coding')), denom)
+                summary[f"{coding_tag}_non_coding_prop"] = safe_prop(msum(m_cat(cat) & (coding == 'non_coding')), denom)
         else:
-            summary['NMD_prop_in_cell'] = 0
+            summary['NMD_prop_in_cell'] = np.nan
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
                 coding_tag = tag if tag in ['FSM', 'ISM', 'NIC', 'NNC'] else tag.lower()
-                summary[f"{coding_tag}_coding_prop"] = 0
-                summary[f"{coding_tag}_non_coding_prop"] = 100
+                summary[f"{coding_tag}_coding_prop"] = np.nan
+                summary[f"{coding_tag}_non_coding_prop"] = np.nan
 
         # ---- CAGE ----
         if getattr(args, 'CAGE_peak', None):
+            cage_known = flag_measured(cage)
             cage_true = cage == 'TRUE'
-            summary['CAGE_peak_support_prop'] = safe_prop(msum(cage_true), summary['total_reads']).fillna(0)
+            summary['CAGE_peak_support_prop'] = safe_prop(msum(cage_true), msum(cage_known))
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
-                summary[f"{tag}_CAGE_peak_support_prop"] = safe_prop(msum(m_cat(cat) & cage_true), msum(m_cat(cat))).fillna(0)
+                summary[f"{tag}_CAGE_peak_support_prop"] = safe_prop(msum(m_cat(cat) & cage_true), msum(m_cat(cat) & cage_known))
             for abbr, cat in abbr_pairs:
-                summary[f"{abbr}_CAGE_peak_support_prop"] = safe_prop(msum(m_cat(cat) & cage_true), msum(m_cat(cat))).fillna(0)
+                summary[f"{abbr}_CAGE_peak_support_prop"] = safe_prop(msum(m_cat(cat) & cage_true), msum(m_cat(cat) & cage_known))
         else:
-            summary['CAGE_peak_support_prop'] = 0
+            summary['CAGE_peak_support_prop'] = np.nan
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
-                summary[f"{tag}_CAGE_peak_support_prop"] = 0
+                summary[f"{tag}_CAGE_peak_support_prop"] = np.nan
 
         # ---- PolyA ----
         if getattr(args, 'polyA_motif_list', None):
+            polya_known = flag_measured(polya)
             pa_true = polya == 'TRUE'
-            summary['PolyA_motif_support_prop'] = safe_prop(msum(pa_true), summary['total_reads']).fillna(0)
+            summary['PolyA_motif_support_prop'] = safe_prop(msum(pa_true), msum(polya_known))
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
-                summary[f"{tag}_PolyA_motif_support_prop"] = safe_prop(msum(m_cat(cat) & pa_true), msum(m_cat(cat))).fillna(0)
+                summary[f"{tag}_PolyA_motif_support_prop"] = safe_prop(msum(m_cat(cat) & pa_true), msum(m_cat(cat) & polya_known))
             for abbr, cat in abbr_pairs:
-                summary[f"{abbr}_PolyA_motif_support_prop"] = safe_prop(msum(m_cat(cat) & pa_true), msum(m_cat(cat))).fillna(0)
+                summary[f"{abbr}_PolyA_motif_support_prop"] = safe_prop(msum(m_cat(cat) & pa_true), msum(m_cat(cat) & polya_known))
         else:
-            summary['PolyA_motif_support_prop'] = 0
+            summary['PolyA_motif_support_prop'] = np.nan
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
-                summary[f"{tag}_PolyA_motif_support_prop"] = 0
+                summary[f"{tag}_PolyA_motif_support_prop"] = np.nan
 
         # ---- short-read junction support ----
-        sr_mask = mincov >= args.min_cov
-        summary['srjunctions_support_prop'] = safe_prop(msum(sr_mask), summary['total_reads']).fillna(0)
+        sr_known = np.isfinite(mincov)
+        sr_mask = sr_known & (mincov >= args.min_cov)
+        summary['srjunctions_support_prop'] = safe_prop(msum(sr_mask), msum(sr_known))
         for cat in structural_categories:
             tag = cat_to_tag[cat]
-            summary[f"{tag}_srjunctions_support_prop"] = safe_prop(msum(m_cat(cat) & sr_mask), msum(m_cat(cat))).fillna(0)
+            summary[f"{tag}_srjunctions_support_prop"] = safe_prop(msum(m_cat(cat) & sr_mask), msum(m_cat(cat) & sr_known))
         for abbr, cat in abbr_pairs:
-            summary[f"{abbr}_srjunctions_support_prop"] = safe_prop(msum(m_cat(cat) & sr_mask), msum(m_cat(cat))).fillna(0)
+            summary[f"{abbr}_srjunctions_support_prop"] = safe_prop(msum(m_cat(cat) & sr_mask), msum(m_cat(cat) & sr_known))
 
         # ---- TSS ratio validation ----
-        tss_v = ratiotss >= args.ratio_TSS_threshold
-        summary['TSS_ratio_validated_prop'] = safe_prop(msum(tss_v), summary['total_reads']).fillna(0)
+        tss_known = np.isfinite(ratiotss)
+        tss_v = tss_known & (ratiotss >= args.ratio_TSS_threshold)
+        summary['TSS_ratio_validated_prop'] = safe_prop(msum(tss_v), msum(tss_known))
         for cat in structural_categories:
             tag = cat_to_tag[cat]
-            summary[f"{tag}_TSS_ratio_validated_prop"] = safe_prop(msum(m_cat(cat) & tss_v), msum(m_cat(cat))).fillna(0)
+            summary[f"{tag}_TSS_ratio_validated_prop"] = safe_prop(msum(m_cat(cat) & tss_v), msum(m_cat(cat) & tss_known))
         for abbr, cat in abbr_pairs:
-            summary[f"{abbr}_TSS_ratio_validated_prop"] = safe_prop(msum(m_cat(cat) & tss_v), msum(m_cat(cat))).fillna(0)
+            summary[f"{abbr}_TSS_ratio_validated_prop"] = safe_prop(msum(m_cat(cat) & tss_v), msum(m_cat(cat) & tss_known))
 
         return summary
 
@@ -661,9 +704,9 @@ def calculate_metrics_per_cell(args, df):
                        if 'genes_reads' in c or 'gene_reads_bin' in c}
             summary = summary.rename(columns={'total_reads': 'Transcripts_in_cell', 'total_reads_no_monoexon': 'total_transcripts_no_monoexon', 'MT_reads_count': 'MT_transcripts_count', **gene_tx})
             for c in summary.columns[1:]:
-                summary[c] = pd.to_numeric(summary[c], errors='coerce').fillna(0)
+                summary[c] = coerce_keeping_undefined(summary[c])
             try:
-                summary.to_csv(out_summary, sep='\t', index=False, compression='gzip')
+                summary.to_csv(out_summary, sep='\t', index=False, compression='gzip', na_rep='NA')
                 print(f"**** Cell summary written: {out_summary}", file=sys.stdout)
             except Exception as e:
                 print(f"[ERROR] Failed writing {out_summary}: {e}", file=sys.stderr)
@@ -795,15 +838,24 @@ def calculate_metrics_per_cell(args, df):
                 counts = counts.rename(columns=junc_rename)
                 for src, dst in [(v, f"{v}_prop") for v in junc_rename.values()]:
                     counts[dst] = safe_prop(counts[src].reindex(counts.index, fill_value=0), counts['total_junctions'])
-                summary = summary.join(counts, how='left').fillna(0)
+                # Cells with no junction rows miss the join. Their counts are a
+                # true 0, but their proportions stay NaN -- undefined over a zero
+                # total, the same as safe_prop's own case above.
+                prop_cols = [f"{v}_prop" for v in junc_rename.values()]
+                count_cols = [c for c in counts.columns if c not in prop_cols]
+                summary = summary.join(counts, how='left')
+                summary[count_cols] = summary[count_cols].fillna(0)
             else:
-                for col in list(junc_rename.values()) + [f"{v}_prop" for v in junc_rename.values()] + ['total_junctions']:
+                for col in list(junc_rename.values()) + ['total_junctions']:
                     summary[col] = 0
+                for col in [f"{v}_prop" for v in junc_rename.values()]:
+                    summary[col] = np.nan
         else:
             summary[['Known_canonical_junctions', 'Known_non_canonical_junctions',
-                      'Novel_canonical_junctions', 'Novel_non_canonical_junctions', 'total_junctions',
-                      'Known_canonical_junctions_prop', 'Known_non_canonical_junctions_prop',
-                      'Novel_canonical_junctions_prop', 'Novel_non_canonical_junctions_prop']] = 0
+                      'Novel_canonical_junctions', 'Novel_non_canonical_junctions',
+                      'total_junctions']] = 0
+            summary[['Known_canonical_junctions_prop', 'Known_non_canonical_junctions_prop',
+                      'Novel_canonical_junctions_prop', 'Novel_non_canonical_junctions_prop']] = np.nan
 
         # ---- per-(cell, structural category) junction-type counts ----
         # Each junction inherits its transcript's structural_category (from the
@@ -907,7 +959,7 @@ def calculate_metrics_per_cell(args, df):
             tbl = sub.groupby(['CB','subcategory'])['_count'].sum().unstack(fill_value=0) if not sub.empty else pd.DataFrame()
             for lv in sublevels[cat]:
                 numer = tbl.get(lv, pd.Series(0, index=summary.index)).reindex(summary.index, fill_value=0)
-                summary[subkey(cat, lv.replace('-', '_'))] = safe_prop(numer, denom).fillna(0)
+                summary[subkey(cat, lv.replace('-', '_'))] = safe_prop(numer, denom)
 
         # Gene read-count bins (annotated genes only) as raw gene COUNTS. Bins are the
         # 11 half-open intervals (0,1]..(9,10],(10,inf); the report labels them exactly
@@ -941,7 +993,7 @@ def calculate_metrics_per_cell(args, df):
                 keyed = df[df['gene_type'] == gene_kind].set_index('CB') if not df.empty else pd.DataFrame(index=summary.index)
                 for label, src in [(f"{out_prefix}_ujc_bin1_perc", 'ujc_bin1_count'), (f"{out_prefix}_ujc_bin2_3_perc", 'ujc_bin2_3_count'), (f"{out_prefix}_ujc_bin4_5_perc", 'ujc_bin4_5_count'), (f"{out_prefix}_ujc_bin6plus_perc", 'ujc_bin6plus_count')]:
                     if not keyed.empty and src in keyed.columns:
-                        out[label] = safe_prop(keyed[src].reindex(summary.index, fill_value=0), keyed['total_genes_in_type_ujc'].reindex(summary.index, fill_value=0)).fillna(0)
+                        out[label] = safe_prop(keyed[src].reindex(summary.index, fill_value=0), keyed['total_genes_in_type_ujc'].reindex(summary.index, fill_value=0))
                     else:
                         out[label] = 0
                 return out
@@ -967,12 +1019,12 @@ def calculate_metrics_per_cell(args, df):
             return counts
         lo = compute_lenbins_by_cb(cls_valid)
         for dst, src in [('Total_250b_length_prop','two_fifty'),('Total_500b_length_prop','five_hund'),('Total_short_length_prop','short'),('Total_mid_length_prop','mid'),('Total_long_length_prop','long')]:
-            summary[dst] = safe_prop(lo[src].reindex(summary.index, fill_value=0), summary['total_reads']).fillna(0)
+            summary[dst] = safe_prop(lo[src].reindex(summary.index, fill_value=0), summary['total_reads'])
         mono = cls_valid[cls_valid['exons'] == 1]
         if not mono.empty:
             lm = compute_lenbins_by_cb(mono)
             for dst, src in [('Total_250b_length_mono_prop','two_fifty'),('Total_500b_length_mono_prop','five_hund'),('Total_short_length_mono_prop','short'),('Total_mid_length_mono_prop','mid'),('Total_long_length_mono_prop','long')]:
-                summary[dst] = safe_prop(lm[src].reindex(summary.index, fill_value=0), summary['total_reads']).fillna(0)
+                summary[dst] = safe_prop(lm[src].reindex(summary.index, fill_value=0), summary['total_reads'])
         else:
             for nm in ['Total_250b_length_mono_prop','Total_500b_length_mono_prop','Total_short_length_mono_prop','Total_mid_length_mono_prop','Total_long_length_mono_prop']:
                 summary[nm] = 0
@@ -981,22 +1033,24 @@ def calculate_metrics_per_cell(args, df):
             denom = summary[final_count_name(cat)]
             sub = cls_valid[cls_valid['structural_category'] == cat]
             if sub.empty:
+                # No read anywhere has this category, so denom is 0 in every cell.
                 for nm in ['250b_length_prop','500b_length_prop','short_length_prop','mid_length_prop','long_length_prop']:
-                    summary[f"{tag}_{nm}"] = 0
+                    summary[f"{tag}_{nm}"] = np.nan
                 for nm in ['250b_length_mono_prop','500b_length_mono_prop','short_length_mono_prop','mid_length_mono_prop','long_length_mono_prop']:
-                    summary[f"{tag}_{nm}"] = 0
+                    summary[f"{tag}_{nm}"] = np.nan
             else:
                 lc = compute_lenbins_by_cb(sub)
                 for dst, src in [('250b_length_prop','two_fifty'),('500b_length_prop','five_hund'),('short_length_prop','short'),('mid_length_prop','mid'),('long_length_prop','long')]:
-                    summary[f"{tag}_{dst}"] = safe_prop(lc[src].reindex(summary.index, fill_value=0), denom).fillna(0)
+                    summary[f"{tag}_{dst}"] = safe_prop(lc[src].reindex(summary.index, fill_value=0), denom)
                 subm = sub[sub['exons'] == 1]
                 if subm.empty:
+                    no_mono = pd.Series(0.0, index=summary.index)
                     for nm in ['250b_length_mono_prop','500b_length_mono_prop','short_length_mono_prop','mid_length_mono_prop','long_length_mono_prop']:
-                        summary[f"{tag}_{nm}"] = 0
+                        summary[f"{tag}_{nm}"] = safe_prop(no_mono, denom)
                 else:
                     lcm = compute_lenbins_by_cb(subm)
                     for dst, src in [('250b_length_mono_prop','two_fifty'),('500b_length_mono_prop','five_hund'),('short_length_mono_prop','short'),('mid_length_mono_prop','mid'),('long_length_mono_prop','long')]:
-                        summary[f"{tag}_{dst}"] = safe_prop(lcm[src].reindex(summary.index, fill_value=0), denom).fillna(0)
+                        summary[f"{tag}_{dst}"] = safe_prop(lcm[src].reindex(summary.index, fill_value=0), denom)
 
         # Reference body coverage: parameterized threshold and export cutoff for plotting
         ref_cov_min = float(getattr(args, 'ref_cov_min_pct', 45.0))
@@ -1009,96 +1063,100 @@ def calculate_metrics_per_cell(args, df):
             sub = cls_valid[cls_valid['structural_category'] == cat]
             denom = summary[final_count_name(cat)]
             cov = sub[sub['ref_body_cov_flag']].groupby('CB')['_count'].sum() if not sub.empty else pd.Series(dtype=float)
-            summary[f"{tag}_ref_coverage_prop"] = safe_prop(cov.reindex(summary.index, fill_value=0), denom).fillna(0)
+            summary[f"{tag}_ref_coverage_prop"] = safe_prop(cov.reindex(summary.index, fill_value=0), denom)
         # Store the cutoff used so downstream plotting can incorporate it in titles
         summary['ref_cov_min_pct'] = ref_cov_min
 
         rts = cls_valid[cls_valid['RTS_stage'].astype(str) == 'TRUE'].groupby('CB')['_count'].sum()
-        summary['RTS_prop_in_cell'] = safe_prop(rts.reindex(summary.index, fill_value=0), summary['total_reads']).fillna(0)
+        summary['RTS_prop_in_cell'] = safe_prop(rts.reindex(summary.index, fill_value=0), summary['total_reads'])
         # Add per-category RTS across all structural categories
         for cat in structural_categories:
             tag = cat_to_tag[cat]
             denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
             numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['RTS_stage'].astype(str) == 'TRUE')].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-            summary[f"{tag}_RTS_prop"] = safe_prop(numer, denom).fillna(0)
+            summary[f"{tag}_RTS_prop"] = safe_prop(numer, denom)
         for abbr, cat in abbr_pairs:
             root = cat_to_root[cat]
             denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
             numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['RTS_stage'].astype(str) == 'TRUE')].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-            summary[f"{abbr}_RTS_prop"] = safe_prop(numer, denom).fillna(0)
+            summary[f"{abbr}_RTS_prop"] = safe_prop(numer, denom)
 
         noncanon = cls_valid[cls_valid['all_canonical'] == 'non_canonical'].groupby('CB')['_count'].sum()
-        summary['Non_canonical_prop_in_cell'] = safe_prop(noncanon.reindex(summary.index, fill_value=0), summary['total_reads_no_monoexon']).fillna(0)
+        summary['Non_canonical_prop_in_cell'] = safe_prop(noncanon.reindex(summary.index, fill_value=0), summary['total_reads_no_monoexon'])
         # Add per-category Non-canonical across all structural categories (exclude mono-exon)
         for cat in structural_categories:
             tag = cat_to_tag[cat]
             denom = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['exons'] > 1)].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
             numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['exons'] > 1) & (cls_valid['all_canonical'] == 'non_canonical')].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-            summary[f"{tag}_noncanon_prop"] = safe_prop(numer, denom).fillna(0)
+            summary[f"{tag}_noncanon_prop"] = safe_prop(numer, denom)
         for abbr, cat in abbr_pairs:
             denom = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['exons'] > 1)].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
             numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['exons'] > 1) & (cls_valid['all_canonical'] == 'non_canonical')].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-            summary[f"{abbr}_noncanon_prop"] = safe_prop(numer, denom).fillna(0)
+            summary[f"{abbr}_noncanon_prop"] = safe_prop(numer, denom)
 
         intr = cls_valid[cls_valid['perc_A_downstream_TTS'] >= 60].groupby('CB')['_count'].sum()
-        summary['Intrapriming_prop_in_cell'] = safe_prop(intr.reindex(summary.index, fill_value=0), summary['total_reads']).fillna(0)
+        summary['Intrapriming_prop_in_cell'] = safe_prop(intr.reindex(summary.index, fill_value=0), summary['total_reads'])
         # Add per-category Intra-priming across all structural categories
         for cat in structural_categories:
             tag = cat_to_tag[cat]
             denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
             numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['perc_A_downstream_TTS'] >= 60)].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-            summary[f"{tag}_intrapriming_prop"] = safe_prop(numer, denom).fillna(0)
+            summary[f"{tag}_intrapriming_prop"] = safe_prop(numer, denom)
         for abbr, cat in abbr_pairs:
             denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
             numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['perc_A_downstream_TTS'] >= 60)].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-            summary[f"{abbr}_intrapriming_prop"] = safe_prop(numer, denom).fillna(0)
+            summary[f"{abbr}_intrapriming_prop"] = safe_prop(numer, denom)
 
         tss_sup = (cls_valid['diff_to_gene_TSS'].abs() <= 50)
         sup_cnt = cls_valid[tss_sup].groupby('CB')['_count'].sum()
-        summary['TSSAnnotationSupport_prop'] = safe_prop(sup_cnt.reindex(summary.index, fill_value=0), summary['total_reads']).fillna(0)
+        summary['TSSAnnotationSupport_prop'] = safe_prop(sup_cnt.reindex(summary.index, fill_value=0), summary['total_reads'])
         # Add per-category TSS support across all structural categories
         for cat in structural_categories:
             tag = cat_to_tag[cat]
             denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
             numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['diff_to_gene_TSS'].abs() <= 50)].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-            summary[f"{tag}_TSSAnnotationSupport"] = safe_prop(numer, denom).fillna(0)
+            summary[f"{tag}_TSSAnnotationSupport"] = safe_prop(numer, denom)
         for abbr, cat in abbr_pairs:
             denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
             numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['diff_to_gene_TSS'].abs() <= 50)].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-            summary[f"{abbr}_TSSAnnotationSupport"] = safe_prop(numer, denom).fillna(0)
+            summary[f"{abbr}_TSSAnnotationSupport"] = safe_prop(numer, denom)
 
-        summary['Annotated_genes_prop_in_cell'] = safe_prop(summary['Annotated_genes'], summary['Genes_in_cell']).fillna(0)
+        summary['Annotated_genes_prop_in_cell'] = safe_prop(summary['Annotated_genes'], summary['Genes_in_cell'])
 
         anno_models = cls_valid[(cls_valid['exons'] > 1) & (~cls_valid['associated_transcript'].fillna('').str.startswith('novel'))] \
             .groupby('CB')['jxn_string'].nunique()
         
         if args.mode != 'isoforms':
-            summary['Annotated_juction_strings_prop_in_cell'] = safe_prop(anno_models.reindex(summary.index, fill_value=0), summary['UJCs_in_cell']).fillna(0)
+            summary['Annotated_juction_strings_prop_in_cell'] = safe_prop(anno_models.reindex(summary.index, fill_value=0), summary['UJCs_in_cell'])
         else:
-            summary['Annotated_juction_strings_prop_in_cell'] = 0
+            # Its denominator is UJCs_in_cell, which isoforms mode does not compute.
+            summary['Annotated_juction_strings_prop_in_cell'] = np.nan
 
         canon_over = cls_valid[cls_valid['all_canonical'] == 'canonical'].groupby('CB')['_count'].sum()
-        summary['Canonical_prop_in_cell'] = safe_prop(canon_over.reindex(summary.index, fill_value=0), summary['total_reads_no_monoexon']).fillna(0)
+        summary['Canonical_prop_in_cell'] = safe_prop(canon_over.reindex(summary.index, fill_value=0), summary['total_reads_no_monoexon'])
         # Add per-category Canonical across all structural categories (exclude mono-exon)
         for cat in structural_categories:
             tag = cat_to_tag[cat]
             denom = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['exons'] > 1)].groupby('CB')['_count'].sum()
             numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['exons'] > 1) & (cls_valid['all_canonical'] == 'canonical')].groupby('CB')['_count'].sum()
-            summary[f"{tag}_canon_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0)).fillna(0)
+            summary[f"{tag}_canon_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0))
         for abbr, cat in abbr_pairs:
             denom = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['exons'] > 1)].groupby('CB')['_count'].sum()
             numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['exons'] > 1) & (cls_valid['all_canonical'] == 'canonical')].groupby('CB')['_count'].sum()
-            summary[f"{abbr}_canon_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0)).fillna(0)
+            summary[f"{abbr}_canon_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0))
 
-        if args.include_ORF:
-            nmd = cls_valid[cls_valid['predicted_NMD'].astype(str) == 'TRUE'].groupby('CB')['_count'].sum()
-            summary['NMD_prop_in_cell'] = safe_prop(nmd.reindex(summary.index, fill_value=0), summary['total_reads']).fillna(0)
+        if orf_predicted:
+            nmd_str = cls_valid['predicted_NMD'].astype(str)
+            nmd_known = flag_measured(nmd_str)
+            nmd = cls_valid[nmd_str == 'TRUE'].groupby('CB')['_count'].sum()
+            nmd_denom = cls_valid[nmd_known].groupby('CB')['_count'].sum()
+            summary['NMD_prop_in_cell'] = safe_prop(nmd.reindex(summary.index, fill_value=0), nmd_denom.reindex(summary.index, fill_value=0))
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
                 coding_tag = tag if tag in ['FSM','ISM','NIC','NNC'] else tag.lower()
-                denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum()
-                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['predicted_NMD'].astype(str) == 'TRUE')].groupby('CB')['_count'].sum()
-                summary[f"{coding_tag}_NMD_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0)).fillna(0)
+                denom = cls_valid[(cls_valid['structural_category'] == cat) & nmd_known].groupby('CB')['_count'].sum()
+                numer = cls_valid[(cls_valid['structural_category'] == cat) & (nmd_str == 'TRUE')].groupby('CB')['_count'].sum()
+                summary[f"{coding_tag}_NMD_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0))
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
                 sub = cls_valid[cls_valid['structural_category'] == cat]
@@ -1106,108 +1164,121 @@ def calculate_metrics_per_cell(args, df):
                 cod = sub[sub['coding'] == 'coding'].groupby('CB')['_count'].sum()
                 ncod = sub[sub['coding'] == 'non_coding'].groupby('CB')['_count'].sum()
                 coding_tag = tag if tag in ['FSM','ISM','NIC','NNC'] else tag.lower()
-                summary[f"{coding_tag}_coding_prop"] = safe_prop(cod.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0)).fillna(0)
-                summary[f"{coding_tag}_non_coding_prop"] = safe_prop(ncod.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0)).fillna(0)
+                summary[f"{coding_tag}_coding_prop"] = safe_prop(cod.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0))
+                summary[f"{coding_tag}_non_coding_prop"] = safe_prop(ncod.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0))
         else:
-            summary['NMD_prop_in_cell'] = 0
+            summary['NMD_prop_in_cell'] = np.nan
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
                 coding_tag = tag if tag in ['FSM','ISM','NIC','NNC'] else tag.lower()
-                summary[f"{coding_tag}_coding_prop"] = 0
-                summary[f"{coding_tag}_non_coding_prop"] = 100
+                summary[f"{coding_tag}_coding_prop"] = np.nan
+                summary[f"{coding_tag}_non_coding_prop"] = np.nan
 
         if getattr(args, 'CAGE_peak', None):
-            cage = cls_valid[cls_valid['within_CAGE_peak'].astype(str) == 'TRUE'].groupby('CB')['_count'].sum()
-            summary['CAGE_peak_support_prop'] = safe_prop(cage.reindex(summary.index, fill_value=0), summary['total_reads']).fillna(0)
+            cage_str = cls_valid['within_CAGE_peak'].astype(str)
+            cage_known = flag_measured(cage_str)
+            cage = cls_valid[cage_str == 'TRUE'].groupby('CB')['_count'].sum()
+            cage_denom = cls_valid[cage_known].groupby('CB')['_count'].sum()
+            summary['CAGE_peak_support_prop'] = safe_prop(cage.reindex(summary.index, fill_value=0), cage_denom.reindex(summary.index, fill_value=0))
             # Add per-category CAGE support across all structural categories
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
-                denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['within_CAGE_peak'].astype(str) == 'TRUE')].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-                summary[f"{tag}_CAGE_peak_support_prop"] = safe_prop(numer, denom).fillna(0)
+                denom = cls_valid[(cls_valid['structural_category'] == cat) & cage_known].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
+                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cage_str == 'TRUE')].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
+                summary[f"{tag}_CAGE_peak_support_prop"] = safe_prop(numer, denom)
             for abbr, cat in abbr_pairs:
-                denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum()
-                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['within_CAGE_peak'].astype(str) == 'TRUE')].groupby('CB')['_count'].sum()
-                summary[f"{abbr}_CAGE_peak_support_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0)).fillna(0)
+                denom = cls_valid[(cls_valid['structural_category'] == cat) & cage_known].groupby('CB')['_count'].sum()
+                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cage_str == 'TRUE')].groupby('CB')['_count'].sum()
+                summary[f"{abbr}_CAGE_peak_support_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0))
         else:
-            summary['CAGE_peak_support_prop'] = 0
-            # Initialize per-category CAGE support to 0 when unavailable
+            summary['CAGE_peak_support_prop'] = np.nan
+            # No CAGE bed was given, so the attribute was never measured
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
-                summary[f"{tag}_CAGE_peak_support_prop"] = 0
+                summary[f"{tag}_CAGE_peak_support_prop"] = np.nan
 
         if getattr(args, 'polyA_motif_list', None):
-            pa = cls_valid[cls_valid['polyA_motif_found'].astype(str) == 'TRUE'].groupby('CB')['_count'].sum()
-            summary['PolyA_motif_support_prop'] = safe_prop(pa.reindex(summary.index, fill_value=0), summary['total_reads']).fillna(0)
+            pa_str = cls_valid['polyA_motif_found'].astype(str)
+            polya_known = flag_measured(pa_str)
+            pa = cls_valid[pa_str == 'TRUE'].groupby('CB')['_count'].sum()
+            pa_denom = cls_valid[polya_known].groupby('CB')['_count'].sum()
+            summary['PolyA_motif_support_prop'] = safe_prop(pa.reindex(summary.index, fill_value=0), pa_denom.reindex(summary.index, fill_value=0))
             # Add per-category PolyA support across all structural categories
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
-                denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['polyA_motif_found'].astype(str) == 'TRUE')].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-                summary[f"{tag}_PolyA_motif_support_prop"] = safe_prop(numer, denom).fillna(0)
+                denom = cls_valid[(cls_valid['structural_category'] == cat) & polya_known].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
+                numer = cls_valid[(cls_valid['structural_category'] == cat) & (pa_str == 'TRUE')].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
+                summary[f"{tag}_PolyA_motif_support_prop"] = safe_prop(numer, denom)
             for abbr, cat in abbr_pairs:
-                denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum()
-                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['polyA_motif_found'].astype(str) == 'TRUE')].groupby('CB')['_count'].sum()
-                summary[f"{abbr}_PolyA_motif_support_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0)).fillna(0)
+                denom = cls_valid[(cls_valid['structural_category'] == cat) & polya_known].groupby('CB')['_count'].sum()
+                numer = cls_valid[(cls_valid['structural_category'] == cat) & (pa_str == 'TRUE')].groupby('CB')['_count'].sum()
+                summary[f"{abbr}_PolyA_motif_support_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0))
         else:
-            summary['PolyA_motif_support_prop'] = 0
-            # Initialize per-category PolyA support to 0 when unavailable
+            summary['PolyA_motif_support_prop'] = np.nan
+            # No polyA motif list was given, so the attribute was never measured
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
-                summary[f"{tag}_PolyA_motif_support_prop"] = 0
+                summary[f"{tag}_PolyA_motif_support_prop"] = np.nan
 
         # Short reads coverage support (if available)
         if 'min_cov' in cls_valid.columns:
-             # Ensure min_cov is valid numeric
-            cls_valid['min_cov'] = pd.to_numeric(cls_valid['min_cov'], errors='coerce').fillna(0)
-             # Define support using configurable threshold
-            sr_sup = cls_valid[cls_valid['min_cov'] >= args.min_cov].groupby('CB')['_count'].sum()
-            summary['srjunctions_support_prop'] = safe_prop(sr_sup.reindex(summary.index, fill_value=0), summary['total_reads']).fillna(0)
+            # SQANTI3 writes NA for a read whose junctions it never covered (no
+            # short reads at all, or a mono-exonic read with no junction to cover).
+            # Those reads leave the denominator instead of being counted as
+            # unsupported, so a run with no short reads reports NA rather than 0%.
+            cls_valid['min_cov'] = pd.to_numeric(cls_valid['min_cov'], errors='coerce')
+            sr_known = cls_valid['min_cov'].notna()
+            sr_pass = sr_known & (cls_valid['min_cov'] >= args.min_cov)
+            sr_sup = cls_valid[sr_pass].groupby('CB')['_count'].sum()
+            sr_denom = cls_valid[sr_known].groupby('CB')['_count'].sum()
+            summary['srjunctions_support_prop'] = safe_prop(sr_sup.reindex(summary.index, fill_value=0), sr_denom.reindex(summary.index, fill_value=0))
 
             # Add per-category SR support
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
-                denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['min_cov'] >= args.min_cov)].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-                summary[f"{tag}_srjunctions_support_prop"] = safe_prop(numer, denom).fillna(0)
-            
+                denom = cls_valid[(cls_valid['structural_category'] == cat) & sr_known].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
+                numer = cls_valid[(cls_valid['structural_category'] == cat) & sr_pass].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
+                summary[f"{tag}_srjunctions_support_prop"] = safe_prop(numer, denom)
+
             for abbr, cat in abbr_pairs:
-                denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum()
-                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['min_cov'] >= args.min_cov)].groupby('CB')['_count'].sum()
-                summary[f"{abbr}_srjunctions_support_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0)).fillna(0)
+                denom = cls_valid[(cls_valid['structural_category'] == cat) & sr_known].groupby('CB')['_count'].sum()
+                numer = cls_valid[(cls_valid['structural_category'] == cat) & sr_pass].groupby('CB')['_count'].sum()
+                summary[f"{abbr}_srjunctions_support_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0))
         else:
-             summary['srjunctions_support_prop'] = 0
+             summary['srjunctions_support_prop'] = np.nan
              for cat in structural_categories:
                 tag = cat_to_tag[cat]
-                summary[f"{tag}_srjunctions_support_prop"] = 0
+                summary[f"{tag}_srjunctions_support_prop"] = np.nan
 
         # TSS Ratio Validation Support (configurable threshold)
         # Check if 'ratio_TSS' column exists (and has valid data)
         tss_threshold = args.ratio_TSS_threshold
         if 'ratio_TSS' in cls_valid.columns:
-             # Ensure numeric, fill NA with 0 (unvalidated)
-            cls_valid['ratio_TSS'] = pd.to_numeric(cls_valid['ratio_TSS'], errors='coerce').fillna(0)
-            
+            cls_valid['ratio_TSS'] = pd.to_numeric(cls_valid['ratio_TSS'], errors='coerce')
+            tss_known = cls_valid['ratio_TSS'].notna()
+            tss_pass = tss_known & (cls_valid['ratio_TSS'] >= tss_threshold)
+
             # Identify validated transcripts
-            tss_valid = cls_valid[cls_valid['ratio_TSS'] >= tss_threshold].groupby('CB')['_count'].sum()
-            summary['TSS_ratio_validated_prop'] = safe_prop(tss_valid.reindex(summary.index, fill_value=0), summary['total_reads']).fillna(0)
+            tss_valid = cls_valid[tss_pass].groupby('CB')['_count'].sum()
+            tss_denom = cls_valid[tss_known].groupby('CB')['_count'].sum()
+            summary['TSS_ratio_validated_prop'] = safe_prop(tss_valid.reindex(summary.index, fill_value=0), tss_denom.reindex(summary.index, fill_value=0))
 
             # Add per-category TSS Validation
             for cat in structural_categories:
                 tag = cat_to_tag[cat]
-                denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['ratio_TSS'] >= tss_threshold)].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
-                summary[f"{tag}_TSS_ratio_validated_prop"] = safe_prop(numer, denom).fillna(0)
-            
+                denom = cls_valid[(cls_valid['structural_category'] == cat) & tss_known].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
+                numer = cls_valid[(cls_valid['structural_category'] == cat) & tss_pass].groupby('CB')['_count'].sum().reindex(summary.index, fill_value=0)
+                summary[f"{tag}_TSS_ratio_validated_prop"] = safe_prop(numer, denom)
+
             for abbr, cat in abbr_pairs:
-                denom = cls_valid[cls_valid['structural_category'] == cat].groupby('CB')['_count'].sum()
-                numer = cls_valid[(cls_valid['structural_category'] == cat) & (cls_valid['ratio_TSS'] >= tss_threshold)].groupby('CB')['_count'].sum()
-                summary[f"{abbr}_TSS_ratio_validated_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0)).fillna(0)
+                denom = cls_valid[(cls_valid['structural_category'] == cat) & tss_known].groupby('CB')['_count'].sum()
+                numer = cls_valid[(cls_valid['structural_category'] == cat) & tss_pass].groupby('CB')['_count'].sum()
+                summary[f"{abbr}_TSS_ratio_validated_prop"] = safe_prop(numer.reindex(summary.index, fill_value=0), denom.reindex(summary.index, fill_value=0))
         else:
-             summary['TSS_ratio_validated_prop'] = 0
+             summary['TSS_ratio_validated_prop'] = np.nan
              for cat in structural_categories:
                 tag = cat_to_tag[cat]
-                summary[f"{tag}_TSS_ratio_validated_prop"] = 0
+                summary[f"{tag}_TSS_ratio_validated_prop"] = np.nan
 
         summary = summary.reset_index()
         if args.mode == 'isoforms':
@@ -1218,10 +1289,10 @@ def calculate_metrics_per_cell(args, df):
             summary = summary.rename(columns={'total_reads': 'Reads_in_cell', 'total_UMI': 'UMIs_in_cell'})
 
         for c in summary.columns[1:]:
-            summary[c] = pd.to_numeric(summary[c], errors='coerce').fillna(0)
+            summary[c] = coerce_keeping_undefined(summary[c])
 
         try:
-            summary.to_csv(out_summary, sep='\t', index=False, compression='gzip')
+            summary.to_csv(out_summary, sep='\t', index=False, compression='gzip', na_rep='NA')
             print(f"**** Cell summary written: {out_summary}", file=sys.stdout)
         except Exception as e:
             print(f"[ERROR] Failed writing {out_summary}: {e}", file=sys.stderr)

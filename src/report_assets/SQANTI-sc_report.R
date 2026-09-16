@@ -283,7 +283,10 @@ build_violin_plot <- function(df_long,
   }
 
   # Add mean markers on top (moved here to separate from violin layer and ensure it is on top of boxplots)
-  p <- p + stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1, show.legend = FALSE)
+  # na.rm via fun.args, not the layer's own na.rm: without it mean() returns NA for
+  # any variable holding a cell whose proportion is undefined, and the marker for
+  # that violin silently does not draw.
+  p <- p + stat_summary(fun = mean, fun.args = list(na.rm = TRUE), geom = "point", shape = 4, size = 1, color = "red", stroke = 1, show.legend = FALSE)
 
   if (!is.null(ylim)) {
     p <- p + coord_cartesian(ylim = ylim)
@@ -307,7 +310,7 @@ build_violin_plot <- function(df_long,
                     adjust = adjust, linewidth = 0.2) +
         geom_boxplot(width = 0.08, outlier.shape = NA, alpha = 0.5,
                      colour = "grey30", lwd = 0.2, show.legend = FALSE) +
-        stat_summary(fun = mean, geom = "point", shape = 4, size = 1,
+        stat_summary(fun = mean, fun.args = list(na.rm = TRUE), geom = "point", shape = 4, size = 1,
                      color = "red", stroke = 1, show.legend = FALSE) +
         scale_fill_manual(values = fill_map) +
         scale_y_continuous(
@@ -808,7 +811,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # Short Read (SJ) Validation UMAPs
   # ----------------------------------------------------------------
   gg_sr_umap_plots <<- list()
-  if (exists("merged_umap") && "srjunctions_support_prop" %in% colnames(merged_umap)) {
+  # All-NA means the run never measured short-read support, so there is nothing to
+  # colour the UMAP by. Column presence alone used to imply a 0-filled column.
+  if (exists("merged_umap") && "srjunctions_support_prop" %in% colnames(merged_umap) &&
+      any(!is.na(merged_umap$srjunctions_support_prop))) {
     # Global
     gg_sr_umap_plots[[all_entities_label]] <<- build_continuous_umap(
       merged_umap,
@@ -822,7 +828,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       tag <- cat_labels[[cat_col]]
       sr_col <- paste0(cat_col_prefixes[[cat_col]], "_srjunctions_support_prop")
 
-      if (sr_col %in% colnames(merged_umap)) {
+      if (sr_col %in% colnames(merged_umap) && any(!is.na(merged_umap[[sr_col]]))) {
         gg_sr_umap_plots[[tag]] <<- build_continuous_umap(
           merged_umap,
           sr_col,
@@ -837,7 +843,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # TSS Validation UMAPs
   # ----------------------------------------------------------------
   gg_tss_umap_plots <<- list()
-  if (exists("merged_umap") && "TSS_ratio_validated_prop" %in% colnames(merged_umap)) {
+  if (exists("merged_umap") && "TSS_ratio_validated_prop" %in% colnames(merged_umap) &&
+      any(!is.na(merged_umap$TSS_ratio_validated_prop))) {
     # Global
     gg_tss_umap_plots[[all_entities_label]] <<- build_continuous_umap(
       merged_umap,
@@ -851,7 +858,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       tag <- cat_labels[[cat_col]]
       tss_col <- paste0(cat_col_prefixes[[cat_col]], "_TSS_ratio_validated_prop")
 
-      if (tss_col %in% colnames(merged_umap)) {
+      if (tss_col %in% colnames(merged_umap) && any(!is.na(merged_umap[[tss_col]]))) {
         gg_tss_umap_plots[[tag]] <<- build_continuous_umap(
           merged_umap,
           tss_col,
@@ -908,7 +915,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         show.legend = FALSE
       ) +
       stat_summary(aes(group = group),
-        fun = mean, geom = "point", shape = 4, size = 1,
+        fun = mean, fun.args = list(na.rm = TRUE), geom = "point", shape = 4, size = 1,
         colour = "red", stroke = 0.9,
         position = position_dodge(width = dodge_width),
         show.legend = FALSE
@@ -1237,7 +1244,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       geom_violin(aes(color = Dataset), alpha = 0.7, scale = "width", adjust = 1, trim = TRUE, show.legend = FALSE) +
       scale_color_manual(values = pal, guide = "none") +
       geom_boxplot(width = 0.05, alpha = 0.6, outlier.shape = NA, color = "grey20", show.legend = FALSE) +
-      stat_summary(fun = mean, geom = "point", shape = 4, size = 1, color = "red", stroke = 1, show.legend = FALSE) +
+      stat_summary(fun = mean, fun.args = list(na.rm = TRUE), geom = "point", shape = 4, size = 1, color = "red", stroke = 1, show.legend = FALSE) +
       scale_y_log10(labels = scales::comma) +
       scale_fill_manual(values = pal) +
       labs(
@@ -1575,13 +1582,15 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       else rep(0, nrow(SQANTI_cell_summary))
     }))
     # Row-normalize to "% of the cell's annotated genes in each bin" (cells with no
-    # annotated genes -> all zeros). Done in WIDE form so each bin's percentages stay
-    # aligned to their bin. A stacked group_by(CB) %>% mutate(ifelse(sum(num_genes)>0,
-    # ...)) is WRONG here: the scalar condition makes ifelse() return a length-1 result
-    # per cell (bin_1's value), which dplyr then recycles across all of that cell's bins.
+    # annotated genes -> NA in every bin, so they leave the violins rather than
+    # piling onto 0 and making the row sum to 0 instead of 100). Done in WIDE form
+    # so each bin's percentages stay aligned to their bin. A stacked
+    # group_by(CB) %>% mutate(ifelse(sum(num_genes)>0, ...)) is WRONG here: the
+    # scalar condition makes ifelse() return a length-1 result per cell (bin_1's
+    # value), which dplyr then recycles across all of that cell's bins.
     totals <- rowSums(mat)
     pct <- 100 * mat / ifelse(totals > 0, totals, 1)
-    pct[totals == 0, ] <- 0
+    pct[totals == 0, ] <- NA_real_
     df_long <- data.frame(
       Variable = factor(rep(bin_labels, each = nrow(mat)), levels = bin_labels),
       Value = as.vector(pct)
@@ -2363,15 +2372,13 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     "NMD_prop_in_cell" = list(label = "Predicted NMD", color = "#969696")
   )
 
-  # Determine which bad feature columns are actually present in SQANTI_cell_summary.
-  # RTS/intrapriming/non-canonical are shown even when all-zero (0 detected is informative).
-  # NMD requires at least one non-zero value: all-zero means --include_ORF was not passed
-  # and the column carries no real information.
+  # Determine which bad feature columns were actually measured. All-zero is kept
+  # (0 detected is informative); all-NA is dropped. NMD used to need its own
+  # non-zero test because --include_ORF's absence wrote zeros; it now writes NA,
+  # so the shared test covers it and a measured all-zero NMD stays visible.
   bad_feature_cols_present <- intersect(names(all_bad_features_map), colnames(SQANTI_cell_summary))
   bad_feature_cols_present <- bad_feature_cols_present[sapply(bad_feature_cols_present, function(col) {
-    if (!any(!is.na(SQANTI_cell_summary[[col]]))) return(FALSE)
-    if (col == "NMD_prop_in_cell") return(sum(SQANTI_cell_summary[[col]], na.rm = TRUE) > 0)
-    return(TRUE)
+    any(!is.na(SQANTI_cell_summary[[col]]))
   })]
 
   # Order them as originally intended, if present
@@ -2438,20 +2445,27 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   }))
 
   ## Good quality features combined figure
+  # A family is shown when the run measured it, which is now an exact test: the
+  # cell summary writes NA for an attribute it never evaluated. "All zero" was the
+  # old proxy for that and hid a genuine 0% -- measured-and-absent is a real
+  # observation and belongs in the figure.
+  measured <- function(col) {
+    col %in% colnames(SQANTI_cell_summary) && any(!is.na(SQANTI_cell_summary[[col]]))
+  }
   good_feature_cols <- c("TSSAnnotationSupport_prop")
 
-  if ("CAGE_peak_support_prop" %in% colnames(SQANTI_cell_summary)) {
+  if (measured("CAGE_peak_support_prop")) {
     good_feature_cols <- c(good_feature_cols, "CAGE_peak_support_prop")
   }
-  if ("PolyA_motif_support_prop" %in% colnames(SQANTI_cell_summary)) {
+  if (measured("PolyA_motif_support_prop")) {
     good_feature_cols <- c(good_feature_cols, "PolyA_motif_support_prop")
   }
   good_feature_cols <- c(good_feature_cols, "Canonical_prop_in_cell")
 
-  if ("srjunctions_support_prop" %in% colnames(SQANTI_cell_summary) && sum(SQANTI_cell_summary$srjunctions_support_prop, na.rm = TRUE) > 0) {
+  if (measured("srjunctions_support_prop")) {
     good_feature_cols <- c(good_feature_cols, "srjunctions_support_prop")
   }
-  if ("TSS_ratio_validated_prop" %in% colnames(SQANTI_cell_summary) && sum(SQANTI_cell_summary$TSS_ratio_validated_prop, na.rm = TRUE) > 0) {
+  if (measured("TSS_ratio_validated_prop")) {
     good_feature_cols <- c(good_feature_cols, "TSS_ratio_validated_prop")
   }
 

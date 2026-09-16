@@ -20,7 +20,10 @@ def generate_report(args, df):
                 flags = []
                 if getattr(args, 'ignore_cell_summary', False):
                     flags.append("--ignore_cell_summary")
-                if getattr(args, 'include_ORF', False):
+                # Same gate as sqanti3_qc_runner.py and cell_metrics.py: the flag does
+                # nothing in reads mode, so the report must not draw coding sections
+                # from columns that were never predicted.
+                if args.mode == 'isoforms' and getattr(args, 'include_ORF', False):
                     flags.append("--include_ORF")
                 if getattr(args, 'CAGE_peak', None):
                     flags.append("--CAGE_peak")

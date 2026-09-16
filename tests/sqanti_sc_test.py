@@ -16,6 +16,8 @@ if sys.platform == 'win32':
     sys.modules['pysam'] = MagicMock()
 # --------------------------------
 
+import gzip
+
 import pandas as pd
 import pytest
 
@@ -37,6 +39,7 @@ from qc_io import fill_design_table
 from sqanti3_qc_runner import run_sqanti3_qc
 from classification_enrichment import annotate_with_ujc_hash, annotate_with_cell_metadata, annotate_with_sample_support
 from qc_reports import generate_report, generate_multisample_report
+from qc_args import build_parser, warn_ignored_options
 from qc_pipeline import main as pipeline_main
 from cell_metrics import calculate_metrics_per_cell
 from sc_clustering import prepare_anndata, run_clustering_analysis
@@ -552,6 +555,49 @@ def test_pipeline_main_smoke(
     assert mock_generate_report.called
 
 
+class TestIncludeORFInReadsMode:
+    """--include_ORF is accepted but inert in reads mode; it must say so, not fail."""
+
+    def test_warns_in_reads_mode(self, mock_args, capsys):
+        mock_args.mode = 'reads'
+        mock_args.include_ORF = True
+
+        warn_ignored_options(mock_args)
+
+        err = capsys.readouterr().err
+        assert '[WARNING]' in err
+        assert '--include_ORF' in err
+        assert 'reads mode' in err
+
+    def test_silent_in_isoforms_mode(self, mock_args, capsys):
+        mock_args.mode = 'isoforms'
+        mock_args.include_ORF = True
+
+        warn_ignored_options(mock_args)
+
+        assert capsys.readouterr().err == ''
+
+    def test_silent_when_flag_absent(self, mock_args, capsys):
+        mock_args.mode = 'reads'
+        mock_args.include_ORF = False
+
+        warn_ignored_options(mock_args)
+
+        assert capsys.readouterr().err == ''
+
+    def test_reads_mode_still_accepts_the_flag(self):
+        args = build_parser().parse_args([
+            '--refFasta', 'g.fa', '--refGTF', 'a.gtf',
+            '--design', 'd.csv', '--mode', 'reads', '--include_ORF',
+        ])
+        assert args.include_ORF is True
+
+    def test_help_text_names_the_limitation(self):
+        orf_help = [a.help for a in build_parser()._actions
+                    if '--include_ORF' in a.option_strings][0]
+        assert 'reads' in orf_help
+
+
 def test_calculate_metrics_divzero_safety(tmpdir, mock_args):
     """Minimal file setup to ensure function writes summary even with zero denoms."""
     # Arrange: create minimal classification file with no CB → empty valid set
@@ -923,7 +969,7 @@ def test_generate_report_with_clustering_flag(mock_isfile, mock_run, mock_args):
 def test_generate_report_with_optional_flags(mock_isfile, mock_run, mock_args):
     """Flags like --include_ORF, --CAGE_peak, --polyA_motif_list should appear in command."""
     mock_isfile.return_value = True
-    mock_args.mode = "reads"
+    mock_args.mode = "isoforms"
     mock_args.include_ORF = True
     mock_args.CAGE_peak = True
     mock_args.polyA_motif_list = True
@@ -933,6 +979,26 @@ def test_generate_report_with_optional_flags(mock_isfile, mock_run, mock_args):
 
     actual_cmd = " ".join(mock_run.call_args[0][0].split())
     assert "--include_ORF" in actual_cmd
+    assert "--CAGE_peak" in actual_cmd
+    assert "--polyA_motif_list" in actual_cmd
+
+
+@patch('qc_reports.subprocess.run')
+@patch('qc_reports.os.path.isfile')
+@patch('qc_reports.reportAssetsPath', 'utilities')
+def test_generate_report_drops_include_ORF_in_reads_mode(mock_isfile, mock_run, mock_args):
+    """No ORF is predicted in reads mode, so the report must not be told there was."""
+    mock_isfile.return_value = True
+    mock_args.mode = "reads"
+    mock_args.include_ORF = True
+    mock_args.CAGE_peak = True
+    mock_args.polyA_motif_list = True
+    df = pd.DataFrame({"sampleID": ["sample1"], "file_acc": ["file1"]})
+
+    generate_report(mock_args, df)
+
+    actual_cmd = " ".join(mock_run.call_args[0][0].split())
+    assert "--include_ORF" not in actual_cmd
     assert "--CAGE_peak" in actual_cmd
     assert "--polyA_motif_list" in actual_cmd
 
@@ -1982,3 +2048,395 @@ def test_pipeline_main_with_export_h5ad(
     pipeline_main()
     assert mock_export.called
     assert mock_generate_report.called
+
+
+class TestUndefinedProportions:
+    """
+    A proportion whose denominator is 0 must be NA, not 0.
+
+    Three situations used to collapse onto the same value and became
+    indistinguishable the moment the summary was written:
+
+      * numerator 0 over a positive denominator -- a real 0%, must stay 0
+      * a cell missing from a groupby -- nothing of that kind, also a real 0
+      * denominator 0 -- no such quantity exists to take a percentage OF
+
+    Only the third is undefined, and the split is about the DENOMINATOR, not
+    about count-vs-proportion: a cell with 100 canonical and 0 non-canonical
+    junctions has a well-defined 0% and must keep appearing in the figures.
+    Counts are never affected -- "no fusion reads" is a true count of 0.
+    """
+
+    CLS_COLS = {
+        "associated_gene": "geneA", "associated_transcript": "txA",
+        "length": 500, "ref_length": 600, "chrom": "chr1",
+        "subcategory": "reference_match", "RTS_stage": "False",
+        "predicted_NMD": "False", "perc_A_downstream_TTS": "0",
+        "diff_to_gene_TSS": "0", "coding": "coding",
+    }
+
+    def _cls(self, isoform, cb, category, exons=2, canonical="canonical", fl=None):
+        row = dict(self.CLS_COLS, isoform=isoform, CB=cb,
+                   structural_category=category, exons=exons,
+                   all_canonical=canonical)
+        if fl is not None:
+            row["FL"] = fl
+        return row
+
+    def _junc(self, isoform, category="known", canonical="canonical"):
+        return {"isoform": isoform, "junction_category": category,
+                "canonical": canonical, "RTS_junction": "False",
+                "junction_number": "1", "chrom": "chr1", "strand": "+",
+                "genomic_start_coord": "1000", "genomic_end_coord": "2000"}
+
+    def _run(self, mock_args, tmpdir, cls_rows, junc_rows, mode):
+        out_dir = str(tmpdir.join("out_" + mode))
+        sample_dir = os.path.join(out_dir, "f1")
+        os.makedirs(sample_dir, exist_ok=True)
+        prefix = os.path.join(sample_dir, "s1")
+        mock_args.mode = mode
+        mock_args.out_dir = out_dir
+
+        pd.DataFrame(cls_rows).to_csv(f"{prefix}_classification.txt", sep="\t", index=False)
+        pd.DataFrame(junc_rows if junc_rows else None,
+                     columns=None if junc_rows else ["isoform"]).to_csv(
+            f"{prefix}_junctions.txt", sep="\t", index=False)
+
+        calculate_metrics_per_cell(
+            mock_args, pd.DataFrame({"sampleID": ["s1"], "file_acc": ["f1"]}))
+        path = f"{prefix}_SQANTI_cell_summary.txt.gz"
+        assert os.path.isfile(path), "Cell summary was not created"
+        return pd.read_csv(path, sep="\t", compression="gzip"), path
+
+    # ------------------------------------------------------------------
+    # The core distinction, in both directions
+    # ------------------------------------------------------------------
+
+    def test_real_zero_percent_survives(self, mock_args, tmpdir):
+        """A cell with multi-exonic reads that are all canonical is 0%, not NA."""
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=3),
+               self._cls("r2", "CB1", "full-splice_match", exons=3)]
+        summary, _ = self._run(mock_args, tmpdir, cls, None, "reads")
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        assert cb1["total_reads_no_monoexon"] == 2
+        assert cb1["Non_canonical_prop_in_cell"] == 0, (
+            "0 non-canonical out of 2 multi-exonic reads is a genuine 0%; "
+            f"got {cb1['Non_canonical_prop_in_cell']}"
+        )
+
+    def test_zero_denominator_is_na(self, mock_args, tmpdir):
+        """A cell with only mono-exonic reads has no multi-exonic denominator."""
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=1),
+               self._cls("r2", "CB1", "full-splice_match", exons=1)]
+        summary, _ = self._run(mock_args, tmpdir, cls, None, "reads")
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        assert cb1["total_reads_no_monoexon"] == 0
+        assert pd.isna(cb1["Non_canonical_prop_in_cell"]), (
+            "no multi-exonic reads means there is no percentage of them to report; "
+            f"got {cb1['Non_canonical_prop_in_cell']}"
+        )
+
+    def test_both_cells_in_one_run_stay_distinguishable(self, mock_args, tmpdir):
+        """The point of the change: the two cases must not land on one value."""
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=3),
+               self._cls("r2", "CB2", "full-splice_match", exons=1)]
+        summary, _ = self._run(mock_args, tmpdir, cls, None, "reads")
+        by_cb = summary.set_index("CB")["Non_canonical_prop_in_cell"]
+        assert by_cb["CB1"] == 0
+        assert pd.isna(by_cb["CB2"])
+
+    # ------------------------------------------------------------------
+    # Counts are untouched
+    # ------------------------------------------------------------------
+
+    def test_counts_never_become_na(self, mock_args, tmpdir):
+        """"No fusion reads" is a count of 0 and stays one."""
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=1)]
+        summary, _ = self._run(mock_args, tmpdir, cls, None, "reads")
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        for col in ["Reads_in_cell", "total_reads_no_monoexon", "Fusion", "total_junctions"]:
+            assert not pd.isna(cb1[col]), f"count column {col} must not be NA"
+        assert cb1["Fusion"] == 0
+
+    # ------------------------------------------------------------------
+    # Junction proportions: the compositional property §1n describes
+    # ------------------------------------------------------------------
+
+    JUNC_PROPS = ["Known_canonical_junctions_prop", "Known_non_canonical_junctions_prop",
+                  "Novel_canonical_junctions_prop", "Novel_non_canonical_junctions_prop"]
+
+    def test_junction_proportions_sum_to_100_when_defined(self, mock_args, tmpdir):
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=2)]
+        junc = [self._junc("r1"), self._junc("r1", canonical="non_canonical")]
+        summary, _ = self._run(mock_args, tmpdir, cls, junc, "reads")
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        assert cb1[self.JUNC_PROPS].sum() == pytest.approx(100.0)
+
+    def test_junction_proportions_na_when_cell_has_no_junctions(self, mock_args, tmpdir):
+        """
+        Previously all four read 0 and summed to 0 -- a cell that looked like it
+        had a junction composition adding up to nothing. NA restores the
+        property by making the cell simply absent from all four.
+        """
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=2),
+               self._cls("r2", "CB2", "full-splice_match", exons=1)]
+        junc = [self._junc("r1")]
+        summary, _ = self._run(mock_args, tmpdir, cls, junc, "reads")
+        cb2 = summary.set_index("CB").loc["CB2"]
+        assert cb2["total_junctions"] == 0
+        for col in self.JUNC_PROPS:
+            assert pd.isna(cb2[col]), f"{col} should be NA for a cell with no junctions"
+
+    # ------------------------------------------------------------------
+    # Per-structural-category proportions -- the ~50 call sites, and the
+    # ones that feed the "by Structural Category" violin panels
+    # ------------------------------------------------------------------
+
+    def test_absent_category_is_na_while_present_category_is_zero(self, mock_args, tmpdir):
+        """
+        A cell with FSM reads and no fusion reads gets 0% RT-switching for FSM
+        (measured, none found) and NA for Fusion (nothing to measure). Drawing
+        the second as 0 is what filled these violins with cells that have no
+        reads of the category at all.
+        """
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=2)]
+        summary, _ = self._run(mock_args, tmpdir, cls, None, "reads")
+        cb1 = summary[summary["CB"] == "CB1"].iloc[0]
+        assert cb1["FSM_RTS_prop"] == 0
+        assert pd.isna(cb1["Fusion_RTS_prop"])
+
+    # ------------------------------------------------------------------
+    # Isoforms mode is a separate code path (_isoforms_summary)
+    # ------------------------------------------------------------------
+
+    def test_isoforms_mode_applies_the_same_rule(self, mock_args, tmpdir):
+        cls = [self._cls("i1", "CB1,CB2", "full-splice_match", exons=3, fl="4,0"),
+               self._cls("i2", "CB2", "full-splice_match", exons=1, fl="3")]
+        summary, _ = self._run(mock_args, tmpdir, cls, None, "isoforms")
+        by_cb = summary.set_index("CB")
+        assert by_cb.loc["CB1", "Non_canonical_prop_in_cell"] == 0
+        assert pd.isna(by_cb.loc["CB2", "Non_canonical_prop_in_cell"])
+        assert pd.isna(by_cb.loc["CB2", "Fusion_RTS_prop"])
+
+    # ------------------------------------------------------------------
+    # The on-disk representation R has to read
+    # ------------------------------------------------------------------
+
+    def test_undefined_is_written_as_NA_not_blank(self, mock_args, tmpdir):
+        """
+        data.table::fread and read.table both map the literal NA to R's NA for a
+        numeric column. An empty field is the pandas default and is far less
+        explicit, so it is set deliberately at the write.
+        """
+        cls = [self._cls("r1", "CB1", "full-splice_match", exons=1)]
+        _, path = self._run(mock_args, tmpdir, cls, None, "reads")
+        with gzip.open(path, "rt") as fh:
+            header = fh.readline().rstrip("\n").split("\t")
+            values = fh.readline().rstrip("\n").split("\t")
+        row = dict(zip(header, values))
+        assert row["Non_canonical_prop_in_cell"] == "NA"
+        assert float(row["total_reads_no_monoexon"]) == 0.0
+
+
+class TestNeverMeasuredAttributes:
+    """
+    An attribute the run never evaluated must be NA, not 0.
+
+    SQANTI3 writes the literal NA for anything it could not compute -- no short
+    reads, no CAGE bed, no ORF prediction, or a read with no junction to cover.
+    cell_metrics.py used to fill those NAs with 0 and then test them against a
+    threshold, which reports "0% supported" for a criterion that was never
+    applied. The distinction the summary has to keep is:
+
+      * measured, and none passed -> 0%, a real result
+      * never measured           -> NA, no result to report
+
+    A read whose flag is NA therefore leaves the DENOMINATOR rather than
+    counting as a failure, which makes the whole-column case fall out on its
+    own: nothing measured anywhere means a zero denominator in every cell.
+    """
+
+    CLS_COLS = {
+        "associated_gene": "geneA", "associated_transcript": "txA",
+        "length": 500, "ref_length": 600, "chrom": "chr1",
+        "subcategory": "reference_match", "RTS_stage": "False",
+        "perc_A_downstream_TTS": "0", "diff_to_gene_TSS": "0",
+        "coding": "coding", "all_canonical": "canonical",
+    }
+
+    def _cls(self, isoform, cb, exons=2, fl=None, **attrs):
+        row = dict(self.CLS_COLS, isoform=isoform, CB=cb, exons=exons,
+                   structural_category="full-splice_match")
+        row.update(attrs)
+        if fl is not None:
+            row["FL"] = fl
+        return row
+
+    def _run(self, mock_args, tmpdir, cls_rows, mode="reads"):
+        out_dir = str(tmpdir.join("out_" + mode + str(len(cls_rows))))
+        sample_dir = os.path.join(out_dir, "f1")
+        os.makedirs(sample_dir, exist_ok=True)
+        prefix = os.path.join(sample_dir, "s1")
+        mock_args.mode = mode
+        mock_args.out_dir = out_dir
+
+        pd.DataFrame(cls_rows).to_csv(f"{prefix}_classification.txt", sep="\t", index=False)
+        pd.DataFrame(columns=["isoform"]).to_csv(f"{prefix}_junctions.txt", sep="\t", index=False)
+
+        calculate_metrics_per_cell(
+            mock_args, pd.DataFrame({"sampleID": ["s1"], "file_acc": ["f1"]}))
+        path = f"{prefix}_SQANTI_cell_summary.txt.gz"
+        assert os.path.isfile(path), "Cell summary was not created"
+        return pd.read_csv(path, sep="\t", compression="gzip").set_index("CB"), path
+
+    # ------------------------------------------------------------------
+    # Short-read support: the column SQANTI3 leaves entirely NA
+    # ------------------------------------------------------------------
+
+    def test_no_short_reads_is_na_not_zero_percent(self, mock_args, tmpdir):
+        """
+        min_cov is NA on every row when no short reads were given. The summary
+        used to assert 0% support, which reads as "measured and unsupported".
+        """
+        cls = [self._cls("r1", "CB1"), self._cls("r2", "CB1")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        assert pd.isna(summary.loc["CB1", "srjunctions_support_prop"])
+        assert pd.isna(summary.loc["CB1", "FSM_srjunctions_support_prop"])
+
+    def test_measured_but_unsupported_stays_zero(self, mock_args, tmpdir):
+        """The other direction: a real 0% must not be swept into NA."""
+        cls = [self._cls("r1", "CB1", min_cov="0"), self._cls("r2", "CB1", min_cov="0")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        assert summary.loc["CB1", "srjunctions_support_prop"] == 0
+
+    def test_unmeasured_reads_leave_the_denominator(self, mock_args, tmpdir):
+        """
+        One supported read, one measured-and-unsupported, one never measured:
+        50%, not the 33% that counting the NA read as a failure gives.
+        """
+        cls = [self._cls("r1", "CB1", min_cov="5"),
+               self._cls("r2", "CB1", min_cov="0"),
+               self._cls("r3", "CB1")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        assert summary.loc["CB1", "srjunctions_support_prop"] == pytest.approx(50.0)
+        assert summary.loc["CB1", "Reads_in_cell"] == 3
+
+    def test_tss_ratio_follows_the_same_rule(self, mock_args, tmpdir):
+        cls = [self._cls("r1", "CB1", ratio_TSS="10"),
+               self._cls("r2", "CB1"),
+               self._cls("r3", "CB2")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        assert summary.loc["CB1", "TSS_ratio_validated_prop"] == pytest.approx(100.0)
+        assert pd.isna(summary.loc["CB2", "TSS_ratio_validated_prop"])
+
+    # ------------------------------------------------------------------
+    # The run flags: the attribute is not in the data at all
+    # ------------------------------------------------------------------
+
+    def test_cage_and_polya_are_na_without_their_flags(self, mock_args, tmpdir):
+        cls = [self._cls("r1", "CB1")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        for col in ["CAGE_peak_support_prop", "FSM_CAGE_peak_support_prop",
+                    "PolyA_motif_support_prop", "FSM_PolyA_motif_support_prop"]:
+            assert pd.isna(summary.loc["CB1", col]), f"{col} was never measured"
+
+    def test_cage_is_measured_when_the_flag_is_given(self, mock_args, tmpdir):
+        mock_args.CAGE_peak = "cage.bed"
+        cls = [self._cls("r1", "CB1", within_CAGE_peak="TRUE"),
+               self._cls("r2", "CB1", within_CAGE_peak="FALSE")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        assert summary.loc["CB1", "CAGE_peak_support_prop"] == pytest.approx(50.0)
+
+    def test_coding_is_na_without_include_ORF(self, mock_args, tmpdir):
+        """
+        The old fallback claimed 0% coding and 100% non-coding for every cell --
+        a confident statement produced by a run that predicted no ORFs at all.
+        """
+        cls = [self._cls("r1", "CB1")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        for col in ["NMD_prop_in_cell", "FSM_coding_prop", "FSM_non_coding_prop"]:
+            assert pd.isna(summary.loc["CB1", col]), f"{col} was never measured"
+
+    def test_reads_mode_never_claims_coding_was_measured(self, mock_args, tmpdir):
+        """
+        --include_ORF is forwarded to SQANTI3 in isoforms mode only, so a reads-mode
+        run never predicts an ORF however the flag is set. `coding` is then the
+        string default "non_coding" on every row -- a value indistinguishable from a
+        measurement, which the old code published as 0% coding / 100% non-coding.
+        """
+        mock_args.include_ORF = True
+        cls = [self._cls("r1", "CB1", coding="non_coding"),
+               self._cls("r2", "CB1", coding="non_coding")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        for col in ["FSM_coding_prop", "FSM_non_coding_prop", "NMD_prop_in_cell"]:
+            assert pd.isna(summary.loc["CB1", col]), (
+                f"{col} must be NA: reads mode predicts no ORF, so nothing was measured"
+            )
+
+    def test_isoforms_mode_still_measures_coding_when_asked(self, mock_args, tmpdir):
+        """The gate must not swallow the case the flag genuinely does reach."""
+        mock_args.include_ORF = True
+        cls = [self._cls("i1", "CB1", fl="3", coding="coding"),
+               self._cls("i2", "CB1", fl="1", coding="non_coding")]
+        summary, _ = self._run(mock_args, tmpdir, cls, mode="isoforms")
+        assert summary.loc["CB1", "FSM_coding_prop"] == pytest.approx(75.0)
+        assert summary.loc["CB1", "FSM_non_coding_prop"] == pytest.approx(25.0)
+
+    def test_nmd_denominator_skips_entries_with_no_prediction(self, mock_args, tmpdir):
+        """
+        detect_nmd() is reached only for a coding entry and returns only for one
+        with junctions, so predicted_NMD is NA per-entry even in a run that did
+        predict ORFs. Those leave the denominator: 2 FL of 2 measured, not 2 of 7.
+        """
+        mock_args.include_ORF = True
+        cls = [self._cls("i1", "CB1", fl="2", predicted_NMD="TRUE"),
+               self._cls("i2", "CB1", fl="5", exons=1)]
+        summary, _ = self._run(mock_args, tmpdir, cls, mode="isoforms")
+        assert summary.loc["CB1", "NMD_prop_in_cell"] == pytest.approx(100.0)
+
+    # ------------------------------------------------------------------
+    # Isoforms mode is a separate code path (_isoforms_summary)
+    # ------------------------------------------------------------------
+
+    def test_isoforms_mode_applies_the_same_rule(self, mock_args, tmpdir):
+        cls = [self._cls("i1", "CB1,CB2", fl="4,2", min_cov="5"),
+               self._cls("i2", "CB2", fl="3")]
+        summary, _ = self._run(mock_args, tmpdir, cls, mode="isoforms")
+        assert summary.loc["CB1", "srjunctions_support_prop"] == pytest.approx(100.0)
+        # CB2 holds 2 FL of a measured, supported transcript and 3 FL of an
+        # unmeasured one. FL weighting applies to the measured pair only, so 100%
+        # -- counting the unmeasured 3 as failures gave 40%.
+        assert summary.loc["CB2", "srjunctions_support_prop"] == pytest.approx(100.0)
+        for col in ["CAGE_peak_support_prop", "PolyA_motif_support_prop",
+                    "NMD_prop_in_cell", "FSM_non_coding_prop",
+                    "TSS_ratio_validated_prop"]:
+            assert pd.isna(summary.loc["CB1", col]), f"{col} was never measured"
+
+    def test_isoforms_mode_has_no_ujc_denominator(self, mock_args, tmpdir):
+        """
+        Annotated_juction_strings_prop_in_cell divides by UJCs_in_cell, which
+        isoforms mode never computes. It was hardcoded to 0.
+        """
+        cls = [self._cls("i1", "CB1", fl="4")]
+        summary, _ = self._run(mock_args, tmpdir, cls, mode="isoforms")
+        assert pd.isna(summary.loc["CB1", "Annotated_juction_strings_prop_in_cell"])
+
+    # ------------------------------------------------------------------
+    # Counts and the on-disk form
+    # ------------------------------------------------------------------
+
+    def test_counts_are_untouched(self, mock_args, tmpdir):
+        cls = [self._cls("r1", "CB1")]
+        summary, _ = self._run(mock_args, tmpdir, cls)
+        for col in ["Reads_in_cell", "FSM", "total_junctions", "Genes_in_cell"]:
+            assert not pd.isna(summary.loc["CB1", col]), f"count column {col} must not be NA"
+
+    def test_never_measured_is_written_as_NA(self, mock_args, tmpdir):
+        cls = [self._cls("r1", "CB1")]
+        _, path = self._run(mock_args, tmpdir, cls)
+        with gzip.open(path, "rt") as fh:
+            header = fh.readline().rstrip("\n").split("\t")
+            values = fh.readline().rstrip("\n").split("\t")
+        row = dict(zip(header, values))
+        assert row["srjunctions_support_prop"] == "NA"
+        assert row["CAGE_peak_support_prop"] == "NA"

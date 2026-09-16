@@ -1,7 +1,7 @@
 import sys
 import paths
 
-from qc_args import build_parser
+from qc_args import build_parser, warn_ignored_options
 from qc_io import fill_design_table
 from sqanti3_qc_runner import run_sqanti3_qc
 from classification_enrichment import annotate_with_ujc_hash, annotate_with_cell_metadata, annotate_with_sample_support
@@ -14,6 +14,8 @@ from sc_export import export_h5ad
 def main():
     ap = build_parser()
     args = ap.parse_args()
+
+    warn_ignored_options(args)
 
     try:
         df = fill_design_table(args)

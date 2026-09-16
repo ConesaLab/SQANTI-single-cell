@@ -199,7 +199,10 @@ Aligner and mapping options:
                         Path to gmap_build index. Mandatory if using GMAP.
 
 ORF prediction:
-  --include_ORF         Run ORF prediction
+  --include_ORF         Run ORF prediction. Isoforms mode only: ignored in reads
+                        mode, where predicting an ORF for every read is
+                        prohibitively slow, so the coding, non-coding and NMD
+                        columns are NA.
   --orf_input ORF_INPUT Input fasta to run ORF on.
 
 SQANTI3 Orthogonal data inputs:
@@ -608,6 +611,36 @@ The majority of SQANTI-reads-specific otuputs are not output by SQANTI-sc, with 
 #### Glossary of Cell Summary columns
 
 The output `_SQANTI_cell_summary.txt.gz` has the following possible fields:
+
+> **Proportion columns can be `NA`.** Every `*_prop`, `*_perc` and `*_support` column
+> is a percentage of some denominator — the cell's reads, its junctions, or its reads
+> of one structural category. When that denominator is 0 the column is `NA`, because
+> there is no quantity to take a percentage of: a cell with no fusion reads has no
+> fusion RT-switching rate. This is distinct from a genuine `0`, which means the
+> denominator was positive and the numerator was 0 (for example 100 canonical and 0
+> non-canonical junctions is `0`, not `NA`). Count columns are never `NA` — a cell
+> with no fusion reads has a `Fusion` count of `0`. Filter or aggregate accordingly
+> (`na.rm = TRUE` in R, `skipna=True` is the pandas default); the denominator columns
+> (`Reads_in_cell` / `Transcripts_in_cell`, `total_junctions`,
+> `total_reads_no_monoexon` / `total_transcripts_no_monoexon`, and the per-category
+> counts) are all present in this file if you need to reconstruct which case applies.
+>
+> **A whole column is `NA` when the run never measured that attribute.** The
+> short-read (`srjunctions_support_prop`, `TSS_ratio_validated_prop`), CAGE
+> (`CAGE_peak_support_prop`), polyA-motif (`PolyA_motif_support_prop`) and ORF
+> (`NMD_prop_in_cell`, `*_coding_prop`, `*_non_coding_prop`) families are only
+> computed when the matching input was supplied — the design file's `coverage` and
+> `SR_bam` columns, and `--CAGE_peak`, `--polyA_motif_list`, `--include_ORF`. The ORF
+> family additionally needs `--mode isoforms`: `--include_ORF` is ignored in reads mode,
+> where predicting an ORF for every read would be prohibitively slow, so those columns
+> are `NA` there whether or not the flag was given. The columns are always
+> written so the file's shape does not depend on the flags, following SQANTI3's own
+> convention of emitting every field and writing `NA` for anything it could not
+> compute. A read whose attribute SQANTI3 left `NA` — a mono-exonic read has no
+> junction for short reads to cover, and NMD is only predicted for a read with
+> junctions — is dropped from both numerator and denominator rather than counted as
+> unsupported, so these percentages describe the reads the attribute was actually
+> evaluated on.
 
 * **`CB`** : Cell Barcode identifier.  
 * **`Reads_in_cell`** / **`Transcripts_in_cell`** : Total number of reads (Reads Mode) or transcripts (Isoforms Mode) associated with the cell.  

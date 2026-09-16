@@ -454,7 +454,7 @@ attach_zoom_inset <- function(main_plot, plot_df, x_var, y_var,
   zoom_lims <- zoom_inset_limits(max_val, min_val)
 
   gp_inset <- gp_inset +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1,
+    stat_summary(fun = mean, fun.args = list(na.rm = TRUE), geom = "point", shape = 4, size = 1,
                  colour = "red", stroke = 0.45) +
     scale_y_continuous(
       breaks = scales::breaks_pretty(n = 4),
@@ -497,9 +497,8 @@ attach_zoom_inset <- function(main_plot, plot_df, x_var, y_var,
 #
 # conditional = TRUE marks features that only carry information when the
 # matching SQANTI3 run flag was used. Those columns are written unconditionally
-# by cell_metrics.py, filled with a constant sentinel when the flag is absent
-# (e.g. NMD_prop_in_cell = 0, PolyA_motif_support_prop = 0), so a plain
-# "column exists in every sample" test does not catch them -- see
+# by cell_metrics.py, filled with NA in every cell when the flag is absent, so a
+# plain "column exists in every sample" test does not catch them -- see
 # curated_feature_table().
 # Entries are named vectors: name = cell-summary column, value = display label.
 # Curating the feature set includes curating how it reads, so labels are
@@ -836,7 +835,10 @@ QC_OVERVIEW_P10_P90_TO_MAD <- 2.563
 # full colour range and read as a real difference.
 robust_zscore <- function(v) {
   v <- suppressWarnings(as.numeric(v))
-  flat <- rep(0, length(v))
+  # A sample whose median is NA has no value for this feature, which is not the
+  # same as sitting at the cohort centre. Kept NA so the tile renders in the
+  # scale's na.value grey with no printed number, rather than mid-palette white.
+  flat <- ifelse(is.na(v), NA_real_, 0)
   centre <- stats::median(v, na.rm = TRUE)
   spread <- stats::mad(v, center = centre, na.rm = TRUE)
   if (!is.finite(spread) || spread <= 0) {
@@ -846,7 +848,7 @@ robust_zscore <- function(v) {
   if (!is.finite(spread) || spread <= 0 || !is.finite(centre)) return(flat)
   if (centre > 0 && spread / centre < QC_OVERVIEW_FLAT_CV) return(flat)
   z <- (v - centre) / spread
-  z[!is.finite(z)] <- 0
+  z[is.infinite(z)] <- 0
   z
 }
 
@@ -893,12 +895,12 @@ qc_cell_spread_table <- function(multi, feats) {
 # differences this score exists to detect.
 qc_cell_deviation <- function(v, spreads) {
   v <- suppressWarnings(as.numeric(v))
-  flat <- list(z = rep(0, length(v)), pooled = NA_real_)
+  flat <- list(z = ifelse(is.na(v), NA_real_, 0), pooled = NA_real_)
   centre <- stats::median(v, na.rm = TRUE)
   pooled <- stats::median(suppressWarnings(as.numeric(spreads)), na.rm = TRUE)
   if (!is.finite(centre) || !is.finite(pooled) || pooled <= 0) return(flat)
   z <- (v - centre) / pooled
-  z[!is.finite(z)] <- 0
+  z[is.infinite(z)] <- 0
   list(z = z, pooled = pooled)
 }
 
@@ -1490,7 +1492,7 @@ build_curated_feature_plot <- function(multi, feature_row, sample_levels, is_htm
       colour = "grey20"
     ) +
     stat_summary(
-      fun = mean, geom = "point", shape = 4, size = 1,
+      fun = mean, fun.args = list(na.rm = TRUE), geom = "point", shape = 4, size = 1,
       colour = "red", stroke = 0.45
     ) +
     scale_fill_conesa(palette = "complete", drop = FALSE) +
@@ -1547,7 +1549,7 @@ build_sample_comparison_plot <- function(data, col_name, title, y_label,
   }
   gp <- gp +
     geom_boxplot(width = 0.05, outlier.shape = NA, alpha = 0.3, colour = "grey20") +
-    stat_summary(fun = mean, geom = "point", shape = 4, size = 1,
+    stat_summary(fun = mean, fun.args = list(na.rm = TRUE), geom = "point", shape = 4, size = 1,
                  colour = "red", stroke = 0.45) +
     scale_fill_conesa(palette = "complete", drop = FALSE) +
     scale_color_conesa(palette = "complete", guide = "none", drop = FALSE) +
@@ -2029,7 +2031,7 @@ main <- function() {
       gg <- ggplot(dfp, aes(x = sampleID, y = prop)) +
         geom_violin(fill = violin_fill, color = cat_col, linewidth = 0.3, width = 0.8, trim = TRUE, scale = "width") +
         geom_boxplot(width = 0.05, outlier.shape = NA, fill = cat_col, color = box_outline_col, alpha = 0.3) +
-        stat_summary(fun = mean, geom = "point", shape = 4, size = 1, colour = "red", stroke = 0.9) +
+        stat_summary(fun = mean, fun.args = list(na.rm = TRUE), geom = "point", shape = 4, size = 1, colour = "red", stroke = 0.9) +
         scale_y_continuous(limits = c(0, 100), expand = expansion(add = c(1, 0))) +
         theme_classic(base_size = 13) +
         labs(title = paste0("Per Sample ", cat_lab, " ", entity_label_plural, " Distribution Across Cells"),
