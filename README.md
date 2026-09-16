@@ -199,7 +199,10 @@ Aligner and mapping options:
                         Path to gmap_build index. Mandatory if using GMAP.
 
 ORF prediction:
-  --include_ORF         Run ORF prediction
+  --include_ORF         Run ORF prediction. Isoforms mode only: ignored in reads
+                        mode, where predicting an ORF for every read is
+                        prohibitively slow, so the coding, non-coding and NMD
+                        columns are NA.
   --orf_input ORF_INPUT Input fasta to run ORF on.
 
 SQANTI3 Orthogonal data inputs:
@@ -553,8 +556,10 @@ The output `_SQANTI_cell_summary.txt.gz` has the following possible fields:
 > (`CAGE_peak_support_prop`), polyA-motif (`PolyA_motif_support_prop`) and ORF
 > (`NMD_prop_in_cell`, `*_coding_prop`, `*_non_coding_prop`) families are only
 > computed when the matching input was supplied — the design file's `coverage` and
-> `SR_bam` columns, and `--CAGE_peak`, `--polyA_motif_list`, `--include_ORF`. The
-> columns are always
+> `SR_bam` columns, and `--CAGE_peak`, `--polyA_motif_list`, `--include_ORF`. The ORF
+> family additionally needs `--mode isoforms`: `--include_ORF` is ignored in reads mode,
+> where predicting an ORF for every read would be prohibitively slow, so those columns
+> are `NA` there whether or not the flag was given. The columns are always
 > written so the file's shape does not depend on the flags, following SQANTI3's own
 > convention of emitting every field and writing `NA` for anything it could not
 > compute. A read whose attribute SQANTI3 left `NA` — a mono-exonic read has no
