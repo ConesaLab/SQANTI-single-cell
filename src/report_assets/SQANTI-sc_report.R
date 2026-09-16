@@ -811,7 +811,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # Short Read (SJ) Validation UMAPs
   # ----------------------------------------------------------------
   gg_sr_umap_plots <<- list()
-  if (exists("merged_umap") && "srjunctions_support_prop" %in% colnames(merged_umap)) {
+  # All-NA means the run never measured short-read support, so there is nothing to
+  # colour the UMAP by. Column presence alone used to imply a 0-filled column.
+  if (exists("merged_umap") && "srjunctions_support_prop" %in% colnames(merged_umap) &&
+      any(!is.na(merged_umap$srjunctions_support_prop))) {
     # Global
     gg_sr_umap_plots[[all_entities_label]] <<- build_continuous_umap(
       merged_umap,
@@ -825,7 +828,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       tag <- cat_labels[[cat_col]]
       sr_col <- paste0(cat_col_prefixes[[cat_col]], "_srjunctions_support_prop")
 
-      if (sr_col %in% colnames(merged_umap)) {
+      if (sr_col %in% colnames(merged_umap) && any(!is.na(merged_umap[[sr_col]]))) {
         gg_sr_umap_plots[[tag]] <<- build_continuous_umap(
           merged_umap,
           sr_col,
@@ -840,7 +843,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # TSS Validation UMAPs
   # ----------------------------------------------------------------
   gg_tss_umap_plots <<- list()
-  if (exists("merged_umap") && "TSS_ratio_validated_prop" %in% colnames(merged_umap)) {
+  if (exists("merged_umap") && "TSS_ratio_validated_prop" %in% colnames(merged_umap) &&
+      any(!is.na(merged_umap$TSS_ratio_validated_prop))) {
     # Global
     gg_tss_umap_plots[[all_entities_label]] <<- build_continuous_umap(
       merged_umap,
@@ -854,7 +858,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       tag <- cat_labels[[cat_col]]
       tss_col <- paste0(cat_col_prefixes[[cat_col]], "_TSS_ratio_validated_prop")
 
-      if (tss_col %in% colnames(merged_umap)) {
+      if (tss_col %in% colnames(merged_umap) && any(!is.na(merged_umap[[tss_col]]))) {
         gg_tss_umap_plots[[tag]] <<- build_continuous_umap(
           merged_umap,
           tss_col,
@@ -2368,15 +2372,13 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     "NMD_prop_in_cell" = list(label = "Predicted NMD", color = "#969696")
   )
 
-  # Determine which bad feature columns are actually present in SQANTI_cell_summary.
-  # RTS/intrapriming/non-canonical are shown even when all-zero (0 detected is informative).
-  # NMD requires at least one non-zero value: all-zero means --include_ORF was not passed
-  # and the column carries no real information.
+  # Determine which bad feature columns were actually measured. All-zero is kept
+  # (0 detected is informative); all-NA is dropped. NMD used to need its own
+  # non-zero test because --include_ORF's absence wrote zeros; it now writes NA,
+  # so the shared test covers it and a measured all-zero NMD stays visible.
   bad_feature_cols_present <- intersect(names(all_bad_features_map), colnames(SQANTI_cell_summary))
   bad_feature_cols_present <- bad_feature_cols_present[sapply(bad_feature_cols_present, function(col) {
-    if (!any(!is.na(SQANTI_cell_summary[[col]]))) return(FALSE)
-    if (col == "NMD_prop_in_cell") return(sum(SQANTI_cell_summary[[col]], na.rm = TRUE) > 0)
-    return(TRUE)
+    any(!is.na(SQANTI_cell_summary[[col]]))
   })]
 
   # Order them as originally intended, if present
@@ -2443,20 +2445,27 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   }))
 
   ## Good quality features combined figure
+  # A family is shown when the run measured it, which is now an exact test: the
+  # cell summary writes NA for an attribute it never evaluated. "All zero" was the
+  # old proxy for that and hid a genuine 0% -- measured-and-absent is a real
+  # observation and belongs in the figure.
+  measured <- function(col) {
+    col %in% colnames(SQANTI_cell_summary) && any(!is.na(SQANTI_cell_summary[[col]]))
+  }
   good_feature_cols <- c("TSSAnnotationSupport_prop")
 
-  if ("CAGE_peak_support_prop" %in% colnames(SQANTI_cell_summary)) {
+  if (measured("CAGE_peak_support_prop")) {
     good_feature_cols <- c(good_feature_cols, "CAGE_peak_support_prop")
   }
-  if ("PolyA_motif_support_prop" %in% colnames(SQANTI_cell_summary)) {
+  if (measured("PolyA_motif_support_prop")) {
     good_feature_cols <- c(good_feature_cols, "PolyA_motif_support_prop")
   }
   good_feature_cols <- c(good_feature_cols, "Canonical_prop_in_cell")
 
-  if ("srjunctions_support_prop" %in% colnames(SQANTI_cell_summary) && sum(SQANTI_cell_summary$srjunctions_support_prop, na.rm = TRUE) > 0) {
+  if (measured("srjunctions_support_prop")) {
     good_feature_cols <- c(good_feature_cols, "srjunctions_support_prop")
   }
-  if ("TSS_ratio_validated_prop" %in% colnames(SQANTI_cell_summary) && sum(SQANTI_cell_summary$TSS_ratio_validated_prop, na.rm = TRUE) > 0) {
+  if (measured("TSS_ratio_validated_prop")) {
     good_feature_cols <- c(good_feature_cols, "TSS_ratio_validated_prop")
   }
 

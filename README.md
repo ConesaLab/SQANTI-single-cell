@@ -547,6 +547,21 @@ The output `_SQANTI_cell_summary.txt.gz` has the following possible fields:
 > (`Reads_in_cell` / `Transcripts_in_cell`, `total_junctions`,
 > `total_reads_no_monoexon` / `total_transcripts_no_monoexon`, and the per-category
 > counts) are all present in this file if you need to reconstruct which case applies.
+>
+> **A whole column is `NA` when the run never measured that attribute.** The
+> short-read (`srjunctions_support_prop`, `TSS_ratio_validated_prop`), CAGE
+> (`CAGE_peak_support_prop`), polyA-motif (`PolyA_motif_support_prop`) and ORF
+> (`NMD_prop_in_cell`, `*_coding_prop`, `*_non_coding_prop`) families are only
+> computed when the matching input was supplied — the design file's `coverage` and
+> `SR_bam` columns, and `--CAGE_peak`, `--polyA_motif_list`, `--include_ORF`. The
+> columns are always
+> written so the file's shape does not depend on the flags, following SQANTI3's own
+> convention of emitting every field and writing `NA` for anything it could not
+> compute. A read whose attribute SQANTI3 left `NA` — a mono-exonic read has no
+> junction for short reads to cover, and NMD is only predicted for a read with
+> junctions — is dropped from both numerator and denominator rather than counted as
+> unsupported, so these percentages describe the reads the attribute was actually
+> evaluated on.
 
 * **`CB`** : Cell Barcode identifier.  
 * **`Reads_in_cell`** / **`Transcripts_in_cell`** : Total number of reads (Reads Mode) or transcripts (Isoforms Mode) associated with the cell.  
