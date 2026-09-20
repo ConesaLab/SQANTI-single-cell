@@ -1,28 +1,15 @@
-import os
 import sys
-
-import pandas as pd
 
 import filter_io
 from cell_filter import run_cell_filter
 from filter_args import build_filter_parser
 
 
-def _run_downstream(args, filtered_design):
-    """Re-run the optional stages on the filtered data by calling the existing QC
-    functions with the filtered design. Imported lazily so the filter stays usable
-    without scanpy, anndata or R installed."""
-    df = pd.read_csv(filtered_design, sep=',')
-
-    if args.run_clustering:
-        from sc_clustering import run_clustering_analysis
-        for _, row in df.iterrows():
-            run_clustering_analysis(args, row)
-
-    if args.export_h5ad:
-        from sc_export import export_h5ad
-        export_h5ad(args, df)
-
+def _run_downstream(args, df):
+    """Re-run the reports on the filtered data. The filter's out_dir has the same
+    <dir>/<file_acc>/<sampleID>_* layout as a QC run, so the existing functions need
+    the original design and no path rewriting. Imported lazily so the filter stays
+    usable without R installed."""
     if args.report != 'skip':
         from qc_reports import generate_report
         generate_report(args, df)
@@ -39,20 +26,17 @@ def main():
         sys.exit(1)
 
     try:
-        df = filter_io.read_sample_table(args.inDESIGN, args.out_dir)
+        df = filter_io.read_sample_table(args.inDESIGN, args.qc_dir)
+        mode, evidence = run_cell_filter(args, df)
     except ValueError as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)
 
-    try:
-        filtered_design = run_cell_filter(args, df)
-    except ValueError as exc:
-        print(exc, file=sys.stderr)
-        sys.exit(1)
-
-    if filtered_design is not None:
-        print(f"**** Filtered design written: {filtered_design}")
-        _run_downstream(args, filtered_design)
+    if mode is not None and (args.report != 'skip' or args.multisample_report):
+        args.mode = mode
+        for flag, was_measured in evidence.items():
+            setattr(args, flag, was_measured)
+        _run_downstream(args, df)
 
 
 if __name__ == "__main__":

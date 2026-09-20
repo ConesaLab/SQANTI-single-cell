@@ -118,6 +118,15 @@ safe_read_summary <- function(fpath) {
     message(sprintf("[WARNING] Summary %s does not have expected structure; skipping", fpath))
     return(NULL)
   }
+  # The cell filter labels the summary in place rather than subsetting it. Drop the
+  # artifacts and the bookkeeping columns here, before the numeric coercion below turns
+  # the text ones into a column of NA that would read as an all-missing feature.
+  if ("filter_result" %in% colnames(df)) {
+    df <- df[df$filter_result == "Cell", , drop = FALSE]
+    keep <- !(colnames(df) %in% c("filter_result", "filter_source", "filter_reason")) &
+            !grepl("_status$", colnames(df))
+    df <- df[, keep, drop = FALSE]
+  }
   # Coerce numeric columns (col 2..n) to numeric
   if (ncol(df) >= 2) {
     for (j in 2:ncol(df)) {

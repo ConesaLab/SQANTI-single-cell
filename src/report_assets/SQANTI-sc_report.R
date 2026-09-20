@@ -3722,9 +3722,22 @@ if (mode == "isoforms") {
   Junctions$count <- 1
 }
 
+# The cell filter labels the summary in place rather than subsetting it, so a filtered
+# summary still carries every barcode plus the verdict and one <criterion>_status column
+# per rule. Drop the artifacts and the bookkeeping columns so the rest of the report sees
+# a plain cell summary and cannot mistake a status column for a metric.
+drop_filtered_cells <- function(df) {
+  if (!("filter_result" %in% colnames(df))) return(df)
+  df <- df[df$filter_result == "Cell", , drop = FALSE]
+  keep <- !(colnames(df) %in% c("filter_result", "filter_source", "filter_reason")) &
+          !grepl("_status$", colnames(df))
+  df[, keep, drop = FALSE]
+}
+
 # Require precomputed cell summary produced by sqanti_sc.py
 if (!is.null(cell_summary_path) && file.exists(cell_summary_path)) {
   SQANTI_cell_summary <- data.table::fread(cell_summary_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE, data.table = FALSE)
+  SQANTI_cell_summary <- drop_filtered_cells(SQANTI_cell_summary)
 } else {
   stop("A precomputed cell summary is required. Pass --cell_summary <path> from sqanti_sc.py.")
 }

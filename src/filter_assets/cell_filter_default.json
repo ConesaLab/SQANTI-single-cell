@@ -1,10 +1,7 @@
 {
   "all": {
-    "@depth": 10,
-    "Annotated_genes": 10,
-    "MT_perc": [0, 50],
-    "RTS_prop_in_cell": [0, 5],
-    "Intrapriming_prop_in_cell": [0, 20],
-    "Non_canonical_prop_in_cell": [0, 10]
+    "depth": 500,
+    "Annotated_genes": 200,
+    "MT_perc": [0, 10]
   }
 }
