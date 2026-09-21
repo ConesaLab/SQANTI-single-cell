@@ -38,6 +38,7 @@ include_ORF <- FALSE
 CAGE_peak <- FALSE
 polyA_motif_list <- FALSE
 cell_summary_path <- NULL
+clustering_path <- NULL
 ref_gtf_path <- NULL
 
 # Check for optional arguments
@@ -149,7 +150,14 @@ if (mode == "isoforms") {
 # Generate output file names with full paths
 cell_summary_output <- file.path(paste0(outputPathPrefix, "_SQANTI_cell_summary"))
 report_output <- file.path(paste0(outputPathPrefix, "_SQANTI_sc_report_", mode))
-clustering_output <- file.path(dirname(outputPathPrefix), "clustering", "umap_results.csv")
+# --clustering when given, otherwise the pipeline's layout. The fallback is what an
+# ad-hoc render relies on; honouring the argument is what lets the caller point at a
+# clustering run that does not sit next to the report's own output.
+clustering_output <- if (!is.null(clustering_path)) {
+  clustering_path
+} else {
+  file.path(dirname(outputPathPrefix), "clustering", "umap_results.csv")
+}
 
 # Define standard colors
 fill_color_orange <- "#CC6633"
