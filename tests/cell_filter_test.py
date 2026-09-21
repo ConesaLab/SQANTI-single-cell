@@ -719,6 +719,84 @@ class TestNonDestructiveness:
         assert before == after
 
 
+class TestDownstreamOrdering:
+    """Clustering must run BEFORE the report. SQANTI-sc_report.R finds umap_results.csv
+    by looking next to its own output rather than using the --clustering path it is
+    given, so the file has to exist by the time the report runs. Reversing these two
+    produces a filtered report with no UMAP section and no error -- which is exactly
+    what the first reads-mode end-to-end run turned up.
+    """
+
+    def _args(self, **kw):
+        a = _FilterArgs('qc', 'out')
+        a.report = 'skip'
+        a.multisample_report = False
+        a.run_clustering = False
+        for k, v in kw.items():
+            setattr(a, k, v)
+        return a
+
+    def test_clustering_runs_before_the_report(self, monkeypatch):
+        import filter_pipeline
+        calls = []
+        monkeypatch.setitem(
+            sys.modules, 'sc_clustering',
+            type(sys)('sc_clustering'))
+        sys.modules['sc_clustering'].run_clustering_analysis = \
+            lambda a, r: calls.append('clustering')
+        monkeypatch.setitem(sys.modules, 'qc_reports', type(sys)('qc_reports'))
+        sys.modules['qc_reports'].generate_report = lambda a, d: calls.append('report')
+        sys.modules['qc_reports'].generate_multisample_report = \
+            lambda a, d: calls.append('multisample')
+
+        df = pd.DataFrame({'sampleID': ['s1'], 'file_acc': ['rep1']})
+        filter_pipeline._run_downstream(
+            self._args(run_clustering=True, report='html', multisample_report=True), df)
+        assert calls == ['clustering', 'report', 'multisample']
+
+    def test_clustering_is_skipped_unless_asked(self, monkeypatch):
+        import filter_pipeline
+        calls = []
+        monkeypatch.setitem(sys.modules, 'sc_clustering', type(sys)('sc_clustering'))
+        sys.modules['sc_clustering'].run_clustering_analysis = \
+            lambda a, r: calls.append('clustering')
+        monkeypatch.setitem(sys.modules, 'qc_reports', type(sys)('qc_reports'))
+        sys.modules['qc_reports'].generate_report = lambda a, d: calls.append('report')
+
+        df = pd.DataFrame({'sampleID': ['s1'], 'file_acc': ['rep1']})
+        filter_pipeline._run_downstream(self._args(report='html'), df)
+        assert calls == ['report']
+
+
+class TestClusteringArgs:
+    def test_the_filter_takes_the_full_clustering_set(self):
+        """Not just the toggle: a different cell set has to be re-clustered with the
+        same settings the QC run used, or the two are not comparable."""
+        parser = filter_args.build_filter_parser()
+        ns = parser.parse_args(['cells', '-de', 'd.csv', '-q', 'qc', '--run_clustering',
+                                '--resolution', '0.9', '--n_neighbors', '30'])
+        assert ns.run_clustering is True
+        assert ns.resolution == 0.9
+        assert ns.n_neighbors == 30
+        for flag in ('normalization', 'n_pc', 'n_top_genes', 'clustering_method', 'n_clusters'):
+            assert hasattr(ns, flag), flag
+
+    def test_both_parsers_emit_identical_clustering_flags(self):
+        """One factory, so the QC and filter parsers cannot drift apart."""
+        from qc_args import build_parser
+        def clustering_flags(p):
+            return sorted(a.option_strings[0] for a in p._actions
+                          if a.option_strings and a.option_strings[0] in (
+                              '--run_clustering', '--normalization', '--n_neighbors',
+                              '--n_pc', '--resolution', '--n_top_genes',
+                              '--clustering_method', '--n_clusters'))
+        qc = clustering_flags(build_parser())
+        filt = clustering_flags(
+            filter_args.build_filter_parser()._subparsers._group_actions[0].choices['cells'])
+        assert qc == filt
+        assert len(qc) == 8
+
+
 class TestImportHygiene:
     """SQANTI3's src/commands.py calls _get_gtftogenepred_binary() at module scope and
     raises FileNotFoundError when the platform binary is missing. The standalone filter

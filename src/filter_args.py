@@ -1,6 +1,8 @@
 import argparse
 import os
 
+from qc_args import add_clustering_args
+
 DEFAULT_CELL_RULES = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), 'filter_assets', 'cell_filter_default.json')
 
@@ -53,5 +55,11 @@ def build_filter_parser(version_str: str = '1.2.0'):
     apd.add_argument('--multisample_report_prefix', default='SQANTI_sc_multisample_report',
                      help='Output prefix for the multisample report. '
                           'Default: SQANTI_sc_multisample_report.')
+
+    # Clustering is a pipeline stage the report consumes, not a report setting: with a
+    # different set of cells the embedding has to be refitted, and reusing the QC run's
+    # coordinates would place the kept cells in a space the discarded ones shaped.
+    add_clustering_args(
+        cells.add_argument_group("Clustering and UMAP options (re-run on the kept cells)"))
 
     return ap
