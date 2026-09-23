@@ -528,9 +528,9 @@ Always written, mirroring the SQANTI3 filter's contract:
 
 | File | Contents |
 |---|---|
-| `<sampleID>_CellFilter_cell_summary.txt.gz` | **Every** judged barcode, all its metrics, plus `filter_result` (`Cell`/`Artifact`), `filter_source` and `filter_reason`, and a `<criterion>_status` column per rule. This is the cell-summary equivalent of SQANTI3's `_RulesFilter_classification.txt`. |
+| `<sampleID>_CellFilter_cell_summary.txt.gz` | **Every** judged barcode, all its metrics, plus exactly one added column: `filter_result` (`Cell`/`Artifact`). This is the cell-summary equivalent of SQANTI3's `_RulesFilter_classification.txt`, which likewise adds only its verdict column. |
 | `<sampleID>_pass_cells.txt` | Passing barcodes, one per line — usable directly as a Scanpy/Seurat subset |
-| `<sampleID>_cell_filtering_reasons.txt` | Discarded barcodes and why |
+| `<sampleID>_cell_filtering_reasons.txt` | Discarded barcodes and why: `CB` and `filter_reason`. Artifacts only, as in SQANTI3 |
 | `<sampleID>_cell_filter_params.txt` | Every threshold used, plus the run statistics |
 | `<sampleID>_classification.txt` | Filtered: only retained cells |
 | `<sampleID>_junctions.txt` | Filtered, with the per-row barcode list rewritten |
@@ -545,19 +545,38 @@ Note that filtering cells also removes transcript models that were observed **on
 
 ### Rules and defaults
 
-Criteria live in a JSON file (`--rules`, default `src/filter_assets/cell_filter_default.json`) using the same numeric vocabulary as the SQANTI3 rules filter: a list of two numbers is a `[min, max]` range and a bare number is a minimum. SQANTI3's string forms (`all_canonical: "canonical"`) have no counterpart here — every cell-summary column except `CB` is numeric, so a string rule would match nothing and silently discard every cell. It is rejected with an error instead.
+Criteria live in a JSON file (`--rules`, default `src/filter_assets/cell_filter_default.json`) with the same structure and numeric vocabulary as the SQANTI3 rules filter: a list of two numbers is a `[min, max]` range and a bare number is a minimum. SQANTI3's string forms (`all_canonical: "canonical"`) have no counterpart here — every cell-summary column except `CB` is numeric, so a string rule would match nothing and silently discard every cell. It is rejected with an error instead.
 
 ```json
 {
-  "all": {
-    "depth": 500,
-    "Annotated_genes": 200,
-    "MT_perc": [0, 10]
-  }
+  "all": [
+    {
+      "depth": 500,
+      "Annotated_genes": 200,
+      "MT_perc": [0, 10]
+    }
+  ]
 }
 ```
 
 `depth` resolves to `Reads_in_cell` in reads mode and `Transcripts_in_cell` in isoforms mode, so one file works for both.
+
+#### Alternatives: the value is a list
+
+As in SQANTI3, the value is a **list of rule-sets**. Rules inside one set are ANDed; the sets are ORed, so each set is an alternative way for a cell to be acceptable. A single rule-set is a one-element list, as above.
+
+```json
+{
+  "all": [
+    { "depth": 500, "MT_perc": [0, 10] },
+    { "depth": 200, "Annotated_genes": 200, "MT_perc": [0, 10] }
+  ]
+}
+```
+
+*Keep a cell with 500+ observations, or a shallower one that still detects 200+ annotated genes.* SQANTI3 uses the same construction to let one kind of evidence substitute for another — its default waives the canonical-junction requirement when short reads support the junction — and the reasoning carries over to cells.
+
+A cell is discarded only when **every** rule-set rejects it, so no single rule "killed" it. Its reason therefore lists the failures from all the sets, which is why a discarded cell commonly names several rules.
 
 **These are defaults, not recommendations.** The right values depend on your tissue, platform and library chemistry — edit the JSON for your data.
 
@@ -577,7 +596,9 @@ Every column of the cell summary can be used as a rule. Three families are *avai
 
 A metric can be `NA` because it was never measured — an undefined proportion (zero denominator), or an attribute whose SQANTI3 input was not supplied (`CAGE_peak_support_prop`, `PolyA_motif_support_prop`, the ORF-derived columns). A comparison against `NA` is false, so judging a cell on one would **discard** it for an unknown value.
 
-Instead, a rule whose value is `NA` for a given cell is skipped for that cell and recorded as `not_evaluated`; the cell is still judged on every other rule. If a rule column is `NA` for *every* cell, the filter warns that the rule is judging nothing.
+Instead, a rule whose value is `NA` for a given cell is skipped for that cell; the cell is still judged on every other rule, and the skipped rule contributes no reason. If a rule column is `NA` for *every* cell, the filter warns that the rule is judging nothing.
+
+This is a deliberate difference from SQANTI3, which treats `NA` as a failure. The two `NA`s do not mean the same thing. SQANTI3's is usually a missing *input* — supply no short reads and `min_cov` is `NA` on every transcript — and its alternative rule-sets route around it. Ours is a fact about one cell: a cell with no multi-exonic reads has no denominator for `Non_canonical_prop_in_cell`, so failing it would judge the cell on its own composition rather than its quality.
 
 Rows with no cell barcode (`unassigned`, `NA`, `-`, `*`, empty) are dropped before any statistic and the count is reported — an `unassigned` row aggregates every read that was never assigned to a cell, so it would otherwise dominate any depth-based statistic.
 

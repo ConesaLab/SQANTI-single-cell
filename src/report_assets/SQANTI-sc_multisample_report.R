@@ -123,8 +123,7 @@ safe_read_summary <- function(fpath) {
   # the text ones into a column of NA that would read as an all-missing feature.
   if ("filter_result" %in% colnames(df)) {
     df <- df[df$filter_result == "Cell", , drop = FALSE]
-    keep <- !(colnames(df) %in% c("filter_result", "filter_source", "filter_reason")) &
-            !grepl("_status$", colnames(df))
+    keep <- colnames(df) != "filter_result"
     df <- df[, keep, drop = FALSE]
   }
   # Coerce numeric columns (col 2..n) to numeric
@@ -133,9 +132,12 @@ safe_read_summary <- function(fpath) {
       df[[j]] <- suppressWarnings(as.numeric(df[[j]]))
     }
   }
-  # Derive sampleID from filename: <sampleID>_SQANTI_cell_summary.txt.gz
+  # Derive sampleID from filename. A filtered run's summary is labelled in place and
+  # named <sampleID>_CellFilter_cell_summary.txt.gz, so both spellings must reduce to
+  # the same sampleID -- the classification-derived name at the length panel below has
+  # no such suffix, and a mismatch makes that join silently find nothing.
   base <- basename(fpath)
-  sample <- sub("_SQANTI_cell_summary\\.txt(\\.gz)?$", "", base)
+  sample <- sub("_(SQANTI|CellFilter)_cell_summary\\.txt(\\.gz)?$", "", base)
   df$sampleID <- sample
   df
 }
@@ -1601,7 +1603,7 @@ main <- function() {
   }
 
   # Derive sample IDs from filenames before loading (needed to align group vectors)
-  all_sample_ids <- sub("_SQANTI_cell_summary\\.txt(\\.gz)?$", "", basename(files))
+  all_sample_ids <- sub("_(SQANTI|CellFilter)_cell_summary\\.txt(\\.gz)?$", "", basename(files))
 
   # Parse optional group vectors (parallel to files)
   color_groups_vec <- parse_group_vec(params$color_group, length(files))

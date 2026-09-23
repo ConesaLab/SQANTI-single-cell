@@ -7,12 +7,11 @@ import pandas as pd
 import filter_io
 from filter_io import SENTINEL_BARCODES
 
-PASS = 'pass'
-FAIL = 'fail'
-NOT_EVALUATED = 'not_evaluated'
 
 RESULT_CELL = 'Cell'
 RESULT_ARTIFACT = 'Artifact'
+# The one column added to the cell summary, named as SQANTI3 names its own.
+RESULT_COLUMN = 'filter_result'
 
 DEPTH_TOKEN = 'depth'
 
@@ -65,6 +64,14 @@ def detect_measured_evidence(summary):
 
 
 def load_rules(path, mode):
+    """Read the rules file into a list of rule-sets, SQANTI3's shape.
+
+    Rules within a set are ANDed; the sets are ORed, so a set is an alternative way
+    for a cell to be acceptable. SQANTI3 uses that to let one kind of evidence stand
+    in for another -- it waives the canonical-junction requirement when short reads
+    back the junction up -- and the same applies to cells: "deep enough", or
+    "shallower but still detecting plenty of genes".
+    """
     with open(path) as fh:
         raw = json.load(fh)
     if not isinstance(raw, dict):
@@ -80,12 +87,35 @@ def load_rules(path, mode):
             f"ERROR: {path} has unsupported top-level key(s): {', '.join(unknown)}. "
             "Only \"all\" is supported for cell rules."
         )
+    rulesets = raw['all']
+    if not isinstance(rulesets, list) or not rulesets:
+        raise ValueError(
+            f"ERROR: \"all\" in {path} must be a non-empty list of rule-sets, as in "
+            "SQANTI3's filter rules: [{\"depth\": 500}]. A single rule-set is a "
+            "one-element list."
+        )
+    for rs in rulesets:
+        if not isinstance(rs, dict) or not rs:
+            raise ValueError(
+                f"ERROR: every entry of \"all\" in {path} must be a non-empty object "
+                f"of column -> threshold; got {rs!r}."
+            )
     # The depth column is named per mode. A token keeps one shipped default working
     # in both without silently ignoring a rule that names the other mode's column.
     # Rebuilt in place rather than popped so the JSON's order survives into the
     # reason strings.
-    return {(depth_column(mode) if k == DEPTH_TOKEN else k): v
-            for k, v in raw['all'].items()}
+    return [{(depth_column(mode) if k == DEPTH_TOKEN else k): v for k, v in rs.items()}
+            for rs in rulesets]
+
+
+def rule_columns(rulesets):
+    """Every column named by any rule-set, in first-seen order."""
+    seen = []
+    for rs in rulesets:
+        for column in rs:
+            if column not in seen:
+                seen.append(column)
+    return seen
 
 
 def _reject_rule(column, rule):
@@ -101,6 +131,7 @@ def _reject_rule(column, rule):
 
 
 def describe_rule(column, rule):
+    """Human-readable form of the rule itself, for logs and the params record."""
     if isinstance(rule, bool):
         _reject_rule(column, rule)
     if isinstance(rule, list) and rule and all(
@@ -109,6 +140,21 @@ def describe_rule(column, rule):
     if isinstance(rule, (int, float)):
         return f"{column} >= {rule}"
     _reject_rule(column, rule)
+
+
+def _failure_reasons(column, rule, values, shown):
+    """SQANTI3's wording for a failed comparison: '{column}: {value} < {threshold}'.
+
+    SQANTI3 stores a range as separate Min_Threshold and Max_Threshold rules, so a
+    range violation reports only the bound that was crossed. Matching that keeps one
+    vocabulary across both filters' reasons files.
+    """
+    if isinstance(rule, list):
+        low, high = min(rule), max(rule)
+        return np.where(values < low,
+                        column + ": " + shown + " < " + str(low),
+                        column + ": " + shown + " > " + str(high))
+    return column + ": " + shown + " < " + str(rule)
 
 
 def _evaluate_rule(values, column, rule):
@@ -124,43 +170,75 @@ def _evaluate_rule(values, column, rule):
     _reject_rule(column, rule)
 
 
-def validate_rules(rules, summary, mode, sampleID, log=print):
-    unknown = [c for c in rules if c not in summary.columns]
+def validate_rules(rulesets, summary, mode, sampleID, log=print):
+    columns = rule_columns(rulesets)
+    unknown = [c for c in columns if c not in summary.columns]
     if unknown:
         raise ValueError(
             f"ERROR: rule column(s) not present in the cell summary: "
             f"{', '.join(sorted(unknown))}. Available depth column for mode "
             f"'{mode}' is '{depth_column(mode)}'."
         )
-    for column in rules:
+    for column in columns:
         if pd.to_numeric(summary[column], errors='coerce').isna().all():
             log(f"[WARNING] {sampleID}: rule column '{column}' is NA for every cell, so "
                 f"this rule judges nothing. The attribute was never measured in the QC "
                 f"run that produced this summary.")
 
 
-def apply_rules(summary, rules):
-    """Returns (status_frame, reasons Series). Status is per criterion and has three
-    values because a cell whose value is NA is one we have no evidence about: a
-    comparison against NA is False, so judging it anyway discards a healthy cell with
-    a confidently wrong reason."""
-    status = pd.DataFrame(index=summary.index)
-    reasons = pd.Series([[] for _ in range(len(summary))], index=summary.index)
-    for column, rule in rules.items():
+def apply_rules(summary, rulesets):
+    """Evaluate the rule-sets. Returns (status_frame, reasons Series, passed Series).
+
+    Rule-sets are ORed and the rules inside one are ANDed, as in SQANTI3. Two
+    consequences worth stating because they shape what the reasons mean:
+
+    A cell fails only when EVERY rule-set fails, so no single rule "killed" it.
+    Reasons are therefore collected from every rule-set, as SQANTI3's get_reasons
+    does, and a cell commonly lists several.
+
+    NA means the rule is SKIPPED for that cell, where SQANTI3 fails it. The divergence
+    is deliberate: SQANTI3's NA is usually a missing input, uniform across all rows,
+    and its alternatives route around it; ours is a per-cell fact -- a cell with no
+    multi-exonic reads has no denominator for Non_canonical_prop_in_cell -- so failing
+    it would judge the cell on its own composition rather than its quality.
+    """
+    index = summary.index
+    passed_any = pd.Series(False, index=index)
+    reason_masks = []
+
+    for rules in rulesets:
+        this_set = pd.Series(True, index=index)
+        for column, rule in rules.items():
+            values = pd.to_numeric(summary[column], errors='coerce')
+            evaluable = values.notna()
+            ok = _evaluate_rule(values, column, rule)
+            this_set &= ok | ~evaluable
+            failing = evaluable & ~ok
+            if failing.any():
+                reason_masks.append((column, rule, failing))
+        passed_any |= this_set
+
+    # Reasons are recorded for DISCARDED cells only, as in SQANTI3, which builds them
+    # from the artifact rows alone. A kept cell may well have failed rules in an
+    # alternative it did not need, and saying so would read as a contradiction next to
+    # its own Cell verdict.
+    discarded = ~passed_any
+    reasons = pd.Series([[] for _ in range(len(summary))], index=index)
+    seen = set()
+    for column, rule, failing in reason_masks:
+        key = (column, repr(rule))
+        if key in seen:
+            continue
+        seen.add(key)
+        relevant = failing & discarded
+        if not relevant.any():
+            continue
+        shown = summary[column].astype(str)
         values = pd.to_numeric(summary[column], errors='coerce')
-        evaluable = values.notna()
-        passed = _evaluate_rule(values, column, rule)
-
-        col_status = np.where(~evaluable, NOT_EVALUATED, np.where(passed, PASS, FAIL))
-        status[f"{column}_status"] = col_status
-
-        failing = col_status == FAIL
-        if failing.any():
-            text = describe_rule(column, rule)
-            shown = summary[column].astype(str)
-            for idx in summary.index[failing]:
-                reasons.at[idx] = reasons.at[idx] + [f"{text} (got {shown.at[idx]})"]
-    return status, reasons
+        texts = _failure_reasons(column, rule, values, shown)
+        for pos in np.flatnonzero(relevant.to_numpy()):
+            reasons.at[index[pos]] = reasons.at[index[pos]] + [texts[pos]]
+    return reasons, passed_any
 
 
 def decide_cells(summary, rules, mode, sampleID, log=print):
@@ -179,38 +257,43 @@ def decide_cells(summary, rules, mode, sampleID, log=print):
 
     real = summary[~sentinel.values]
     validate_rules(rules, real, mode, sampleID, log=log)
-    status, reasons = apply_rules(real, rules)
+    reasons, passed_any = apply_rules(real, rules)
 
     result = pd.Series(RESULT_CELL, index=real.index)
-    source = pd.Series('pass', index=real.index)
     reason_text = pd.Series('', index=real.index)
 
-    failed_rules = reasons.apply(len) > 0
-    result[failed_rules] = RESULT_ARTIFACT
-    source[failed_rules] = 'rules'
-    reason_text[failed_rules] = reasons[failed_rules].apply('; '.join)
+    # The verdict comes from the OR over rule-sets, NOT from whether any reason was
+    # collected: with alternatives a cell can fail rules in one set and still be kept
+    # because another set accepted it.
+    discarded = ~passed_any
+    result[discarded] = RESULT_ARTIFACT
+    reason_text[discarded] = reasons[discarded].apply('; '.join)
 
-    verdict = pd.concat([real.reset_index(drop=True), status.reset_index(drop=True)], axis=1)
-    verdict['filter_result'] = result.values
-    verdict['filter_source'] = source.values
-    verdict['filter_reason'] = reason_text.values
+    # filter_result is the ONLY column added to the summary, as SQANTI3 adds only
+    # filter_result to its classification. The reasons travel in their own file.
+    labelled = real.reset_index(drop=True).copy()
+    labelled[RESULT_COLUMN] = result.values
+    return labelled, reason_text.reset_index(drop=True)
 
-    return verdict
 
-
-def write_verdict_artifacts(verdict, run_prefix, params):
+def write_filter_artifacts(labelled, reasons, run_prefix, params):
     """The three files SQANTI3's rules filter emits, in cell vocabulary, plus the
     parameters. Like SQANTI3's classification the cell summary is labelled in place and
-    never subset, so this table carries every judged barcode."""
-    cb_col = verdict.columns[0]
-    verdict.to_csv(f"{run_prefix}_CellFilter_cell_summary.txt.gz",
-                   sep='\t', index=False, compression='gzip')
+    never subset, so it carries every judged barcode and exactly one added column."""
+    cb_col = labelled.columns[0]
+    labelled.to_csv(f"{run_prefix}_CellFilter_cell_summary.txt.gz",
+                    sep='\t', index=False, compression='gzip')
 
-    passing = verdict.loc[verdict['filter_result'] == RESULT_CELL, cb_col]
+    passing = labelled.loc[labelled[RESULT_COLUMN] == RESULT_CELL, cb_col]
     filter_io.write_barcode_list(f"{run_prefix}_pass_cells.txt", passing)
 
-    artifacts = verdict[verdict['filter_result'] == RESULT_ARTIFACT]
-    artifacts[[cb_col, 'filter_source', 'filter_reason']].to_csv(
+    # Artifacts only, as SQANTI3 builds its reasons from the artifact rows alone.
+    # SQANTI3 carries structural_category here because its rules are keyed by it; our
+    # rules have one key, and no cell-summary column is categorical, so there is
+    # nothing equivalent to report.
+    discarded = labelled[RESULT_COLUMN] == RESULT_ARTIFACT
+    pd.DataFrame({cb_col: labelled.loc[discarded, cb_col],
+                  'filter_reason': reasons[discarded.values]}).to_csv(
         f"{run_prefix}_cell_filtering_reasons.txt", sep='\t', index=False)
 
     with open(f"{run_prefix}_cell_filter_params.txt", 'w') as fh:
@@ -241,22 +324,18 @@ def run_cell_filter(args, df, log=print):
             evidence[flag] = evidence[flag] or was_measured
         rules = load_rules(args.rules, mode)
 
-        verdict = decide_cells(summary, rules, mode, sampleID, log=log)
+        labelled, reasons = decide_cells(summary, rules, mode, sampleID, log=log)
 
         params = {
             'SampleID': sampleID,
             'Mode': mode,
             'QCDir': os.path.abspath(args.qc_dir),
             'RulesFile': os.path.abspath(args.rules),
-            'BarcodesIn': len(verdict),
-            'BarcodesPassing': int((verdict['filter_result'] == RESULT_CELL).sum()),
+            'BarcodesIn': len(labelled),
+            'BarcodesPassing': int((labelled[RESULT_COLUMN] == RESULT_CELL).sum()),
         }
-        for source, n in verdict.loc[
-                verdict['filter_result'] == RESULT_ARTIFACT, 'filter_source'
-        ].value_counts().items():
-            params[f"ArtifactsBy_{source}"] = int(n)
 
-        keep_cells = write_verdict_artifacts(verdict, out_prefix, params)
+        keep_cells = write_filter_artifacts(labelled, reasons, out_prefix, params)
         log(f"**** {sampleID}: {params['BarcodesPassing']}/{params['BarcodesIn']} "
             f"barcodes passed the cell filter")
 
@@ -287,6 +366,6 @@ def run_cell_filter(args, df, log=print):
             'FastaRecordsIn': f_in,
             'FastaRecordsOut': f_out,
         })
-        write_verdict_artifacts(verdict, out_prefix, params)
+        write_filter_artifacts(labelled, reasons, out_prefix, params)
 
     return (modes.pop() if modes else None), evidence

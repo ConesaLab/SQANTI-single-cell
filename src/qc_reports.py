@@ -44,6 +44,13 @@ def generate_report(args, df):
                 cell_summary_file = cell_summary_path(outputPathPrefix)
                 if os.path.isfile(cell_summary_file):
                     flags.extend(["--cell_summary", cell_summary_file])
+
+                # Present only for a filtered run. The reasons live in their own file,
+                # as in SQANTI3, so the report is handed the path rather than rebuilding
+                # it -- the same contract as --cell_summary above.
+                reasons_file = f"{outputPathPrefix}_cell_filtering_reasons.txt"
+                if os.path.isfile(reasons_file):
+                    flags.extend(["--cell_filter_reasons", reasons_file])
                 
                 # Check for clustering results
                 # Clustering is usually one level up from sampleID if run per file_acc
