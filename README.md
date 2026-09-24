@@ -494,6 +494,115 @@ The clustering process can be customized using the following arguments:
 *   **`--n_clusters`**: Number of clusters to force if using K-means clustering (Default: 10).
 
 
+<a name="cell-filter"></a>
+
+## Cell filter (`sqanti_sc_filter.py cells`)
+
+Once a QC run has finished, `sqanti_sc_filter.py` identifies low-quality cell barcodes from the per-cell metrics in `*_SQANTI_cell_summary.txt.gz`. It is a **separate entry point** so that thresholds can be retuned without re-running SQANTI3 QC, and it needs neither the genome FASTA nor the reference GTF:
+
+```bash
+python sqanti_sc_filter.py cells \
+    --design design.csv \
+    --qc_dir ./qc \
+    --out_dir ./filter/cells
+```
+
+Every run writes both the verdict and the filtered data files. `--qc_dir` is read and never written, so the original QC run is untouched.
+
+There is no `--mode`: `Reads_in_cell` and `Transcripts_in_cell` are mutually exclusive, so the cell summary states which mode it came from.
+
+**Nothing existing is ever modified.** `--qc_dir` is read and never written; everything the filter produces goes under `--out_dir`.
+
+### Output layout
+
+The filter's output has the **same shape as a QC run** — `<out_dir>/<file_acc>/<sampleID>_*` — so every existing tool works on it unchanged, with the *same* design file:
+
+```
+qc/rep1/s1_classification.txt                  qc/rep1/clustering/umap_results.csv
+filter/cells/rep1/s1_classification.txt        filter/cells/rep1/clustering/umap_results.csv
+```
+
+Threshold trials are therefore just different directories (`--out_dir filter/cells_depth1000`), and they can be compared side by side. Steps 2 and 3 of the filter module will write to `filter/transcripts/` and `filter/rescue/` the same way.
+
+Always written, mirroring the SQANTI3 filter's contract:
+
+| File | Contents |
+|---|---|
+| `<sampleID>_CellFilter_cell_summary.txt.gz` | **Every** judged barcode, all its metrics, plus exactly one added column: `filter_result` (`Cell`/`Artifact`). This is the cell-summary equivalent of SQANTI3's `_RulesFilter_classification.txt`, which likewise adds only its verdict column. |
+| `<sampleID>_pass_cells.txt` | Passing barcodes, one per line — usable directly as a Scanpy/Seurat subset |
+| `<sampleID>_cell_filtering_reasons.txt` | Discarded barcodes and why: `CB` and `filter_reason`. Artifacts only, as in SQANTI3 |
+| `<sampleID>_cell_filter_params.txt` | Every threshold used, plus the run statistics |
+| `<sampleID>_classification.txt` | Filtered: only retained cells |
+| `<sampleID>_junctions.txt` | Filtered, with the per-row barcode list rewritten |
+| `<sampleID>_corrected.gtf` | Filtered: only the surviving transcript models |
+| `<sampleID>_corrected.fasta` | Filtered: the sequences of those same models |
+
+**The cell summary is labelled, never subset** — the same choice SQANTI3 makes for the classification it judges. `<sampleID>_CellFilter_cell_summary.txt.gz` holds every judged barcode with the verdict on it, and there is no second copy containing only the survivors. The reports drop the `Artifact` rows when they see the verdict column, so they show the retained cells without a separate file existing.
+
+The filtered data files are written alongside it under their usual names: `*_classification.txt`, `*_junctions.txt`, `*_corrected.gtf` and `*_corrected.fasta`. The GTF and the FASTA are subset to exactly the models that survive in the filtered classification, so all four stay consistent with one another. This mirrors SQANTI3, whose shipped filter configuration points `filter_gtf` and `filter_isoforms` at the corrected GTF and FASTA by default.
+
+Note that filtering cells also removes transcript models that were observed **only** in discarded cells. The count is reported as `TranscriptModelsLostAllSupport`.
+
+### Rules and defaults
+
+Criteria live in a JSON file (`--rules`, default `src/filter_assets/cell_filter_default.json`) with the same structure and numeric vocabulary as the SQANTI3 rules filter: a list of two numbers is a `[min, max]` range and a bare number is a minimum. SQANTI3's string forms (`all_canonical: "canonical"`) have no counterpart here — every cell-summary column except `CB` is numeric, so a string rule would match nothing and silently discard every cell. It is rejected with an error instead.
+
+```json
+{
+  "all": [
+    {
+      "depth": 500,
+      "Annotated_genes": 200,
+      "MT_perc": [0, 10]
+    }
+  ]
+}
+```
+
+`depth` resolves to `Reads_in_cell` in reads mode and `Transcripts_in_cell` in isoforms mode, so one file works for both.
+
+#### Alternatives: the value is a list
+
+As in SQANTI3, the value is a **list of rule-sets**. Rules inside one set are ANDed; the sets are ORed, so each set is an alternative way for a cell to be acceptable. A single rule-set is a one-element list, as above.
+
+```json
+{
+  "all": [
+    { "depth": 500, "MT_perc": [0, 10] },
+    { "depth": 200, "Annotated_genes": 200, "MT_perc": [0, 10] }
+  ]
+}
+```
+
+*Keep a cell with 500+ observations, or a shallower one that still detects 200+ annotated genes.* SQANTI3 uses the same construction to let one kind of evidence substitute for another — its default waives the canonical-junction requirement when short reads support the junction — and the reasoning carries over to cells.
+
+A cell is discarded only when **every** rule-set rejects it, so no single rule "killed" it. Its reason therefore lists the failures from all the sets, which is why a discarded cell commonly names several rules.
+
+**These are defaults, not recommendations.** The right values depend on your tissue, platform and library chemistry — edit the JSON for your data.
+
+*   **`depth`** (min 500): single-cell long-read libraries typically run in the thousands of reads or transcripts per real cell, so this mainly separates cells from empty droplets. Note this is a different question from whether a *proportion* is estimable: below ~10 observations a percentage moves in steps of more than 10%, so a proportion rule on a very shallow cell is noise even when the cell is real.
+*   **`Annotated_genes`** (min 200): chosen because the retention curve is flat either side of it. On data that still contains empty droplets the separation between empty and real barcodes is sharp, so anything from about 50 to 300 keeps the same cells; above roughly 500 the floor starts removing real ones. 200 sits in the middle of that plateau, which also means the exact value matters little. `Annotated_genes` rather than `Genes_in_cell`, because SQANTI3 mints a fresh `novelGene_*` id for nearly every unassignable read, so `Genes_in_cell` partly counts artifacts.
+*   **`MT_perc`** (max 10): a ruptured cell loses cytoplasmic mRNA while membrane-bound mitochondria stay, so high MT does indicate damage. MT transcripts are short and long-read protocols size-select, so expect a *lower* fraction here than the familiar short-read thresholds, not a higher one. Some cell types (cardiomyocytes, neurons) genuinely run much higher — raise it for those.
+
+### Criteria deliberately left out of the defaults
+
+Every column of the cell summary can be used as a rule. Three families are *available but not defaulted*, because a sensible threshold for them is not a constant:
+
+*   **Per-cell artifact loads** — `Intrapriming_prop_in_cell`, `RTS_prop_in_cell`, `Non_canonical_prop_in_cell`. These are the criteria a general-purpose single-cell QC tool cannot compute, and they are the reason to use this filter — but note what they measure. SQANTI3's own rules ask *"is this transcript an artifact?"* and answer with a definition (intra-priming is `perc_A_downstream_TTS > 59`). These ask *"what fraction of this cell may be artifacts?"*, which is a tolerance, and the right tolerance depends on the chemistry. 10x 3′ protocols in particular produce a high baseline intra-priming rate, so a tolerance chosen without looking at your data can sit *below* the baseline and discard nearly every cell. Set them from your own distribution — a robust outlier bound such as `median + 3·MAD` is a reasonable starting point.
+*   **Structural-category shares** — `FSM_prop`, `ISM_prop` and their relatives. These vary more across cells than anything else in the summary, which makes them tempting, but a fixed threshold on one does not mean the same thing twice. Two effects swamp cell quality. **The transcript reconstruction tool dominates**: run the same reads through different tools and the median FSM share can move from roughly a third to nearly everything, because tools differ in how readily they emit a model that is not in the annotation. **Cell type comes next**: large, transcriptionally active cells carry a higher share of immature and partial transcripts than small quiescent ones, so in a mixed population these columns separate cell types before they separate good cells from bad. A plausible-looking `FSM_prop` minimum can therefore delete an entire cell type from one sample and nothing at all from another processed differently, in both cases leaving a report that looks clean. If you use these at all, compare each cell against others of its own cluster within a single processing run, never against a global constant.
+*   **Columns from optional SQANTI3 inputs** — `CAGE_peak_support_prop`, `PolyA_motif_support_prop`, `srjunctions_support_prop`, `TSS_ratio_validated_prop` and the ORF-derived columns. These are `NA` unless the matching evidence was supplied to the QC run, and a rule on an all-`NA` column judges nothing (the filter warns when this happens).
+
+### Values that cannot be judged
+
+A metric can be `NA` because it was never measured — an undefined proportion (zero denominator), or an attribute whose SQANTI3 input was not supplied (`CAGE_peak_support_prop`, `PolyA_motif_support_prop`, the ORF-derived columns). A comparison against `NA` is false, so judging a cell on one would **discard** it for an unknown value.
+
+Instead, a rule whose value is `NA` for a given cell is skipped for that cell; the cell is still judged on every other rule, and the skipped rule contributes no reason. If a rule column is `NA` for *every* cell, the filter warns that the rule is judging nothing.
+
+This is a deliberate difference from SQANTI3, which treats `NA` as a failure. The two `NA`s do not mean the same thing. SQANTI3's is usually a missing *input* — supply no short reads and `min_cov` is `NA` on every transcript — and its alternative rule-sets route around it. Ours is a fact about one cell: a cell with no multi-exonic reads has no denominator for `Non_canonical_prop_in_cell`, so failing it would judge the cell on its own composition rather than its quality.
+
+Rows with no cell barcode (`unassigned`, `NA`, `-`, `*`, empty) are dropped before any statistic and the count is reported — an `unassigned` row aggregates every read that was never assigned to a cell, so it would otherwise dominate any depth-based statistic.
+
+
 <a name="understanding-the-output-of-sqanti-sc"></a>
 
 ## Understanding the output of SQANTI-sc

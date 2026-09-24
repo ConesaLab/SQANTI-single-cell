@@ -3,7 +3,18 @@ import sys
 import subprocess
 import pandas as pd
 from paths import reportAssetsPath
-    
+
+
+def cell_summary_path(outputPathPrefix):
+    """The cell filter labels the summary rather than subsetting it, so a filtered run
+    has the labeled file and no plain one. The R drops the Artifact rows when it sees the
+    verdict column."""
+    labeled = f"{outputPathPrefix}_CellFilter_cell_summary.txt.gz"
+    if os.path.isfile(labeled):
+        return labeled
+    return f"{outputPathPrefix}_SQANTI_cell_summary.txt.gz"
+
+
 def generate_report(args, df):
     for index, row in df.iterrows():
         file_acc = row['file_acc']
@@ -18,21 +29,28 @@ def generate_report(args, df):
         if os.path.isfile(class_file):
             try:
                 flags = []
-                if args.ignore_cell_summary:
+                if getattr(args, 'ignore_cell_summary', False):
                     flags.append("--ignore_cell_summary")
                 # Same gate as sqanti3_qc_runner.py and cell_metrics.py: the flag does
                 # nothing in reads mode, so the report must not draw coding sections
                 # from columns that were never predicted.
                 if args.mode == 'isoforms' and getattr(args, 'include_ORF', False):
                     flags.append("--include_ORF")
-                if args.CAGE_peak:
+                if getattr(args, 'CAGE_peak', None):
                     flags.append("--CAGE_peak")
-                if args.polyA_motif_list:
+                if getattr(args, 'polyA_motif_list', None):
                     flags.append("--polyA_motif_list")
                 
-                cell_summary_file = f"{outputPathPrefix}_SQANTI_cell_summary.txt.gz"
+                cell_summary_file = cell_summary_path(outputPathPrefix)
                 if os.path.isfile(cell_summary_file):
                     flags.extend(["--cell_summary", cell_summary_file])
+
+                # Present only for a filtered run. The reasons live in their own file,
+                # as in SQANTI3, so the report is handed the path rather than rebuilding
+                # it -- the same contract as --cell_summary above.
+                reasons_file = f"{outputPathPrefix}_cell_filtering_reasons.txt"
+                if os.path.isfile(reasons_file):
+                    flags.extend(["--cell_filter_reasons", reasons_file])
                 
                 # Check for clustering results
                 # Clustering is usually one level up from sampleID if run per file_acc
@@ -84,7 +102,7 @@ def generate_multisample_report(args, df):
         file_acc = row['file_acc']
         sampleID = row['sampleID']
         outputPathPrefix = os.path.join(args.out_dir, file_acc, sampleID)
-        cell_summary = f"{outputPathPrefix}_SQANTI_cell_summary.txt.gz"
+        cell_summary = cell_summary_path(outputPathPrefix)
         if os.path.isfile(cell_summary):
             cell_summaries.append(os.path.abspath(cell_summary))
             if has_color_col:

@@ -640,9 +640,13 @@ def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
     cell_summary = f"{prefix}_SQANTI_cell_summary.txt.gz"
     clustering_file = os.path.join(os.path.dirname(prefix), "clustering", "umap_results.csv")
 
-    # class, junc, and cell_summary exist; clustering does NOT
+    # class, junc, and cell_summary exist; clustering does NOT, and neither do the
+    # cell filter's outputs -- this is a QC run, not a filtered one.
+    labelled = f"{prefix}_CellFilter_cell_summary.txt.gz"
+    reasons = f"{prefix}_cell_filtering_reasons.txt"
+
     def _isfile(path):
-        return path != clustering_file
+        return path not in (clustering_file, labelled, reasons)
     mock_isfile.side_effect = _isfile
 
     generate_report(mock_args, df)

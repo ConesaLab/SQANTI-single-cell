@@ -39,6 +39,7 @@ CAGE_peak <- FALSE
 polyA_motif_list <- FALSE
 cell_summary_path <- NULL
 clustering_path <- NULL
+cell_filter_reasons_path <- NULL
 ref_gtf_path <- NULL
 
 # Check for optional arguments
@@ -73,6 +74,15 @@ if (length(args) > 5) {
         next
       } else {
         stop("--cell_summary requires a path argument")
+      }
+    }
+    if (arg == "--cell_filter_reasons") {
+      if ((i + 1) <= length(args)) {
+        cell_filter_reasons_path <- args[i + 1]
+        i <- i + 2
+        next
+      } else {
+        stop("--cell_filter_reasons requires a path argument")
       }
     }
     if (arg == "--clustering") {
@@ -2277,11 +2287,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   #################################################
 
   # 1. Combined Good Features Plot (All Transcripts)
-  all_good_features_map <- list(
-    "srjunctions_support_prop" = list(label = "SJs Validated by SRs", color = "#cd4f39"),
-    "TSS_ratio_validated_prop" = list(label = "TSS Validated by SRs", color = "#FFC125")
-    # Add other good features here if needed (e.g. polyA_motif_found_prop if available)
-  )
+  # all_good_features_map is defined at top level, so the cell filter section and
+  # these plots cannot drift apart on a label or a colour.
 
   # Determine which good feature columns are present
   good_feature_cols_present <- intersect(names(all_good_features_map), colnames(SQANTI_cell_summary))
@@ -2369,16 +2376,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
   ## Bad quality features combined figure
   # Define all possible features, their colors, and labels
-  all_bad_features_map <- list(
-    "Intrapriming_prop_in_cell" = list(label = "Intrapriming", color = "#78C679"),
-    "RTS_prop_in_cell" = list(label = "RT-switching", color = "#FF9933"),
-    # NOT a junction proportion: the fraction of multi-exon reads/transcripts whose
-    # all_canonical field is non_canonical, i.e. entities carrying at least one
-    # non-canonical junction. Named accordingly so it is not read as a share of
-    # junctions (matches SQANTI-sc_multisample_report.R's Non_canonical_prop_in_cell label).
-    "Non_canonical_prop_in_cell" = list(label = paste0(entity_label_plural, " with\nNon-canonical SJ"), color = "#41B6C4"),
-    "NMD_prop_in_cell" = list(label = "Predicted NMD", color = "#969696")
-  )
+  # all_bad_features_map is likewise top-level.
 
   # Determine which bad feature columns were actually measured. All-zero is kept
   # (0 detected is informative); all-NA is dropped. NMD used to need its own
@@ -3692,6 +3690,26 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       }
     }
 
+    # Cell filter section. Present only for a filtered run; the objects are built at
+    # the top level before this function is called, so they are visible here.
+    if (exists("gg_cell_filter_reasons") && !is.null(gg_cell_filter_reasons)) {
+      print(apply_pdf_theme(gg_cell_filter_reasons))
+    }
+    if (exists("gg_cell_filter_criteria") && !is.null(gg_cell_filter_criteria)) {
+      for (nm in names(gg_cell_filter_criteria)) {
+        print(apply_pdf_theme(gg_cell_filter_criteria[[nm]]))
+      }
+    }
+    if (exists("gg_cell_filter_categories") && !is.null(gg_cell_filter_categories)) {
+      print(apply_pdf_theme(gg_cell_filter_categories))
+    }
+    if (exists("gg_cell_filter_goodq") && !is.null(gg_cell_filter_goodq)) {
+      print(apply_pdf_theme(gg_cell_filter_goodq))
+    }
+    if (exists("gg_cell_filter_badq") && !is.null(gg_cell_filter_badq)) {
+      print(apply_pdf_theme(gg_cell_filter_badq))
+    }
+
     dev.off()
   }
 }
@@ -3730,11 +3748,337 @@ if (mode == "isoforms") {
   Junctions$count <- 1
 }
 
+# The cell filter labels the summary in place rather than subsetting it, so a filtered
+# summary still carries every barcode plus the verdict. Drop the artifacts and the three
+# bookkeeping columns so the rest of the report sees a plain cell summary.
+drop_filtered_cells <- function(df) {
+  if (!("filter_result" %in% colnames(df))) return(df)
+  df <- df[df$filter_result == "Cell", , drop = FALSE]
+  keep <- colnames(df) != "filter_result"
+  df[, keep, drop = FALSE]
+}
+
 # Require precomputed cell summary produced by sqanti_sc.py
 if (!is.null(cell_summary_path) && file.exists(cell_summary_path)) {
   SQANTI_cell_summary <- data.table::fread(cell_summary_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE, data.table = FALSE)
+  # Everything the filter section needs is in the table BEFORE the artifacts go: the
+  # discarded cells are the whole subject of that section, and nothing downstream can
+  # see them.
+  cell_filter_labelled <- if ("filter_result" %in% colnames(SQANTI_cell_summary)) {
+    SQANTI_cell_summary
+  } else {
+    NULL
+  }
+  SQANTI_cell_summary <- drop_filtered_cells(SQANTI_cell_summary)
 } else {
   stop("A precomputed cell summary is required. Pass --cell_summary <path> from sqanti_sc.py.")
+}
+
+# The SR-only pair that feeds the "SR & TSS Validation" figure. Kept under its own
+# name so that figure is unaffected.
+all_good_features_map <- list(
+  "srjunctions_support_prop" = list(label = "SJs Validated by SRs", color = "#cd4f39"),
+  "TSS_ratio_validated_prop" = list(label = "TSS Validated by SRs", color = "#FFC125")
+  # Add other good features here if needed (e.g. polyA_motif_found_prop if available)
+)
+
+# The full good-quality family, matching the report's "Good quality features combined
+# figure". TSSAnnotationSupport_prop needs no optional input at all -- it derives from
+# diff_to_gene_TSS -- so this set is never empty, unlike the SR-only pair above.
+all_goodq_features_map <- list(
+  "TSSAnnotationSupport_prop" = list(label = "TSS Annotated", color = "#66C2A4"),
+  "CAGE_peak_support_prop" = list(label = "Has Coverage CAGE", color = "#EE6A50"),
+  "PolyA_motif_support_prop" = list(label = "Has PolyA Motif", color = "#78C679"),
+  "Canonical_prop_in_cell" = list(label = "Canonical Junctions", color = "#CC6633"),
+  "srjunctions_support_prop" = list(label = "SJs Support by SRs", color = "#cd4f39"),
+  "TSS_ratio_validated_prop" = list(label = "TSS Support by SRs", color = "#ffc125")
+)
+
+all_bad_features_map <- list(
+  "Intrapriming_prop_in_cell" = list(label = "Intrapriming", color = "#78C679"),
+  "RTS_prop_in_cell" = list(label = "RT-switching", color = "#FF9933"),
+  # NOT a junction proportion: the fraction of multi-exon reads/transcripts whose
+  # all_canonical field is non_canonical, i.e. entities carrying at least one
+  # non-canonical junction. Named accordingly so it is not read as a share of
+  # junctions (matches SQANTI-sc_multisample_report.R's Non_canonical_prop_in_cell label).
+  "Non_canonical_prop_in_cell" = list(label = paste0(entity_label_plural, " with\nNon-canonical SJ"), color = "#41B6C4"),
+  "NMD_prop_in_cell" = list(label = "Predicted NMD", color = "#969696")
+)
+
+# ---- Cell filter section -------------------------------------------------------
+# Built only for a filtered run, from the labelled summary captured above. The QC
+# report is unchanged: cell_filter_labelled is NULL when there is no verdict column.
+cell_filter_counts <- NULL
+cell_filter_rule_counts <- NULL
+cell_filter_sketch <- NULL
+gg_cell_filter_reasons <- NULL
+gg_cell_filter_goodq <- NULL
+gg_cell_filter_badq <- NULL
+gg_cell_filter_criteria <- NULL
+gg_cell_filter_categories <- NULL
+
+if (!is.null(cell_filter_labelled)) {
+  cf_kept <- cell_filter_labelled$filter_result == "Cell"
+  n_in <- nrow(cell_filter_labelled)
+  n_cell <- sum(cf_kept)
+
+  cell_filter_counts <- data.frame(
+    Measure = c("Barcodes judged", "Cells kept", "Cells discarded", "Discarded (%)"),
+    Value = c(n_in, n_cell, n_in - n_cell,
+              round(100 * (n_in - n_cell) / max(n_in, 1), 2)),
+    stringsAsFactors = FALSE
+  )
+
+  # Which metrics were criteria, and what each one cost. Read off the reasons rather
+  # than the rules file: a reason is "column: value < threshold", so the column and
+  # the threshold are both in it. A rule that discarded nothing leaves no reason and
+  # so does not appear -- it is also the least interesting row on the page.
+  cf_criteria <- character(0)
+  if (!is.null(cell_filter_reasons_path) && file.exists(cell_filter_reasons_path)) {
+    cf_reasons <- tryCatch(
+      data.table::fread(cell_filter_reasons_path, header = TRUE, sep = "\t",
+                        stringsAsFactors = FALSE, data.table = FALSE),
+      error = function(e) NULL
+    )
+    if (!is.null(cf_reasons) && nrow(cf_reasons) > 0 &&
+        "filter_reason" %in% colnames(cf_reasons)) {
+      # One cell can fail several rules, so a cell is counted once per rule it failed.
+      # The counts therefore sum to more than the number of discarded cells.
+      parts <- unlist(strsplit(cf_reasons$filter_reason, "; ", fixed = TRUE))
+      parts <- parts[nzchar(parts)]
+      if (length(parts) > 0) {
+        rule_text <- sub("^([^:]+): .*?([<>] .*)$", "\\1 \\2", parts)
+        tab <- sort(table(rule_text), decreasing = TRUE)
+        cell_filter_rule_counts <- data.frame(
+          Rule = names(tab),
+          `Cells failing` = as.integer(tab),
+          check.names = FALSE, stringsAsFactors = FALSE
+        )
+        cf_criteria <- unique(sub(":.*$", "", parts))
+
+        gg_cell_filter_reasons <- ggplot(
+          cell_filter_rule_counts,
+          aes(x = reorder(Rule, `Cells failing`), y = `Cells failing`)) +
+          geom_col(fill = fill_color_orange, alpha = 0.85, width = 0.45) +
+          coord_flip() +
+          labs(title = "Cells failing each rule", x = NULL, y = "Cells") +
+          theme_classic(base_size = 11) +
+          theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+      }
+    }
+  }
+
+  # What the discarded cells were actually like, beside the kept ones. Medians, so a
+  # handful of extreme cells cannot carry the row.
+  cf_sketch_cols <- c(count_col, "Annotated_genes", "MT_perc", "Median_length_per_cell",
+                      "RTS_prop_in_cell", "Intrapriming_prop_in_cell",
+                      "Non_canonical_prop_in_cell")
+  cf_sketch_cols <- cf_sketch_cols[cf_sketch_cols %in% colnames(cell_filter_labelled)]
+  if (length(cf_sketch_cols) > 0 && any(cf_kept) && any(!cf_kept)) {
+    cell_filter_sketch <- do.call(rbind, lapply(cf_sketch_cols, function(cn) {
+      v <- suppressWarnings(as.numeric(cell_filter_labelled[[cn]]))
+      if (!any(is.finite(v))) return(NULL)
+      data.frame(Metric = cn,
+                 `Kept (median)` = round(median(v[cf_kept], na.rm = TRUE), 2),
+                 `Discarded (median)` = round(median(v[!cf_kept], na.rm = TRUE), 2),
+                 check.names = FALSE, stringsAsFactors = FALSE)
+    }))
+  }
+
+  # Explicit labels, wording taken from the multisample report's curated registry so
+  # both reports name a metric the same way. NOT derived from the column string: that
+  # is what turned Non_canonical_prop_in_cell into "Non Canonical" and was removed in
+  # #44. A criterion outside this map keeps its column name, which is honest rather
+  # than confidently wrong.
+  cf_pretty <- c(
+    Transcripts_in_cell = "Transcripts per cell",
+    Reads_in_cell = "Reads per cell",
+    Annotated_genes = "Annotated genes per cell",
+    Genes_in_cell = "Genes per cell",
+    UJCs_in_cell = "UJCs per cell",
+    Isoforms_in_cell = "Isoforms per cell",
+    Median_length_per_cell = "Median length (bp)",
+    MT_perc = "Mitochondrial (%)",
+    RTS_prop_in_cell = "RT-switching (%)",
+    Intrapriming_prop_in_cell = "Intrapriming (%)",
+    Non_canonical_prop_in_cell = paste(entity_label_plural, "with non-canonical SJ (%)"),
+    NMD_prop_in_cell = "Predicted NMD (%)",
+    TSSAnnotationSupport_prop = "TSS annotation support (%)",
+    PolyA_motif_support_prop = "PolyA motif support (%)",
+    CAGE_peak_support_prop = "CAGE peak support (%)",
+    TSS_ratio_validated_prop = "TSS ratio validated (%)",
+    srjunctions_support_prop = "Short-read SJ support (%)",
+    FSM_prop = "FSM (%)", ISM_prop = "ISM (%)", NIC_prop = "NIC (%)",
+    NNC_prop = "NNC (%)", Genic_Genomic_prop = "Genic genomic (%)",
+    Antisense_prop = "Antisense (%)", Fusion_prop = "Fusion (%)",
+    Intergenic_prop = "Intergenic (%)", Genic_intron_prop = "Genic intron (%)",
+    Known_canonical_junctions_prop = "Known canonical SJ (%)",
+    Known_non_canonical_junctions_prop = "Known non-canonical SJ (%)",
+    Novel_canonical_junctions_prop = "Novel canonical SJ (%)",
+    Novel_non_canonical_junctions_prop = "Novel non-canonical SJ (%)"
+  )
+  cf_label <- function(cn) if (cn %in% names(cf_pretty)) unname(cf_pretty[[cn]]) else cn
+
+  # The y axis names the unit, not the metric -- the report's convention throughout is
+  # "<thing>, count" / "<thing>, %" ("Genes, count", "UJCs, count", "Transcripts, %").
+  # The metric goes in the title instead. Percentages take their own denominator: the
+  # junction shares divide by junctions, everything else by the cell's reads or
+  # transcripts.
+  cf_count_axis <- c(
+    Transcripts_in_cell = paste0(entity_label_plural, ", count"),
+    Reads_in_cell = paste0(entity_label_plural, ", count"),
+    Annotated_genes = "Genes, count",
+    Genes_in_cell = "Genes, count",
+    UJCs_in_cell = "UJCs, count",
+    Isoforms_in_cell = "Isoforms, count",
+    UMIs_in_cell = "UMIs, count",
+    Median_length_per_cell = "Length, bp"
+  )
+  cf_junction_pct <- c(
+    "Known_canonical_junctions_prop", "Known_non_canonical_junctions_prop",
+    "Novel_canonical_junctions_prop", "Novel_non_canonical_junctions_prop"
+  )
+  cf_axis <- function(cn) {
+    if (cn %in% names(cf_count_axis)) return(unname(cf_count_axis[[cn]]))
+    if (cn %in% cf_junction_pct) return("Junctions, %")
+    if (grepl("_prop|_perc", cn)) return(paste0(entity_label_plural, ", %"))
+    cn
+  }
+
+  cf_verdict <- factor(ifelse(cf_kept, "Kept", "Discarded"),
+                       levels = c("Kept", "Discarded"))
+
+  # build_violin_plot() has no dodge dimension, so these are built here -- but with its
+  # styling: violin + narrow boxplot + the red mean cross, on theme_classic.
+  # Dodge width exceeds violin width so the pair never touches.
+  # build_violin_plot() has no dodge dimension, so these are built here -- but with its
+  # exact construction: violin filled AND outlined by the same map at violin_alpha,
+  # a narrow boxplot at box_alpha, the red mean cross on top, and its axis sizes.
+  # Only the alpha differs, because here it is what separates kept from discarded --
+  # the same device SQANTI3's filter report and the coding / non-coding pair both use.
+  CF_VIOLIN_ALPHA <- c(Kept = 0.7, Discarded = 0.35)
+  CF_BOX_ALPHA <- 0.3
+  # Dodge slightly wider than the violin: enough that the pair never touches, not so
+  # much that the two stop reading as one category.
+  CF_DODGE <- position_dodge(width = 0.9)
+
+  cf_layers <- function(p, fills, legend_fill) {
+    p +
+      geom_violin(position = CF_DODGE, width = 0.85, scale = "width", trim = TRUE,
+                  show.legend = TRUE) +
+      geom_boxplot(position = CF_DODGE, width = 0.06, outlier.shape = NA,
+                   alpha = CF_BOX_ALPHA, colour = "grey20", lwd = 0.3,
+                   show.legend = FALSE) +
+      stat_summary(fun = mean, fun.args = list(na.rm = TRUE), geom = "point",
+                   shape = 4, size = 1, colour = "red", stroke = 1,
+                   position = CF_DODGE, show.legend = FALSE) +
+      scale_fill_manual(values = fills, guide = "none") +
+      scale_colour_manual(values = fills, guide = "none") +
+      scale_alpha_manual("Filter result", values = CF_VIOLIN_ALPHA) +
+      guides(alpha = guide_legend(override.aes = list(fill = legend_fill,
+                                                      colour = legend_fill))) +
+      theme_classic(base_size = 11) +
+      theme(
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 18),
+        axis.text.y = element_text(size = 16),
+        axis.text.x = element_text(size = 16, angle = 45, hjust = 1),
+        legend.position = "bottom"
+      )
+  }
+
+  # One plot PER criterion: the rules can mix counts and percentages, and a shared
+  # y-axis would flatten a percentage against a depth running into the thousands.
+  cf_criterion_plots <- list()
+  for (cn in cf_criteria) {
+    if (!(cn %in% colnames(cell_filter_labelled))) next
+    v <- suppressWarnings(as.numeric(cell_filter_labelled[[cn]]))
+    ok <- is.finite(v)
+    if (!any(ok) || !any(cf_kept[ok]) || !any(!cf_kept[ok])) next
+    d <- data.frame(Verdict = cf_verdict[ok], Value = v[ok], stringsAsFactors = FALSE)
+    cf_criterion_plots[[cn]] <- cf_layers(
+      ggplot(d, aes(x = Verdict, y = Value, fill = Verdict, colour = Verdict,
+                    alpha = Verdict, group = Verdict)),
+      # The orange the per-cell yield plots already use, so a criterion reads as the
+      # same kind of quantity there and here.
+      c(Kept = fill_color_orange, Discarded = fill_color_orange),
+      fill_color_orange
+    ) + labs(title = cf_label(cn), x = NULL, y = cf_axis(cn))
+  }
+  if (length(cf_criterion_plots) > 0) gg_cell_filter_criteria <- cf_criterion_plots
+
+  # Structural categories keep their own colours and use alpha for the verdict, the
+  # same construction SQANTI3's filter report uses and that the coding / non-coding
+  # pair already uses here. Not criteria: a systematic gap means the filter removed a
+  # population rather than scattered poor cells.
+  cf_cat_labels <- c(
+    FSM_prop = "FSM", ISM_prop = "ISM", NIC_prop = "NIC", NNC_prop = "NNC",
+    Genic_Genomic_prop = "Genic genomic", Antisense_prop = "Antisense",
+    Fusion_prop = "Fusion", Intergenic_prop = "Intergenic",
+    Genic_intron_prop = "Genic intron"
+  )
+  cf_cat_fill <- c(
+    FSM = "#6BAED6", ISM = "#FC8D59", NIC = "#78C679", NNC = "#EE6A50",
+    `Genic genomic` = "#969696", Antisense = "#66C2A4", Fusion = "goldenrod1",
+    Intergenic = "darksalmon", `Genic intron` = "#41B6C4"
+  )
+  # Good- and bad-quality attributes, kept vs discarded. Same construction as the
+  # categories, and the colours and labels come from the maps the report's own
+  # good/bad sections use, so the same metric never reads two ways. These are the
+  # SQANTI-specific signals, so a gap here is the most interesting kind: it says the
+  # discarded cells differ in artifact load, not merely in depth.
+  cf_quality_plot <- function(feature_map, title) {
+    cols <- intersect(names(feature_map), colnames(cell_filter_labelled))
+    # All-NA means the attribute was never measured in the QC run; all-zero is a real
+    # observation and stays, as the good/bad sections already decide.
+    cols <- cols[vapply(cols, function(cn)
+      any(is.finite(suppressWarnings(as.numeric(cell_filter_labelled[[cn]])))), logical(1))]
+    if (length(cols) == 0 || !any(cf_kept) || !any(!cf_kept)) return(NULL)
+    labs_v <- vapply(cols, function(cn) feature_map[[cn]]$label, character(1))
+    fills <- vapply(cols, function(cn) feature_map[[cn]]$color, character(1))
+    names(fills) <- unname(labs_v)
+    d <- do.call(rbind, lapply(cols, function(cn) {
+      v <- suppressWarnings(as.numeric(cell_filter_labelled[[cn]]))
+      ok <- is.finite(v)
+      if (!any(ok)) return(NULL)
+      data.frame(Feature = factor(labs_v[[cn]], levels = unname(labs_v)),
+                 Verdict = cf_verdict[ok], Value = pmin(pmax(v[ok], 0), 100),
+                 stringsAsFactors = FALSE)
+    }))
+    if (is.null(d)) return(NULL)
+    cf_layers(
+      ggplot(d, aes(x = Feature, y = Value, fill = Feature, colour = Feature,
+                    alpha = Verdict, group = interaction(Feature, Verdict))),
+      fills, "grey40"
+    ) + labs(title = title, x = NULL, y = paste0(entity_label_plural, ", %")) +
+      coord_cartesian(ylim = c(0, 100))
+  }
+
+  gg_cell_filter_goodq <- cf_quality_plot(
+    all_goodq_features_map, "Good-quality attributes: kept vs discarded cells")
+  gg_cell_filter_badq <- cf_quality_plot(
+    all_bad_features_map, "Bad-quality attributes: kept vs discarded cells")
+
+  cat_cols <- names(cf_cat_labels)[names(cf_cat_labels) %in% colnames(cell_filter_labelled)]
+  if (length(cat_cols) > 0 && any(cf_kept) && any(!cf_kept)) {
+    d <- do.call(rbind, lapply(cat_cols, function(cn) {
+      v <- suppressWarnings(as.numeric(cell_filter_labelled[[cn]]))
+      ok <- is.finite(v)
+      if (!any(ok)) return(NULL)
+      data.frame(Category = factor(cf_cat_labels[[cn]], levels = unname(cf_cat_labels)),
+                 Verdict = cf_verdict[ok], Value = pmin(pmax(v[ok], 0), 100),
+                 stringsAsFactors = FALSE)
+    }))
+    if (!is.null(d)) {
+      gg_cell_filter_categories <- cf_layers(
+        ggplot(d, aes(x = Category, y = Value, fill = Category, colour = Category,
+                      alpha = Verdict, group = interaction(Category, Verdict))),
+        cf_cat_fill, "grey40"
+      ) + labs(title = "Structural categories: kept vs discarded cells",
+               x = NULL, y = paste0(entity_label_plural, ", %")) +
+        coord_cartesian(ylim = c(0, 100))
+    }
+  }
 }
 
 # Generate reports based on format

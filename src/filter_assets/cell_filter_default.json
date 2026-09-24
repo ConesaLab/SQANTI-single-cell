@@ -1,0 +1,9 @@
+{
+  "all": [
+    {
+      "depth": 500,
+      "Annotated_genes": 200,
+      "MT_perc": [0, 10]
+    }
+  ]
+}

@@ -1,6 +1,31 @@
 import argparse
 import sys
 
+
+def add_clustering_args(group):
+    """Shared by the QC parser and the filter parser. Filtering changes which cells
+    exist, so clustering has to be re-run rather than carried over -- and it must be
+    re-runnable with the same settings the QC run used, which is why the filter takes
+    the full set rather than only the toggle."""
+    group.add_argument('--run_clustering', action='store_true', default=False,
+                       help='Run cell clustering and UMAP analysis.')
+    group.add_argument('--normalization', choices=['log1p', 'sqrt', 'pearson'], default='log1p',
+                       help='Normalization method. Default: log1p.')
+    group.add_argument('--n_neighbors', type=int, default=15,
+                       help='Number of neighbors for UMAP. Default: 15.')
+    group.add_argument('--n_pc', type=int, default=30,
+                       help='Number of principal components. Default: 30.')
+    group.add_argument('--resolution', type=float, default=0.5,
+                       help='Resolution for Leiden clustering. Default: 0.5.')
+    group.add_argument('--n_top_genes', type=int, default=2000,
+                       help='Number of highly variable genes. Default: 2000.')
+    group.add_argument('--clustering_method', choices=['leiden', 'louvain', 'kmeans'],
+                       default='leiden', help='Clustering method. Default: leiden.')
+    group.add_argument('--n_clusters', type=int, default=10,
+                       help='Number of clusters for K-means. Default: 10.')
+    return group
+
+
 def build_parser(version_str: str = '1.2.0'):
     ap = argparse.ArgumentParser(
         description="SQANTI-sc: Structural and Quality Annotation of Novel Transcript Isoforms at the Single-Cell level"
@@ -124,23 +149,7 @@ def build_parser(version_str: str = '1.2.0'):
                      version='sqanti-sc ' + version_str)
 
     # SQANTI-sc Clustering and UMAP options
-    apcl = ap.add_argument_group("SQANTI-sc clustering and UMAP options")
-    apcl.add_argument('--run_clustering', action='store_true', default=False,
-                      help='Run cell clustering and UMAP analysis.')
-    apcl.add_argument('--normalization', choices=['log1p', 'sqrt', 'pearson'], default='log1p',
-                      help='Normalization method. Default: log1p.')
-    apcl.add_argument('--n_neighbors', type=int, default=15,
-                      help='Number of neighbors for UMAP. Default: 15.')
-    apcl.add_argument('--n_pc', type=int, default=30,
-                      help='Number of principal components. Default: 30.')
-    apcl.add_argument('--resolution', type=float, default=0.5,
-                      help='Resolution for Leiden clustering. Default: 0.5.')
-    apcl.add_argument('--n_top_genes', type=int, default=2000,
-                      help='Number of highly variable genes. Default: 2000.')
-    apcl.add_argument('--clustering_method', choices=['leiden', 'louvain', 'kmeans'], default='leiden',
-                      help='Clustering method. Default: leiden.')
-    apcl.add_argument('--n_clusters', type=int, default=10,
-                      help='Number of clusters for K-means. Default: 10.')
+    add_clustering_args(ap.add_argument_group("SQANTI-sc clustering and UMAP options"))
 
     return ap
 

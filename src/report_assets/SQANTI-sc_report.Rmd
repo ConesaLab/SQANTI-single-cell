@@ -87,6 +87,164 @@ render_sqanti_table <- function(df, digits = 3, page_len = 10) {
 }
 ```
 
+```{r cell-filter-header, results='asis'}
+if (exists("cell_filter_counts") && !is.null(cell_filter_counts)) {
+  cat("# Cell Filtering\n\n")
+}
+```
+
+```{r cell-filter-counts}
+if (exists("cell_filter_counts") && !is.null(cell_filter_counts)) {
+  render_sqanti_table(cell_filter_counts, page_len = 5)
+}
+```
+
+```{r cell-filter-rules-header, results='asis'}
+if (exists("cell_filter_rule_counts") && !is.null(cell_filter_rule_counts)) {
+  cat("## Rules applied\n\n")
+  cat("A cell is discarded only when every rule-set rejects it, and it is counted",
+      "once per rule it failed, so these counts may sum to more than the number of",
+      "discarded cells.\n")
+}
+```
+
+```{r cell-filter-rules}
+if (exists("cell_filter_rule_counts") && !is.null(cell_filter_rule_counts)) {
+  render_sqanti_table(cell_filter_rule_counts, page_len = 15)
+}
+```
+
+```{r cell-filter-reasons-size, include=FALSE}
+# Height follows the number of rules, so two bars do not stretch across a tall panel
+# and twenty are not crammed into one.
+cf_reasons_height <- if (exists("cell_filter_rule_counts") &&
+                         !is.null(cell_filter_rule_counts)) {
+  max(2.5, min(12, 0.45 * nrow(cell_filter_rule_counts) + 1.8))
+} else {
+  4
+}
+```
+
+```{r cell-filter-reasons, fig.height=cf_reasons_height, fig.width=8}
+if (exists("gg_cell_filter_reasons") && !is.null(gg_cell_filter_reasons)) {
+  print(gg_cell_filter_reasons)
+}
+```
+
+```{r cell-filter-sketch-header, results='asis'}
+if (exists("cell_filter_sketch") && !is.null(cell_filter_sketch)) {
+  cat("## Kept vs discarded\n\n")
+  cat("Descriptive quality metrics about cells kept vs. discarded.\n")
+}
+```
+
+```{r cell-filter-sketch}
+if (exists("cell_filter_sketch") && !is.null(cell_filter_sketch)) {
+  render_sqanti_table(cell_filter_sketch, page_len = 15)
+}
+```
+
+```{r cell-filter-criteria-header, results='asis'}
+if (exists("gg_cell_filter_criteria") && !is.null(gg_cell_filter_criteria)) {
+  cat("## Filter criteria\n\n")
+}
+```
+
+```{r render-cf-criteria-dropdown, echo=FALSE}
+# Same construction as the bad-quality-features dropdown above: a generated menu plus
+# knit_child panes. Generated rather than written out because the criteria are
+# whatever the user's rules file names, not a fixed list.
+cf_crit_available <- if (exists("gg_cell_filter_criteria") &&
+                         !is.null(gg_cell_filter_criteria)) {
+  names(gg_cell_filter_criteria)
+} else {
+  character(0)
+}
+
+if (length(cf_crit_available) > 0) {
+  # The menu shows the same label the plot title uses; the pane id keeps the column
+  # name, since ids must stay stable and ASCII.
+  cf_menu_label <- function(nm) if (exists("cf_label")) cf_label(nm) else nm
+  items_html <- paste(sapply(cf_crit_available, function(nm) {
+    sprintf('<li><a href="#" data-target="#cf-criterion-%s">%s</a></li>',
+            gsub("[^A-Za-z0-9]", "_", nm), htmltools::htmlEscape(cf_menu_label(nm)))
+  }), collapse = "\n")
+  htmltools::HTML(paste0(
+    '<div id="cf-criteria-dropdown" class="dropdown-toolbar">',
+    '<div class="btn-group">',
+    '<button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">',
+    '<span class="label">', htmltools::htmlEscape(cf_menu_label(cf_crit_available[1])),
+    '</span> <span class="caret"></span>',
+    '</button>',
+    '<ul class="dropdown-menu dropdown-menu-right" role="menu">',
+    items_html,
+    '</ul></div></div>'
+  ))
+}
+```
+
+```{r cell-filter-criteria-panes, results='asis'}
+if (length(cf_crit_available) > 0) {
+  first_crit <- TRUE
+  for (nm in cf_crit_available) {
+    pane_id <- paste0("cf-criterion-", gsub("[^A-Za-z0-9]", "_", nm))
+    css_class <- if (first_crit) "toggle-pane" else "toggle-pane hidden-pane"
+    css_style <- if (first_crit) "display:block;" else "display:none;"
+    first_crit <- FALSE
+    res <- knitr::knit_child(text = c(
+      sprintf('<div id="%s" class="%s" style="%s">', pane_id, css_class, css_style),
+      '',
+      sprintf('```{r %s-plot, fig.height=8, fig.width=12, echo=FALSE, warning=FALSE, message=FALSE}', pane_id),
+      sprintf('print(gg_cell_filter_criteria[["%s"]])', nm),
+      '```',
+      '',
+      '</div>'
+    ), envir = globalenv(), quiet = TRUE)
+    cat(res, sep = '\n')
+  }
+}
+```
+
+```{r cell-filter-categories-header, results='asis'}
+if (exists("gg_cell_filter_categories") && !is.null(gg_cell_filter_categories)) {
+  cat("## Structural categories\n\n")
+}
+```
+
+```{r cell-filter-categories, fig.height=8, fig.width=12}
+if (exists("gg_cell_filter_categories") && !is.null(gg_cell_filter_categories)) {
+  print(gg_cell_filter_categories)
+}
+```
+
+```{r cell-filter-quality-check, include=FALSE}
+show_cf_goodq <- exists("gg_cell_filter_goodq") && !is.null(gg_cell_filter_goodq)
+show_cf_badq <- exists("gg_cell_filter_badq") && !is.null(gg_cell_filter_badq)
+```
+
+```{r cell-filter-quality-header, results='asis'}
+if (show_cf_goodq || show_cf_badq) {
+  cat("## Quality attributes {.tabset .tabset-fade}\n\n")
+}
+```
+
+```{r cell-filter-goodq-tab, results='asis'}
+if (show_cf_goodq) cat("\n### Good quality\n")
+```
+
+```{r cell-filter-goodq, fig.height=8, fig.width=12, eval=show_cf_goodq}
+print(gg_cell_filter_goodq)
+```
+
+```{r cell-filter-badq-tab, results='asis'}
+if (show_cf_badq) cat("\n### Bad quality\n")
+```
+
+```{r cell-filter-badq, fig.height=8, fig.width=12, eval=show_cf_badq}
+print(gg_cell_filter_badq)
+```
+
+
 # Overview
 
 ```{r overview-text}
@@ -565,6 +723,7 @@ if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") 
     setupDropdown("exoncounts-dropdown");
     // Quality sections dropdowns
     setupDropdown("badq-across-dropdown");
+    setupDropdown("cf-criteria-dropdown");
     setupDropdown("goodq-across-dropdown");
     setupDropdown("coding-dropdown");
     setupDropdown("sr-cluster-dropdown");
