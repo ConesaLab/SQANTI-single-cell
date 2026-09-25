@@ -1109,7 +1109,8 @@ build_qc_overview_plot <- function(agg_median, feature_map, sample_levels,
       breaks = if (is_capped) c(-lim, -lim / 2, 0, lim / 2, lim) else waiver(),
       labels = if (is_capped) {
         c(sprintf("<= -%g", lim), -lim / 2, 0, lim / 2, sprintf(">= %g", lim))
-      } else waiver()
+      } else waiver(),
+      guide = guide_colourbar(barwidth = 1.5, barheight = 12)
     ) +
     theme_classic(base_size = base_size) +
     labs(title = "Per-sample QC overview", caption = caption, x = NULL, y = NULL) +
@@ -1140,6 +1141,9 @@ build_qc_overview_plot <- function(agg_median, feature_map, sample_levels,
                                   margin = margin(t = 4, b = 4)),
       panel.spacing.y = unit(4, "pt"),
       panel.spacing.x = unit(6, "pt"),
+      # Fixed, unlike the rest: base_size shrinks so columns fit, which the legend does not need.
+      legend.text = element_text(size = 14),
+      legend.title = element_text(size = 16, face = "bold"),
       legend.position = "right"
     )
 }
@@ -1431,7 +1435,8 @@ build_cell_pca_plot <- function(cells, centroids, colour_scale, shape_scale = NU
     scale_y_continuous(labels = function(x) sprintf("%.2f", x)) +
     theme(
       legend.position = "bottom",
-      legend.text = element_text(size = 12),
+      legend.text = element_text(size = 14),
+      legend.title = element_text(size = 16, face = "bold"),
       legend.key = element_blank(),
       legend.margin = margin(t = 12),
       plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
@@ -2401,6 +2406,7 @@ main <- function() {
           axis.text.x = element_text(size = 16),
           axis.text.y = element_text(size = 16),
           legend.position = "bottom",
+          legend.text = element_text(size = 14),
           legend.margin = margin(t = 20)
         )
       multi_pca_scree_plot_local <- gp_scree
@@ -2452,7 +2458,9 @@ main <- function() {
             axis.title = element_text(size = 18),
             axis.text.x = element_text(size = 16),
             axis.text.y = element_text(size = 16),
-            legend.position = "bottom"
+            legend.position = "bottom",
+            legend.text = element_text(size = 14),
+            legend.title = element_text(size = 16, face = "bold")
           )
         gp_load2 <- ggplot(top_pc2_plot, aes(x = variable, y = abs_loading, fill = sign)) +
           geom_col(width = 0.7) +
@@ -2465,7 +2473,9 @@ main <- function() {
             axis.title = element_text(size = 18),
             axis.text.x = element_text(size = 16),
             axis.text.y = element_text(size = 16),
-            legend.position = "bottom"
+            legend.position = "bottom",
+            legend.text = element_text(size = 14),
+            legend.title = element_text(size = 16, face = "bold")
           )
         loadings_plots <- list(PC1 = gp_load1, PC2 = gp_load2)
         multi_pca_top_loadings_plots_local <- loadings_plots

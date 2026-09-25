@@ -190,6 +190,7 @@ if (file.exists(clustering_output)) {
           axis.title = element_text(size = 18),
           axis.text.x = element_text(size = 16),
           axis.text.y = element_text(size = 16),
+          legend.text = element_text(size = 14),
           legend.title = element_text(size = 16, face = "bold"),
           legend.position = "right"
         ) +
@@ -441,6 +442,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
                   axis.title = element_text(size = 18),
                   axis.text.x = element_text(size = 16),
                   axis.text.y = element_text(size = 16),
+                  legend.text = element_text(size = 14),
                   legend.title = element_text(size = 16, face = "bold"),
                   legend.position = "right",
                   legend.key.height = unit(3, "cm"),
@@ -818,6 +820,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         axis.text.x = element_text(size = 16),
         axis.text.y = element_text(size = 16),
         legend.position = "right",
+        legend.text = element_text(size = 14),
         legend.title = element_text(size = 16, face = "bold"),
         legend.key.height = unit(3, "cm"),
         legend.key.width = unit(1, "cm")
@@ -938,7 +941,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         position = position_dodge(width = dodge_width),
         show.legend = FALSE
       ) +
-      scale_fill_manual(values = fill_map, labels = legend_labels) +
+      # name = NULL, not just a blank legend.title: the PDF theme's element_text replaces the blank.
+      scale_fill_manual(values = fill_map, labels = legend_labels, name = NULL) +
       scale_color_manual(values = fill_map, guide = "none") +
       labs(title = title, x = "", y = y_label) +
       theme_classic(base_size = 11) +
@@ -951,6 +955,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
           hjust = ifelse(!is.null(x_tickangle) && x_tickangle == 0, 0.5, 1)
         ),
         legend.position = "bottom",
+        legend.text = element_text(size = 14),
         legend.title = element_blank()
       )
 
@@ -1361,7 +1366,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         axis.title = element_text(size = 18),
         axis.text.x = element_text(size = 16),
         axis.text.y = element_text(size = 16),
-        legend.position = "bottom"
+        legend.position = "bottom",
+        legend.text = element_text(size = 14)
       )
 
     if (!is.null(line_stats) && nrow(line_stats) > 0) {
@@ -3983,7 +3989,9 @@ if (!is.null(cell_filter_labelled)) {
         axis.title = element_text(size = 18),
         axis.text.y = element_text(size = 16),
         axis.text.x = element_text(size = 16, angle = 45, hjust = 1),
-        legend.position = "bottom"
+        legend.position = "bottom",
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16, face = "bold")
       )
   }
 
