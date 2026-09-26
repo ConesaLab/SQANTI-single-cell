@@ -711,7 +711,6 @@ if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") 
     setupDropdown("rcsc-dropdown");
     setupDropdown("genesacross-dropdown");
     setupDropdown("readspergene-dropdown");
-    setupDropdown("ujcspergene-dropdown");
     setupDropdown("bulk-length-dropdown");
     setupDropdown("multiexon-length-dropdown");
     setupDropdown("monoexon-length-dropdown");
@@ -942,51 +941,12 @@ if (mode != "isoforms" && exists("gg_ujc_bins_all")) {
   cat("## UJCs per Gene\n")
 }
 ```
- 
- ```{r ujcspergene-check, include=FALSE}
-show_ujcs_gene <- (mode != "isoforms" && exists("gg_ujc_bins_all"))
- ```
- 
- ```{=html}
- <div id="ujcspergene-dropdown" class="dropdown-toolbar" style="`r if(!show_ujcs_gene || mode == 'reads') 'display:none;'`">
-   <div class="btn-group">
-     <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-       <span class="label">
-         `r if(mode == "reads") "% Annotated Genes by UJC Count Bins" else "% Genes by UJC Count Bins"`
-       </span> <span class="caret"></span>
-     </button>
-     <ul class="dropdown-menu dropdown-menu-right" role="menu">
-       <li><a href="#" data-target="#ujcspergene-bins-all">
-         `r if(mode == "reads") "% Annotated Genes by UJC Count Bins" else "% Genes by UJC Count Bins"`
-       </a></li>
-       `r if(mode != "reads") '<li><a href="#" data-target="#ujcspergene-bins-annot">% Known/Novel Genes by UJC Count Bins</a></li>'`
-     </ul>
-   </div>
- </div>
- 
- <div id="ujcspergene-bins-all" class="toggle-pane" style="display:block; `r if(!show_ujcs_gene) 'display:none;'`">
- ```
- 
- ```{r ujcspergene-bins-all, fig.height=8, fig.width=12, eval=show_ujcs_gene}
-if (exists("gg_ujc_bins_all")) {
+
+```{r ujcspergene-plot, fig.height=8, fig.width=12}
+if (mode != "isoforms" && exists("gg_ujc_bins_all")) {
   print(gg_ujc_bins_all)
 }
- ```
- 
- ```{=html}
- </div>
- <div id="ujcspergene-bins-annot" class="toggle-pane hidden-pane" style="display:block; `r if(!show_ujcs_gene) 'display:none;'`">
- ```
- 
- ```{r ujcspergene-bins-annot, fig.height=8, fig.width=12, eval=show_ujcs_gene}
-if (exists("gg_ujc_bins")) {
-  print(gg_ujc_bins)
-}
- ```
- 
- ```{=html}
- </div>
- ```
+```
 
 ## Mitochondrial genes
 
