@@ -1520,44 +1520,27 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # 5. Percentage of Reads/Transcripts from Known/Novel Genes Across Cells
   # (Enabled for both reads and isoforms modes)
   {
-    classification_valid <- Classification_file[Classification_file$CB != "unassigned" & !is.na(Classification_file$CB), ]
+    # Annotated/Novel per-cell counts are provided directly by cell_metrics, so we
+    # no longer re-explode CB/FL here -- we just read the columns and take the ratio.
+    # Column names follow the mode convention: Annotated_genes_reads (reads mode) /
+    # Annotated_genes_transcripts (isoforms mode), via entity_label_plural_lower.
+    anno_genes_col <- paste0("Annotated_genes_", entity_label_plural_lower)
+    novel_genes_col <- paste0("Novel_genes_", entity_label_plural_lower)
+    SQANTI_cell_summary$Annotated_reads_perc <- 100 * SQANTI_cell_summary[[anno_genes_col]] / SQANTI_cell_summary[[count_col]]
+    SQANTI_cell_summary$Novel_reads_perc <- 100 * SQANTI_cell_summary[[novel_genes_col]] / SQANTI_cell_summary[[count_col]]
 
-    if (nrow(classification_valid) > 0) {
-      # Annotated/Novel per-cell counts are provided directly by cell_metrics, so we
-      # no longer re-explode CB/FL here -- we just read the columns and take the ratio.
-      # Column names follow the mode convention: Annotated_genes_reads (reads mode) /
-      # Annotated_genes_transcripts (isoforms mode), via entity_label_plural_lower.
-      anno_genes_col <- paste0("Annotated_genes_", entity_label_plural_lower)
-      novel_genes_col <- paste0("Novel_genes_", entity_label_plural_lower)
-      SQANTI_cell_summary$Annotated_reads_perc <- 100 * SQANTI_cell_summary[[anno_genes_col]] / SQANTI_cell_summary[[count_col]]
-      SQANTI_cell_summary$Novel_reads_perc <- 100 * SQANTI_cell_summary[[novel_genes_col]] / SQANTI_cell_summary[[count_col]]
+    SQANTI_cell_summary$Annotated_reads_perc <- ifelse(is.na(SQANTI_cell_summary$Annotated_reads_perc) | is.infinite(SQANTI_cell_summary$Annotated_reads_perc), 0, SQANTI_cell_summary$Annotated_reads_perc)
+    SQANTI_cell_summary$Novel_reads_perc <- ifelse(is.na(SQANTI_cell_summary$Novel_reads_perc) | is.infinite(SQANTI_cell_summary$Novel_reads_perc), 0, SQANTI_cell_summary$Novel_reads_perc)
 
-      SQANTI_cell_summary$Annotated_reads_perc <- ifelse(is.na(SQANTI_cell_summary$Annotated_reads_perc) | is.infinite(SQANTI_cell_summary$Annotated_reads_perc), 0, SQANTI_cell_summary$Annotated_reads_perc)
-      SQANTI_cell_summary$Novel_reads_perc <- ifelse(is.na(SQANTI_cell_summary$Novel_reads_perc) | is.infinite(SQANTI_cell_summary$Novel_reads_perc), 0, SQANTI_cell_summary$Novel_reads_perc)
-
-      pivot_violin(SQANTI_cell_summary, list(
-        name = "gg_annotation_of_reads_in_cell",
-        columns = c("Annotated_reads_perc", "Novel_reads_perc"),
-        title = paste("Percentage of", entity_label_plural, "from Known/Novel Genes Across Cells"),
-        x_labels = c("Annotated Genes", "Novel Genes"),
-        y_label = paste(entity_label_plural, ", %", sep = ""),
-        fill_map = c("Annotated_reads_perc" = fill_color_orange, "Novel_reads_perc" = fill_color_orange),
-        plot_args = pivot_defaults
-      ))
-    } else {
-      message("Warning: No valid classification data found. Skipping read expression by gene annotation plot.")
-      gg_annotation_of_reads_in_cell <<- ggplot() +
-        labs(title = "Plot not available") +
-        theme_minimal()
-      layout(
-        title = paste("Percentage of", entity_label_plural, "from Known/Novel Genes Across Cells"),
-        annotations = list(
-          text = paste(entity_label, "expression by gene annotation\nnot available"),
-          showarrow = FALSE,
-          font = list(size = 16, color = "gray")
-        )
-      )
-    }
+    pivot_violin(SQANTI_cell_summary, list(
+      name = "gg_annotation_of_reads_in_cell",
+      columns = c("Annotated_reads_perc", "Novel_reads_perc"),
+      title = paste("Percentage of", entity_label_plural, "from Known/Novel Genes Across Cells"),
+      x_labels = c("Annotated Genes", "Novel Genes"),
+      y_label = paste(entity_label_plural, ", %", sep = ""),
+      fill_map = c("Annotated_reads_perc" = fill_color_orange, "Novel_reads_perc" = fill_color_orange),
+      plot_args = pivot_defaults
+    ))
   }
 
   single_violin(SQANTI_cell_summary, list(
@@ -1729,50 +1712,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         x_tickangle = 45,
         box_outline_default = "black",
         violin_outline_fill = FALSE
-      )
-    }
-
-    # Create UJC bins data
-    ujc_bins_data <- data.frame(
-      CB = rep(SQANTI_cell_summary$CB, 8),
-      bin = rep(c("1", "2-3", "4-5", ">=6", "1", "2-3", "4-5", ">=6"), each = nrow(SQANTI_cell_summary)),
-      gene_type = rep(c("Annotated", "Annotated", "Annotated", "Annotated", "Novel", "Novel", "Novel", "Novel"), each = nrow(SQANTI_cell_summary)),
-      percentage = c(
-        SQANTI_cell_summary$anno_ujc_bin1_perc,
-        SQANTI_cell_summary$anno_ujc_bin2_3_perc,
-        SQANTI_cell_summary$anno_ujc_bin4_5_perc,
-        SQANTI_cell_summary$anno_ujc_bin6plus_perc,
-        SQANTI_cell_summary$novel_ujc_bin1_perc,
-        SQANTI_cell_summary$novel_ujc_bin2_3_perc,
-        SQANTI_cell_summary$novel_ujc_bin4_5_perc,
-        SQANTI_cell_summary$novel_ujc_bin6plus_perc
-      )
-    )
-
-    # Handle NA and invalid values
-    ujc_bins_data <- ujc_bins_data %>%
-      mutate(percentage = ifelse(is.na(percentage) | is.infinite(percentage) | percentage < 0, 0, percentage))
-
-    ujc_bins_data$bin <- factor(ujc_bins_data$bin, levels = c("1", "2-3", "4-5", ">=6"))
-    ujc_bins_data$gene_type <- factor(ujc_bins_data$gene_type, levels = c("Annotated", "Novel"))
-
-    # Only generate split plot if NOT in reads mode
-    if (mode != "reads") {
-      gg_ujc_bins <<- build_grouped_violin_plot(
-        df = ujc_bins_data %>% transmute(bin = as.character(bin), group = as.character(gene_type), value = percentage),
-        bin_levels = ujc_bin_levels,
-        group_levels = c("Annotated", "Novel"),
-        title = "Distribution of Known/Novel Genes by UJC Count Bins Across Cells",
-        fill_map = c("Annotated" = "#e37744", "Novel" = "#78C679"),
-        legend_labels = c("Annotated" = "Annotated", "Novel" = "Novel"),
-        y_label = "Genes, %",
-        ylim = c(0, 100),
-        violin_alpha = 0.5,
-        box_alpha = 0.3,
-        box_width = 0.05,
-        x_tickangle = 45,
-        violin_width = 0.28,
-        dodge_width = 1.0
       )
     }
   }
@@ -2397,35 +2336,21 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   ordered_bad_feature_cols <- c("Intrapriming_prop_in_cell", "RTS_prop_in_cell", "Non_canonical_prop_in_cell", "NMD_prop_in_cell")
   bad_feature_cols_present <- intersect(ordered_bad_feature_cols, bad_feature_cols_present)
 
-  if (length(bad_feature_cols_present) > 0) {
-    current_colors <- sapply(all_bad_features_map[bad_feature_cols_present], function(x) x$color)
-    current_labels <- sapply(all_bad_features_map[bad_feature_cols_present], function(x) x$label)
-    # Ensure names are correctly assigned for scales, matching the order in bad_feature_cols_present
-    names(current_colors) <- bad_feature_cols_present
-    names(current_labels) <- bad_feature_cols_present
+  current_colors <- sapply(all_bad_features_map[bad_feature_cols_present], function(x) x$color)
+  current_labels <- sapply(all_bad_features_map[bad_feature_cols_present], function(x) x$label)
+  # Ensure names are correctly assigned for scales, matching the order in bad_feature_cols_present
+  names(current_colors) <- bad_feature_cols_present
+  names(current_labels) <- bad_feature_cols_present
 
-    pivot_violin(SQANTI_cell_summary, list(
-      name = "gg_bad_feature",
-      columns = bad_feature_cols_present,
-      title = "Bad Quality Control Attributes Across Cells",
-      x_labels = current_labels,
-      y_label = paste(entity_label_plural, ", %", sep = ""),
-      fill_map = current_colors,
-      plot_args = list(violin_outline_fill = TRUE)
-    ))
-  } else {
-    gg_bad_feature <<- ggplot() +
-      labs(title = "Plot not available") +
-      theme_minimal()
-    layout(
-      title = "No bad quality features to display",
-      annotations = list(
-        text = "No bad quality features to display",
-        showarrow = FALSE,
-        font = list(size = 18, color = "gray")
-      )
-    )
-  }
+  pivot_violin(SQANTI_cell_summary, list(
+    name = "gg_bad_feature",
+    columns = bad_feature_cols_present,
+    title = "Bad Quality Control Attributes Across Cells",
+    x_labels = current_labels,
+    y_label = paste(entity_label_plural, ", %", sep = ""),
+    fill_map = current_colors,
+    plot_args = list(violin_outline_fill = TRUE)
+  ))
 
   # Good features plots
 
@@ -3458,7 +3383,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # UJCs per Gene
     if (mode != "isoforms" && exists("gg_ujc_bins_all")) {
       render_pdf_plot("gg_ujc_bins_all")
-      render_pdf_plot("gg_ujc_bins")
     }
     # Mitochondrial genes
     render_pdf_plot_centered("gg_MT_perc", width_frac = 0.5)
