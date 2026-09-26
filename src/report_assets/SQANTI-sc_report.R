@@ -904,11 +904,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
                                         box_alpha = 0.3,
                                         box_width = 0.05,
                                         x_tickangle = 45,
-                                        violin_width = 0.45,
-                                        dodge_width = 0.8,
-                                        violangap = 0.05,
-                                        violingroupgap = 0.15,
-                                        legend_title = NULL) {
+                                        dodge_width = 0.8) {
     # Ensure factors
     df$bin <- factor(df$bin, levels = bin_levels)
     df$group <- factor(df$group, levels = group_levels)
@@ -2920,11 +2916,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         box_alpha = 0.3,
         box_width = 0.08,
         x_tickangle = 45,
-        violin_width = 0.45,
-        dodge_width = 0.8,
-        violangap = 0.05,
-        violingroupgap = 0.15,
-        legend_title = "all_canonical"
+        dodge_width = 0.8
       )
     }
   }
