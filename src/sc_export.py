@@ -18,6 +18,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from filter_io import classification_path, drop_artifacts
+
 
 # ---------------------------------------------------------------------------
 # Classification preparation
@@ -30,7 +32,7 @@ def _prepare_classification(class_file, mode):
     so that each row represents one (isoform, cell) pair with its
     count stored in ``_count``.
     """
-    cls = pd.read_csv(class_file, sep="\t", dtype=str, low_memory=False)
+    cls = drop_artifacts(pd.read_csv(class_file, sep="\t", dtype=str, low_memory=False))
 
     required = ["CB", "associated_gene"]
     for col in required:
@@ -253,7 +255,7 @@ def export_h5ad(args, df):
         file_acc = row["file_acc"]
         sampleID = row["sampleID"]
         outputPathPrefix = os.path.join(args.out_dir, file_acc, sampleID)
-        class_file = f"{outputPathPrefix}_classification.txt"
+        class_file = classification_path(outputPathPrefix)
 
         if not os.path.isfile(class_file):
             print(

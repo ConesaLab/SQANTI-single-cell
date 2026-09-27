@@ -3637,6 +3637,11 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 }
 
 Classification <- data.table::fread(class.file, header = TRUE, sep = "\t", stringsAsFactors = FALSE, data.table = FALSE)
+# The transcript filter labels the classification in place, as SQANTI3 does.
+if ("filter_result" %in% colnames(Classification)) {
+  Classification <- Classification[Classification$filter_result != "Artifact", , drop = FALSE]
+  Classification$filter_result <- NULL
+}
 if (mode == "isoforms" && "FL" %in% colnames(Classification)) {
   Classification$count <- sapply(strsplit(as.character(Classification$FL), ","), function(x) sum(as.numeric(x), na.rm = TRUE))
   Classification$count[is.na(Classification$count) | Classification$count == 0] <- 1

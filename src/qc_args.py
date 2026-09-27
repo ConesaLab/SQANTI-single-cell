@@ -26,6 +26,18 @@ def add_clustering_args(group):
     return group
 
 
+def add_cell_metrics_args(group):
+    """Shared by the QC parser and the transcript filter, which recomputes the cell
+    summary on the models it keeps and must be able to do so with the QC run's settings."""
+    group.add_argument('--min_cov', type=int, default=1,
+                       help='Minimum min_cov short read coverage to validate an isoform (default: 1).')
+    group.add_argument('--ratio_TSS', type=float, default=2.0, dest="ratio_TSS_threshold",
+                       help='Minimum ratio_TSS to validate a TSS (default: 2.0).')
+    group.add_argument('--ref_cov_min_pct', type=float, default=45.0,
+                       help='Minimum %% of reference transcript length a read must cover to count towards coverage plots (default: 45.0).')
+    return group
+
+
 def build_parser(version_str: str = '1.2.0'):
     ap = argparse.ArgumentParser(
         description="SQANTI-sc: Structural and Quality Annotation of Novel Transcript Isoforms at the Single-Cell level"
@@ -71,10 +83,7 @@ def build_parser(version_str: str = '1.2.0'):
     apsc.add_argument('--export_h5ad', action='store_true', default=False,
                       help='Export an AnnData .h5ad file per sample with count matrix and cell QC metadata, '
                            'compatible with Scanpy and Seurat.')
-    apsc.add_argument('--min_cov', type=int, default=1,
-                      help='Minimum min_cov short read coverage to validate an isoform (default: 1).')
-    apsc.add_argument('--ratio_TSS', type=float, default=2.0, dest="ratio_TSS_threshold",
-                      help='Minimum ratio_TSS to validate a TSS (default: 2.0).')
+    add_cell_metrics_args(apsc)
 
     # SQANTI3 Customization and filtering
     apc = ap.add_argument_group("SQANTI3 customization and filtering")
@@ -84,8 +93,6 @@ def build_parser(version_str: str = '1.2.0'):
                      help='Use gene_name tag instead of gene_id.')
     apc.add_argument('--novel_gene_prefix',
                      help='Prefix for novel gene IDs.')
-    apc.add_argument('--ref_cov_min_pct', type=float, default=45.0,
-                     help='Minimum %% of reference transcript length a read must cover to count towards coverage plots (default: 45.0).')
     apc.add_argument('-s', '--sites', default="ATAC,GCAG,GTAG",
                      help='Canonical splice sites. Default: ATAC,GCAG,GTAG.')
     apc.add_argument('-w', '--window', default=20, type=int,

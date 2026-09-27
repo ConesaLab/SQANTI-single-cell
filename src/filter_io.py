@@ -13,14 +13,48 @@ _READ_KW = dict(sep='\t', dtype=str, na_filter=False, low_memory=False)
 
 SENTINEL_BARCODES = ('', 'NA', 'unassigned', '-', '*')
 
+# The verdict column and values both filters add, named as SQANTI3 names its own.
+RESULT_COLUMN = 'filter_result'
+RESULT_ARTIFACT = 'Artifact'
+RESULT_ISOFORM = 'Isoform'
+
 
 def sample_prefix(out_dir, file_acc, sampleID):
     return os.path.join(out_dir, str(file_acc), str(sampleID))
 
 
-def read_sample_table(design_path, qc_dir):
+def cell_summary_path(outputPathPrefix):
+    """The cell filter labels the summary rather than subsetting it, so a filtered run
+    has the labeled file and no plain one. The R drops the Artifact rows when it sees the
+    verdict column."""
+    labeled = f"{outputPathPrefix}_CellFilter_cell_summary.txt.gz"
+    if os.path.isfile(labeled):
+        return labeled
+    return f"{outputPathPrefix}_SQANTI_cell_summary.txt.gz"
+
+
+def classification_path(outputPathPrefix):
+    """The transcript filter labels the classification rather than subsetting it, as
+    SQANTI3 does, so a filtered run has the labelled file and no plain one."""
+    labelled = f"{outputPathPrefix}_RulesFilter_classification.txt"
+    if os.path.isfile(labelled):
+        return labelled
+    return f"{outputPathPrefix}_classification.txt"
+
+
+def drop_artifacts(df):
+    """What every reader of a labelled table sees: the kept rows, without the verdict."""
+    if RESULT_COLUMN not in df.columns:
+        return df
+    return df[df[RESULT_COLUMN] != RESULT_ARTIFACT].drop(columns=RESULT_COLUMN)
+
+
+def read_sample_table(design_path, qc_dir, labelled_summary_ok=False):
     """Design CSV -> validated frame. Unlike qc_io.fill_design_table this resolves
-    nothing, writes nothing, and needs only the two columns that locate an output."""
+    nothing, writes nothing, and needs only the two columns that locate an output.
+
+    labelled_summary_ok accepts a cell filter's output as the input directory. A
+    transcript filter's labelled classification is accepted by both steps."""
     if not os.path.isfile(design_path):
         raise ValueError(f"ERROR: design file not found: {design_path}")
     df = pd.read_csv(design_path, sep=',')
@@ -31,11 +65,13 @@ def read_sample_table(design_path, qc_dir):
         )
     for _, row in df.iterrows():
         prefix = sample_prefix(qc_dir, row['file_acc'], row['sampleID'])
-        for suffix in ('_classification.txt', '_SQANTI_cell_summary.txt.gz'):
-            if not os.path.isfile(prefix + suffix):
+        summary = (cell_summary_path(prefix) if labelled_summary_ok
+                   else f"{prefix}_SQANTI_cell_summary.txt.gz")
+        for path in (classification_path(prefix), summary):
+            if not os.path.isfile(path):
                 raise ValueError(
                     f"ERROR: expected SQANTI-sc output not found for sample "
-                    f"{row['sampleID']}: {prefix + suffix}"
+                    f"{row['sampleID']}: {path}"
                 )
     return df
 
@@ -140,6 +176,49 @@ def subset_junctions(src, dst, mode, keep_isoforms, keep_cells, chunksize=CHUNKS
     return rows_in, rows_out, rewrote_cb
 
 
+def subset_by_isoform(src, dst, keep_isoforms, chunksize=CHUNKSIZE):
+    """Keep the rows whose model survived, with every field passed through verbatim.
+    Returns (rows_in, rows_out)."""
+    keep_isoforms = set(keep_isoforms)
+    rows_in = rows_out = 0
+    header = True
+    with open(dst, 'w') as out_fh:
+        for chunk in pd.read_csv(src, chunksize=chunksize, **_READ_KW):
+            rows_in += len(chunk)
+            kept = chunk[chunk['isoform'].isin(keep_isoforms)]
+            rows_out += len(kept)
+            kept.to_csv(out_fh, sep='\t', index=False, header=header)
+            header = False
+    return rows_in, rows_out
+
+
+def write_labelled_classification(src, dst, keep_isoforms, chunksize=CHUNKSIZE):
+    """Every row of src, verbatim, plus the verdict column. Returns (rows_in, rows_kept)."""
+    keep_isoforms = set(keep_isoforms)
+    rows_in = rows_kept = 0
+    header = True
+    with open(dst, 'w') as out_fh:
+        for chunk in pd.read_csv(src, chunksize=chunksize, **_READ_KW):
+            kept = chunk['isoform'].isin(keep_isoforms)
+            chunk[RESULT_COLUMN] = RESULT_ARTIFACT
+            chunk.loc[kept, RESULT_COLUMN] = RESULT_ISOFORM
+            rows_in += len(chunk)
+            rows_kept += int(kept.sum())
+            chunk.to_csv(out_fh, sep='\t', index=False, header=header)
+            header = False
+    return rows_in, rows_kept
+
+
+def classification_header(path):
+    with open(path) as fh:
+        return fh.readline().rstrip('\n').split('\t')
+
+
+def read_id_list(path):
+    with open(path) as fh:
+        return {line.strip() for line in fh if line.strip()}
+
+
 _GTF_TRANSCRIPT_ID = re.compile(r'transcript_id "([^"]+)"')
 
 
@@ -194,6 +273,38 @@ def subset_fasta(src, dst, keep_isoforms):
             if keeping:
                 out_fh.write(line)
     return records_in, records_out
+
+
+def subset_by_first_field(src, dst, keep_isoforms):
+    """For files keyed by model in their first column: SAM (the read name) and the
+    tappAS GFF3 (the transcript). Header lines are kept."""
+    keep_isoforms = set(keep_isoforms)
+    with open(src) as in_fh, open(dst, 'w') as out_fh:
+        for line in in_fh:
+            if line.startswith(('@', '#')) or line.split('\t', 1)[0] in keep_isoforms:
+                out_fh.write(line)
+
+
+# SQANTI3 QC writes these only when the matching option was used: the proteins and their
+# CDS coordinates with --include_ORF, the SAM when it aligned sequence input, and the
+# tappAS GFF3 with --isoAnnotLite. The CDS file is GTF-formatted despite its extension.
+_OPTIONAL_MODEL_FILES = (
+    ('_corrected.faa', subset_fasta),
+    ('_corrected.cds.gff3', subset_gtf),
+    ('_corrected.sam', subset_by_first_field),
+    ('.gff3', subset_by_first_field),
+)
+
+
+def subset_optional_model_files(in_prefix, out_prefix, keep_isoforms):
+    """Cut every optional per-model file present to the surviving models, under its QC
+    name. Returns the suffixes written."""
+    written = []
+    for suffix, subset in _OPTIONAL_MODEL_FILES:
+        if os.path.isfile(in_prefix + suffix):
+            subset(in_prefix + suffix, out_prefix + suffix, keep_isoforms)
+            written.append(suffix)
+    return written
 
 
 def write_barcode_list(path, barcodes):

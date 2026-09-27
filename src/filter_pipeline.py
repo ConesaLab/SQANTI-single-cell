@@ -3,6 +3,7 @@ import sys
 import filter_io
 from cell_filter import run_cell_filter
 from filter_args import build_filter_parser
+from transcript_filter import run_transcript_filter
 
 
 def _run_downstream(args, df):
@@ -33,8 +34,13 @@ def main():
         sys.exit(1)
 
     try:
-        df = filter_io.read_sample_table(args.inDESIGN, args.qc_dir)
-        mode, evidence = run_cell_filter(args, df)
+        if args.subcommand == 'cells':
+            df = filter_io.read_sample_table(args.inDESIGN, args.qc_dir)
+            mode, evidence = run_cell_filter(args, df)
+        else:
+            df = filter_io.read_sample_table(args.inDESIGN, args.qc_dir,
+                                             labelled_summary_ok=True)
+            mode, evidence = run_transcript_filter(args, df)
     except ValueError as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)

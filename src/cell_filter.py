@@ -5,13 +5,10 @@ import numpy as np
 import pandas as pd
 
 import filter_io
-from filter_io import SENTINEL_BARCODES
+from filter_io import RESULT_ARTIFACT, RESULT_COLUMN, SENTINEL_BARCODES
 
 
 RESULT_CELL = 'Cell'
-RESULT_ARTIFACT = 'Artifact'
-# The one column added to the cell summary, named as SQANTI3 names its own.
-RESULT_COLUMN = 'filter_result'
 
 DEPTH_TOKEN = 'depth'
 
@@ -339,9 +336,11 @@ def run_cell_filter(args, df, log=print):
         log(f"**** {sampleID}: {params['BarcodesPassing']}/{params['BarcodesIn']} "
             f"barcodes passed the cell filter")
 
+        # Kept under the input's name, so a transcript filter's verdict column stays
+        # where the readers look for it.
+        in_class = filter_io.classification_path(qc_prefix)
         rows_in, rows_out, surviving, no_barcode = filter_io.subset_classification(
-            f"{qc_prefix}_classification.txt", f"{out_prefix}_classification.txt",
-            mode, keep_cells)
+            in_class, os.path.join(out_dir, os.path.basename(in_class)), mode, keep_cells)
         j_in, j_out, rewrote_cb = filter_io.subset_junctions(
             f"{qc_prefix}_junctions.txt", f"{out_prefix}_junctions.txt",
             mode, surviving, keep_cells)
@@ -349,6 +348,9 @@ def run_cell_filter(args, df, log=print):
             f"{qc_prefix}_corrected.gtf", f"{out_prefix}_corrected.gtf", surviving)
         f_in, f_out = filter_io.subset_fasta(
             f"{qc_prefix}_corrected.fasta", f"{out_prefix}_corrected.fasta", surviving)
+        extra = filter_io.subset_optional_model_files(qc_prefix, out_prefix, surviving)
+        if extra:
+            log(f"**** {sampleID}: also cut to the surviving models: {', '.join(extra)}")
 
         params.update({
             'ClassificationRowsIn': rows_in,
