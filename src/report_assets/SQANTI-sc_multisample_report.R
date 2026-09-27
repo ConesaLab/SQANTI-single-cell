@@ -134,8 +134,8 @@ safe_read_summary <- function(fpath) {
   }
   # Derive sampleID from filename. A filtered run's summary is labelled in place and
   # named <sampleID>_CellFilter_cell_summary.txt.gz, so both spellings must reduce to
-  # the same sampleID -- the classification-derived name at the length panel below has
-  # no such suffix, and a mismatch makes that join silently find nothing.
+  # the same sampleID -- the length panel below derives it from the classification's
+  # name, and a mismatch makes that join silently find nothing.
   base <- basename(fpath)
   sample <- sub("_(SQANTI|CellFilter)_cell_summary\\.txt(\\.gz)?$", "", base)
   df$sampleID <- sample
@@ -1872,12 +1872,20 @@ main <- function() {
       # the median-length bug) and silently drop to unweighted.
       len_dfs <- lapply(class_file_paths, function(f) {
         sel <- if (params$mode == "isoforms") c("length", "FL") else c("length")
+        # A transcript filter's classification is labelled in place, as SQANTI3's is.
+        header <- tryCatch(colnames(data.table::fread(f, nrows = 0, sep = "\t")),
+                           error = function(e) character(0))
+        if ("filter_result" %in% header) sel <- c(sel, "filter_result")
         df <- tryCatch(
           data.table::fread(f, select = sel, header = TRUE, sep = "\t",
                             stringsAsFactors = FALSE, data.table = FALSE),
           error = function(e) { message("[WARNING] Could not read ", f, ": ", e$message); NULL }
         )
         if (is.null(df) || nrow(df) == 0) return(NULL)
+        if ("filter_result" %in% colnames(df)) {
+          df <- df[df$filter_result != "Artifact", , drop = FALSE]
+          df$filter_result <- NULL
+        }
         df$length <- suppressWarnings(as.numeric(df$length))
         if ("FL" %in% colnames(df)) {
           df$w <- vapply(strsplit(as.character(df$FL), ",", fixed = TRUE),
@@ -1887,7 +1895,7 @@ main <- function() {
           df$w <- 1  # reads mode: one row per read is already expression-level
         }
         df <- df[is.finite(df$length) & df$length > 0 & is.finite(df$w) & df$w > 0, , drop = FALSE]
-        sample_id <- sub("_classification\\.txt(\\.gz)?$", "", basename(f))
+        sample_id <- sub("_(RulesFilter_)?classification\\.txt(\\.gz)?$", "", basename(f))
         df$sampleID <- sample_id
         df
       })

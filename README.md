@@ -24,6 +24,8 @@ Table of Contents:
 - [Providing orthogonal data to SQANTI-sc](#providing-orthogonal-data-to-sqanti-sc)
     - [Short Reads Validation](#short-reads-validation)
 - [Cell clustering](#clustering)
+- [Cell filter](#cell-filter)
+- [Transcript filter](#transcript-filter)
 - [Understanding the output of SQANTI-sc](#understanding-the-output-of-sqanti-sc)
     - [1. SQANTI3-based Outputs](#1-sqanti3-based-outputs)
     - [2. SQANTI-reads-based Outputs](#2-sqanti-reads-based-outputs)
@@ -522,7 +524,7 @@ qc/rep1/s1_classification.txt                  qc/rep1/clustering/umap_results.c
 filter/cells/rep1/s1_classification.txt        filter/cells/rep1/clustering/umap_results.csv
 ```
 
-Threshold trials are therefore just different directories (`--out_dir filter/cells_depth1000`), and they can be compared side by side. Steps 2 and 3 of the filter module will write to `filter/transcripts/` and `filter/rescue/` the same way.
+Threshold trials are therefore just different directories (`--out_dir filter/cells_depth1000`), and they can be compared side by side. The [transcript filter](#transcript-filter) writes to `filter/transcripts/` the same way.
 
 Always written, mirroring the SQANTI3 filter's contract:
 
@@ -536,6 +538,8 @@ Always written, mirroring the SQANTI3 filter's contract:
 | `<sampleID>_junctions.txt` | Filtered, with the per-row barcode list rewritten |
 | `<sampleID>_corrected.gtf` | Filtered: only the surviving transcript models |
 | `<sampleID>_corrected.fasta` | Filtered: the sequences of those same models |
+
+If the QC run produced them, the optional per-model files are filtered the same way and keep their names: `<sampleID>_corrected.faa` and `<sampleID>_corrected.cds.gff3` (from `--include_ORF`), `<sampleID>_corrected.sam` (when SQANTI3 aligned sequence input) and `<sampleID>.gff3` (from `--isoAnnotLite`). Nothing has to be passed for this: each is looked for in the sample's QC folder.
 
 **The cell summary is labelled, never subset** — the same choice SQANTI3 makes for the classification it judges. `<sampleID>_CellFilter_cell_summary.txt.gz` holds every judged barcode with the verdict on it, and there is no second copy containing only the survivors. The reports drop the `Artifact` rows when they see the verdict column, so they show the retained cells without a separate file existing.
 
@@ -601,6 +605,55 @@ Instead, a rule whose value is `NA` for a given cell is skipped for that cell; t
 This is a deliberate difference from SQANTI3, which treats `NA` as a failure. The two `NA`s do not mean the same thing. SQANTI3's is usually a missing *input* — supply no short reads and `min_cov` is `NA` on every transcript — and its alternative rule-sets route around it. Ours is a fact about one cell: a cell with no multi-exonic reads has no denominator for `Non_canonical_prop_in_cell`, so failing it would judge the cell on its own composition rather than its quality.
 
 Rows with no cell barcode (`unassigned`, `NA`, `-`, `*`, empty) are dropped before any statistic and the count is reported — an `unassigned` row aggregates every read that was never assigned to a cell, so it would otherwise dominate any depth-based statistic.
+
+
+<a name="transcript-filter"></a>
+
+## Transcript filter (`sqanti_sc_filter.py transcripts`)
+
+`sqanti_sc_filter.py transcripts` runs the [SQANTI3 rules filter](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-filter) on each sample's classification, the way the QC run calls SQANTI3 QC. In reads mode each row is a read, so the rules judge reads; in isoforms mode they judge transcript models.
+
+```bash
+python sqanti_sc_filter.py transcripts \
+    --design design.csv \
+    --qc_dir ./filter/cells \
+    --out_dir ./filter/transcripts
+```
+
+`--qc_dir` can be the QC run itself or the output of the cell filter. The intended order is cells first, then transcripts, but either works: both directories have the same layout, and the transcript filter accepts the cell filter's labelled summary as its input.
+
+### Rules
+
+The rules are SQANTI3's own, in SQANTI3's JSON format, keyed by structural category. Without `--rules` SQANTI3's `filter_default.json` applies. See the SQANTI3 documentation for the rule syntax.
+
+Mono-exonic models are judged by the rules like any other model; SQANTI3's `-e`, which discards all of them regardless of the rules, is not exposed. To require multiple exons, write it as a rule on the `exons` column (`"exons": 2`), which can also be limited to the structural categories where it should apply.
+
+### Output
+
+The output has the same `<out_dir>/<file_acc>/<sampleID>_*` shape as a QC run. Each filter labels the table whose rows it judges and cuts the other files to match: the cell filter labels the cell summary, and the transcript filter labels the classification.
+
+| File | Contents |
+|---|---|
+| `<sampleID>_RulesFilter_classification.txt` | **Every** model, plus SQANTI3's `filter_result` column (`Isoform`/`Artifact`) |
+| `<sampleID>_filtering_reasons.txt` | Discarded models and why (SQANTI3's) |
+| `<sampleID>_pass_isoforms.txt` | Passing model IDs, one per line (SQANTI3's) |
+| `<sampleID>_params.txt` | SQANTI3's record of the run |
+| `<sampleID>_junctions.txt` | Only the junctions of the passing models |
+| `<sampleID>_corrected.gtf` | Only the passing models |
+| `<sampleID>_corrected.fasta` | The sequences of those same models |
+| `<sampleID>_SQANTI_cell_summary.txt.gz` | Recomputed from the passing models |
+
+**The classification is labelled, never subset**, as in SQANTI3, and there is no second copy holding only the passing models. Every reader of the classification — the cell summary, clustering, both reports and the `.h5ad` export — skips the `Artifact` rows when it sees the verdict column. The rows are exactly as the QC run wrote them: SQANTI3 writes its own copy of this file back through pandas, which rewrites `NA` as an empty field, `TRUE` as `True` and `-1` as `-1.0`, so the wrapper replaces it with the original rows plus SQANTI3's verdict.
+
+The junctions, GTF and FASTA contain only the passing models, the way SQANTI3's own filtered GTF and FASTA do. They keep their QC names and their original lines. So do the optional per-model files when the QC run produced them, as for the cell filter: the proteins and their CDS coordinates, the SAM and the tappAS GFF3.
+
+**The cell summary is recomputed, not carried over.** Removing models changes every cell's depth and composition, so the per-cell metrics are rebuilt from what survives. The summary thresholds `--min_cov`, `--ratio_TSS` and `--ref_cov_min_pct` default as in the QC run; pass the values the QC run used if you changed them. A cell whose every model was discarded is absent from the recomputed summary, and the count is reported.
+
+A classification that already carries `filter_result` is refused as input: filtering it again could keep models whose junctions, GTF and FASTA entries were already removed. The cell filter does accept a transcript filter's output, and keeps the verdict column in its own classification.
+
+### Reports
+
+`--report`, `--refGTF`, `--multisample_report` and the clustering options work as for the cell filter: clustering is refitted on the filtered data, and the per-sample and multisample reports are rendered from it. The reports therefore describe every cell as it is once its artifactual models are removed. SQANTI3's own filter report is not produced, just as the QC run does not produce SQANTI3's QC report.
 
 
 <a name="understanding-the-output-of-sqanti-sc"></a>

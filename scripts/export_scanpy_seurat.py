@@ -36,6 +36,9 @@ import scipy.sparse as sp
 def _prepare_classification(class_file, mode):
     """Read and prepare the classification file for matrix construction."""
     cls = pd.read_csv(class_file, sep="\t", dtype=str, low_memory=False)
+    # A transcript filter's classification is labelled, as SQANTI3's is.
+    if "filter_result" in cls.columns:
+        cls = cls[cls["filter_result"] != "Artifact"].drop(columns="filter_result")
 
     required = ["CB", "associated_gene"]
     for col in required:

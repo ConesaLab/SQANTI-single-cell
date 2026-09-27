@@ -1,7 +1,7 @@
 import argparse
 import os
 
-from qc_args import add_clustering_args
+from qc_args import add_cell_metrics_args, add_clustering_args
 
 DEFAULT_CELL_RULES = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), 'filter_assets', 'cell_filter_default.json')
@@ -16,6 +16,34 @@ def add_cell_filter_args(group):
     return group
 
 
+def add_transcript_filter_args(group):
+    group.add_argument('-j', '--rules', default=None,
+                       help='SQANTI3 rules filter JSON, keyed by structural category. '
+                            'Default: SQANTI3\'s own filter_default.json.')
+    return group
+
+
+def add_downstream_args(parser):
+    apd = parser.add_argument_group("Report options")
+    apd.add_argument('--report', choices=["pdf", "html", "both", "skip"], default="skip",
+                     help="Re-render the per-sample report on filtered data. Default: skip.")
+    # The only report input that is not already in the QC outputs: the report reads the
+    # annotation itself to compare reference and sample transcript lengths. The optional
+    # evidence flags have no counterpart here because SQANTI3 QC is not re-run.
+    apd.add_argument('--refGTF', help='Reference annotation (GTF), for the report.')
+    apd.add_argument('--multisample_report', action='store_true', default=False,
+                     help='Generate a multisample report from the filtered cell summaries.')
+    apd.add_argument('--multisample_report_prefix', default='SQANTI_sc_multisample_report',
+                     help='Output prefix for the multisample report. '
+                          'Default: SQANTI_sc_multisample_report.')
+
+    # Clustering is a pipeline stage the report consumes, not a report setting: with a
+    # different set of cells the embedding has to be refitted, and reusing the QC run's
+    # coordinates would place the kept cells in a space the discarded ones shaped.
+    add_clustering_args(
+        parser.add_argument_group("Clustering and UMAP options (re-run on the filtered data)"))
+
+
 def build_filter_parser(version_str: str = '1.2.0'):
     ap = argparse.ArgumentParser(
         description="SQANTI-sc filter: quality filtering of cell barcodes and transcript "
@@ -28,7 +56,8 @@ def build_filter_parser(version_str: str = '1.2.0'):
     apr.add_argument('-de', '--design', dest="inDESIGN", required=True,
                      help='Design file with sampleID and file_acc, as used for the QC run.')
     apr.add_argument('-q', '--qc_dir', required=True,
-                     help='Output directory of the QC run, read but never written.')
+                     help='Output directory of the QC run, or of an earlier filter step. '
+                          'Read but never written.')
     apc = common.add_argument_group("Common options")
     apc.add_argument('-d', '--out_dir', default="filter",
                      help='Directory the filter writes into, laid out exactly like a QC '
@@ -42,24 +71,14 @@ def build_filter_parser(version_str: str = '1.2.0'):
     cells = sub.add_parser('cells', parents=[common],
                            help='Filter cell barcodes on per-cell QC metrics.')
     add_cell_filter_args(cells.add_argument_group("Cell filter options"))
+    add_downstream_args(cells)
 
-    apd = cells.add_argument_group("Report options")
-    apd.add_argument('--report', choices=["pdf", "html", "both", "skip"], default="skip",
-                     help="Re-render the per-sample report on filtered data. Default: skip.")
-    # The only report input that is not already in the QC outputs: the report reads the
-    # annotation itself to compare reference and sample transcript lengths. The optional
-    # evidence flags have no counterpart here because SQANTI3 is not re-run.
-    apd.add_argument('--refGTF', help='Reference annotation (GTF), for the report.')
-    apd.add_argument('--multisample_report', action='store_true', default=False,
-                     help='Generate a multisample report from the filtered cell summaries.')
-    apd.add_argument('--multisample_report_prefix', default='SQANTI_sc_multisample_report',
-                     help='Output prefix for the multisample report. '
-                          'Default: SQANTI_sc_multisample_report.')
-
-    # Clustering is a pipeline stage the report consumes, not a report setting: with a
-    # different set of cells the embedding has to be refitted, and reusing the QC run's
-    # coordinates would place the kept cells in a space the discarded ones shaped.
-    add_clustering_args(
-        cells.add_argument_group("Clustering and UMAP options (re-run on the kept cells)"))
+    transcripts = sub.add_parser(
+        'transcripts', parents=[common],
+        help='Filter transcript models with the SQANTI3 rules filter.')
+    add_transcript_filter_args(transcripts.add_argument_group("Transcript filter options"))
+    add_cell_metrics_args(transcripts.add_argument_group(
+        "Cell summary options (pass the values the QC run used)"))
+    add_downstream_args(transcripts)
 
     return ap

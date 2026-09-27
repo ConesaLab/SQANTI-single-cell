@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 import scanpy as sc
 
+from filter_io import RESULT_COLUMN, classification_path, drop_artifacts
+
 def prepare_anndata(args, row):
     """
     Load classification file and create an AnnData object.
@@ -12,7 +14,7 @@ def prepare_anndata(args, row):
     file_acc = row['file_acc']
     sampleID = row['sampleID']
     outputPathPrefix = os.path.join(args.out_dir, file_acc, sampleID)
-    class_file = f"{outputPathPrefix}_classification.txt"
+    class_file = classification_path(outputPathPrefix)
 
     if not os.path.isfile(class_file):
         print(f"[ERROR] Classification file not found: {class_file}", file=sys.stderr)
@@ -22,11 +24,12 @@ def prepare_anndata(args, row):
     
     try:
         # Read necessary columns
-        cols = ['associated_gene', 'CB']
+        cols = ['associated_gene', 'CB', RESULT_COLUMN]
         if args.mode == 'isoforms':
             cols.append('FL')
         
-        df = pd.read_csv(class_file, sep='\t', usecols=lambda c: c in cols, dtype=str)
+        df = drop_artifacts(
+            pd.read_csv(class_file, sep='\t', usecols=lambda c: c in cols, dtype=str))
         
         # Filter valid CBs
         df = df[(df['CB'].notna()) & (df['CB'] != '') & (df['CB'] != 'NA')]

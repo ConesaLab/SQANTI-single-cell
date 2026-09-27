@@ -3,16 +3,7 @@ import sys
 import subprocess
 import pandas as pd
 from paths import reportAssetsPath
-
-
-def cell_summary_path(outputPathPrefix):
-    """The cell filter labels the summary rather than subsetting it, so a filtered run
-    has the labeled file and no plain one. The R drops the Artifact rows when it sees the
-    verdict column."""
-    labeled = f"{outputPathPrefix}_CellFilter_cell_summary.txt.gz"
-    if os.path.isfile(labeled):
-        return labeled
-    return f"{outputPathPrefix}_SQANTI_cell_summary.txt.gz"
+from filter_io import cell_summary_path, classification_path
 
 
 def generate_report(args, df):
@@ -20,8 +11,8 @@ def generate_report(args, df):
         file_acc = row['file_acc']
         sampleID = row['sampleID']
         outputPathPrefix = os.path.join(args.out_dir, file_acc, sampleID)
-        
-        class_file = f"{outputPathPrefix}_classification.txt"
+
+        class_file = classification_path(outputPathPrefix)
         junc_file = f"{outputPathPrefix}_junctions.txt"
         print(f"**** Generating SQANTI3 report for {file_acc}...",
               file=sys.stdout)
@@ -115,7 +106,7 @@ def generate_multisample_report(args, df):
             print(f"[INFO] Cell summary not found for {file_acc} ({sampleID}). Skipping this sample.",
                   file=sys.stdout)
 
-        class_file = f"{outputPathPrefix}_classification.txt"
+        class_file = classification_path(outputPathPrefix)
         if os.path.isfile(class_file):
             class_files.append(os.path.abspath(class_file))
 

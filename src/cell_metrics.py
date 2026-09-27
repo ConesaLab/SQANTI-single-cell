@@ -5,6 +5,8 @@ import pandas as pd
 import warnings
 from pandas.errors import PerformanceWarning
 
+from filter_io import RESULT_COLUMN, classification_path, drop_artifacts
+
 
 def coerce_keeping_undefined(col):
     """Numeric-coerce a summary column, filling only the NaNs coercion itself made.
@@ -631,7 +633,7 @@ def calculate_metrics_per_cell(args, df):
         file_acc = r['file_acc']
         sampleID = r['sampleID']
         prefix = os.path.join(args.out_dir, file_acc, sampleID)
-        class_file = f"{prefix}_classification.txt"
+        class_file = classification_path(prefix)
         junc_file = f"{prefix}_junctions.txt"
 
         out_summary = f"{prefix}_SQANTI_cell_summary.txt.gz"
@@ -645,12 +647,13 @@ def calculate_metrics_per_cell(args, df):
         _usecols = {'CB','isoform','associated_gene','structural_category','exons','length','ref_length',
                     'all_canonical','subcategory','chrom','UMI','jxn_string','associated_transcript',
                     'RTS_stage','predicted_NMD','within_CAGE_peak','polyA_motif_found','perc_A_downstream_TTS',
-                    'diff_to_gene_TSS','coding','min_cov','ratio_TSS','FL'}
+                    'diff_to_gene_TSS','coding','min_cov','ratio_TSS','FL',RESULT_COLUMN}
         try:
             cls = pd.read_csv(class_file, sep='\t', dtype=str, low_memory=False,
                               usecols=lambda c: c in _usecols)
         except Exception:
             continue
+        cls = drop_artifacts(cls)
         # In isoforms mode the per-cell CB column from junctions is NOT used: junctions
         # are aggregated per-isoform by (junction_category, canonical) and CB comes from
         # the classification table. That CB column is the bulk of the per-cell-enriched

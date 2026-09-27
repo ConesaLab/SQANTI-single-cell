@@ -641,12 +641,13 @@ def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
     clustering_file = os.path.join(os.path.dirname(prefix), "clustering", "umap_results.csv")
 
     # class, junc, and cell_summary exist; clustering does NOT, and neither do the
-    # cell filter's outputs -- this is a QC run, not a filtered one.
+    # filters' outputs -- this is a QC run, not a filtered one.
     labelled = f"{prefix}_CellFilter_cell_summary.txt.gz"
     reasons = f"{prefix}_cell_filtering_reasons.txt"
+    labelled_class = f"{prefix}_RulesFilter_classification.txt"
 
     def _isfile(path):
-        return path not in (clustering_file, labelled, reasons)
+        return path not in (clustering_file, labelled, reasons, labelled_class)
     mock_isfile.side_effect = _isfile
 
     generate_report(mock_args, df)
