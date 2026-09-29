@@ -3,7 +3,7 @@ import sys
 import subprocess
 import pandas as pd
 from paths import reportAssetsPath
-from filter_io import cell_summary_path, classification_path
+from filter_io import cell_summary_path, classification_path, sample_prefix
 
 
 def generate_report(args, df):
@@ -42,7 +42,17 @@ def generate_report(args, df):
                 reasons_file = f"{outputPathPrefix}_cell_filtering_reasons.txt"
                 if os.path.isfile(reasons_file):
                     flags.extend(["--cell_filter_reasons", reasons_file])
-                
+
+                # Only the transcript filter's own render gets these, so a later cell
+                # filter on its output describes the cell step alone.
+                if getattr(args, 'subcommand', None) == 'transcripts':
+                    input_summary = cell_summary_path(
+                        sample_prefix(args.qc_dir, file_acc, sampleID))
+                    flags.extend(["--input_cell_summary", f'"{input_summary}"'])
+                    tx_reasons = f"{outputPathPrefix}_filtering_reasons.txt"
+                    if os.path.isfile(tx_reasons):
+                        flags.extend(["--transcript_filter_reasons", f'"{tx_reasons}"'])
+
                 # Check for clustering results
                 # Clustering is usually one level up from sampleID if run per file_acc
                 clustering_file = os.path.join(os.path.dirname(outputPathPrefix), "clustering", "umap_results.csv")

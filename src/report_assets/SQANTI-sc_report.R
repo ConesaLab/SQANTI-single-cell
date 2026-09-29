@@ -40,6 +40,8 @@ polyA_motif_list <- FALSE
 cell_summary_path <- NULL
 clustering_path <- NULL
 cell_filter_reasons_path <- NULL
+input_cell_summary_path <- NULL
+transcript_filter_reasons_path <- NULL
 ref_gtf_path <- NULL
 
 # Check for optional arguments
@@ -83,6 +85,24 @@ if (length(args) > 5) {
         next
       } else {
         stop("--cell_filter_reasons requires a path argument")
+      }
+    }
+    if (arg == "--input_cell_summary") {
+      if ((i + 1) <= length(args)) {
+        input_cell_summary_path <- args[i + 1]
+        i <- i + 2
+        next
+      } else {
+        stop("--input_cell_summary requires a path argument")
+      }
+    }
+    if (arg == "--transcript_filter_reasons") {
+      if ((i + 1) <= length(args)) {
+        transcript_filter_reasons_path <- args[i + 1]
+        i <- i + 2
+        next
+      } else {
+        stop("--transcript_filter_reasons requires a path argument")
       }
     }
     if (arg == "--clustering") {
@@ -356,6 +376,52 @@ build_violin_plot <- function(df_long,
     }
   }
 
+  return(p)
+}
+
+# ----------------------------------------------------------------
+# Helper: Build Continuous UMAP (for coloring by %)
+# ----------------------------------------------------------------
+build_continuous_umap <- function(data, color_col, title, color_base = "blue") {
+  mix_color <- function(col, target, amount) {
+    c_rgb <- col2rgb(col)
+    t_rgb <- col2rgb(target)
+    mix <- c_rgb * (1 - amount) + t_rgb * amount
+    rgb(mix[1], mix[2], mix[3], maxColorValue = 255)
+  }
+
+  if (!all(c("UMAP_1", "UMAP_2") %in% colnames(data))) {
+    return(NULL)
+  }
+
+  plot_data <- data[!is.na(data[[color_col]]), ]
+  if (nrow(plot_data) == 0) {
+    return(NULL)
+  }
+
+  dark_color <- mix_color(color_base, "black", 0.6)
+  light_color <- mix_color(color_base, "white", 0.8)
+
+  p <- ggplot(plot_data, aes(x = UMAP_1, y = UMAP_2, color = .data[[color_col]])) +
+    geom_point(alpha = 0.6, size = 0.5) +
+    scale_color_gradientn(
+      colors = c(light_color, color_base, dark_color),
+      limits = c(0, max(plot_data[[color_col]], na.rm = TRUE))
+    ) +
+    guides(color = guide_colorbar(barwidth = 2.5, barheight = 15)) +
+    labs(title = title, x = "UMAP 1", y = "UMAP 2", color = paste0(entity_label_plural, ", %")) +
+    theme_classic() +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+      axis.title = element_text(size = 18),
+      axis.text.x = element_text(size = 16),
+      axis.text.y = element_text(size = 16),
+      legend.position = "right",
+      legend.text = element_text(size = 14),
+      legend.title = element_text(size = 16, face = "bold"),
+      legend.key.height = unit(3, "cm"),
+      legend.key.width = unit(1, "cm")
+    )
   return(p)
 }
 
@@ -780,52 +846,6 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         print(paste("Error generating UMAP by category plots:", e$message))
       }
     )
-  }
-
-  # ----------------------------------------------------------------
-  # Helper: Build Continuous UMAP (for coloring by %)
-  # ----------------------------------------------------------------
-  build_continuous_umap <- function(data, color_col, title, color_base = "blue") {
-    mix_color <- function(col, target, amount) {
-      c_rgb <- col2rgb(col)
-      t_rgb <- col2rgb(target)
-      mix <- c_rgb * (1 - amount) + t_rgb * amount
-      rgb(mix[1], mix[2], mix[3], maxColorValue = 255)
-    }
-
-    if (!all(c("UMAP_1", "UMAP_2") %in% colnames(data))) {
-      return(NULL)
-    }
-
-    plot_data <- data[!is.na(data[[color_col]]), ]
-    if (nrow(plot_data) == 0) {
-      return(NULL)
-    }
-
-    dark_color <- mix_color(color_base, "black", 0.6)
-    light_color <- mix_color(color_base, "white", 0.8)
-
-    p <- ggplot(plot_data, aes(x = UMAP_1, y = UMAP_2, color = .data[[color_col]])) +
-      geom_point(alpha = 0.6, size = 0.5) +
-      scale_color_gradientn(
-        colors = c(light_color, color_base, dark_color),
-        limits = c(0, max(plot_data[[color_col]], na.rm = TRUE))
-      ) +
-      guides(color = guide_colorbar(barwidth = 2.5, barheight = 15)) +
-      labs(title = title, x = "UMAP 1", y = "UMAP 2", color = paste0(entity_label_plural, ", %")) +
-      theme_classic() +
-      theme(
-        plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
-        axis.title = element_text(size = 18),
-        axis.text.x = element_text(size = 16),
-        axis.text.y = element_text(size = 16),
-        legend.position = "right",
-        legend.text = element_text(size = 14),
-        legend.title = element_text(size = 16, face = "bold"),
-        legend.key.height = unit(3, "cm"),
-        legend.key.width = unit(1, "cm")
-      )
-    return(p)
   }
 
   # ----------------------------------------------------------------
@@ -3632,21 +3652,96 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       print(apply_pdf_theme(gg_cell_filter_badq))
     }
 
+    if (!is.null(tf_counts)) {
+      section_page("Transcript Filtering")
+      tf_table_page <- function(df, title) {
+        colnames(df) <- stringr::str_wrap(colnames(df), width = 12)
+        grid.arrange(textGrob(title, gp = gpar(fontface = "italic", fontsize = 20)),
+                     tableGrob(df, rows = NULL, theme = big_table_theme),
+                     ncol = 1, heights = c(0.15, 1))
+      }
+      tf_table_page(tf_counts, "Before and after the transcript filter")
+      render_pdf_plot_centered("gg_tf_removed_per_cell", width_frac = 0.5)
+      if (!is.null(gg_tf_depth)) render_pdf_plot_centered("gg_tf_depth", width_frac = 0.6)
+      for (p in list(gg_tf_lost_depth, gg_tf_removed_by_cluster, gg_tf_umap_removed)) {
+        if (!is.null(p)) print(apply_pdf_theme(p))
+      }
+      if (!is.null(tf_rule_counts)) tf_table_page(tf_rule_counts, "Rules that removed models")
+      if (!is.null(gg_tf_removed_by_rule)) print(apply_pdf_theme(gg_tf_removed_by_rule))
+      tf_table_page(tf_category_counts, "Removed by structural category")
+      for (p in list(gg_tf_categories, gg_tf_goodq, gg_tf_badq, gg_tf_cells_per_model)) {
+        if (!is.null(p)) print(apply_pdf_theme(p))
+      }
+    }
+
     dev.off()
   }
 }
 
 Classification <- data.table::fread(class.file, header = TRUE, sep = "\t", stringsAsFactors = FALSE, data.table = FALSE)
-# The transcript filter labels the classification in place, as SQANTI3 does.
-if ("filter_result" %in% colnames(Classification)) {
-  Classification <- Classification[Classification$filter_result != "Artifact", , drop = FALSE]
-  Classification$filter_result <- NULL
-}
 if (mode == "isoforms" && "FL" %in% colnames(Classification)) {
   Classification$count <- sapply(strsplit(as.character(Classification$FL), ","), function(x) sum(as.numeric(x), na.rm = TRUE))
   Classification$count[is.na(Classification$count) | Classification$count == 0] <- 1
 } else {
   Classification$count <- 1
+}
+
+# Everything the transcript filter section needs from the removed models, taken before
+# they are dropped. In isoforms mode a model is spread over its cells by its FL list.
+summarise_removed_models <- function(cls) {
+  removed <- cls$filter_result == "Artifact"
+  cat_before <- tapply(cls$count, cls$structural_category, sum)
+  cat_removed <- tapply(cls$count[removed], cls$structural_category[removed], sum)
+  models_before <- table(cls$structural_category)
+  models_removed <- table(cls$structural_category[removed])
+  cats <- names(models_before)
+  by_category <- data.frame(
+    category = cats,
+    models_before = as.numeric(models_before[cats]),
+    models_removed = as.numeric(ifelse(is.na(models_removed[cats]), 0, models_removed[cats])),
+    count_before = as.numeric(cat_before[cats]),
+    count_removed = as.numeric(ifelse(is.na(cat_removed[cats]), 0, cat_removed[cats])),
+    stringsAsFactors = FALSE
+  )
+
+  art <- cls[removed, , drop = FALSE]
+  if (mode == "isoforms") {
+    cbs <- strsplit(as.character(art$CB), ",", fixed = TRUE)
+    fls <- strsplit(as.character(art$FL), ",", fixed = TRUE)
+    pairs <- data.frame(isoform = rep(art$isoform, lengths(cbs)), CB = unlist(cbs),
+                        count = as.numeric(unlist(fls)), stringsAsFactors = FALSE)
+    cb <- as.character(cls$CB)
+    n_cells <- nchar(cb) - nchar(gsub(",", "", cb, fixed = TRUE)) + 1
+    n_cells[cb %in% c("", "NA", "unassigned")] <- 0
+    cells_per_model <- data.frame(
+      Verdict = factor(ifelse(removed, "Removed", "Kept"), levels = c("Kept", "Removed")),
+      Value = n_cells
+    )
+  } else {
+    pairs <- data.frame(isoform = art$isoform, CB = as.character(art$CB), count = 1,
+                        stringsAsFactors = FALSE)
+    cells_per_model <- NULL
+  }
+
+  list(
+    models = c(nrow(cls), sum(!removed)),
+    counts = c(sum(cls$count), sum(cls$count[!removed])),
+    genes = c(length(unique(cls$associated_gene)),
+              length(unique(cls$associated_gene[!removed]))),
+    by_category = by_category,
+    pairs = pairs,
+    cells_per_model = cells_per_model
+  )
+}
+
+# The transcript filter labels the classification in place, as SQANTI3 does.
+tf_removed_models <- NULL
+if ("filter_result" %in% colnames(Classification)) {
+  if (!is.null(input_cell_summary_path)) {
+    tf_removed_models <- summarise_removed_models(Classification)
+  }
+  Classification <- Classification[Classification$filter_result != "Artifact", , drop = FALSE]
+  Classification$filter_result <- NULL
 }
 Junctions <- data.table::fread(junc.file, header = TRUE, sep = "\t", stringsAsFactors = FALSE, data.table = FALSE)
 
@@ -3731,6 +3826,81 @@ all_bad_features_map <- list(
   "Non_canonical_prop_in_cell" = list(label = paste0(entity_label_plural, " with\nNon-canonical SJ"), color = "#41B6C4"),
   "NMD_prop_in_cell" = list(label = "Predicted NMD", color = "#969696")
 )
+
+# ---- Shared by the cell and transcript filter sections ---------------------------
+# build_violin_plot() has no dodge dimension, so paired figures are built here with its
+# construction; only alpha differs, and it is what separates the two halves of a pair.
+CF_VIOLIN_ALPHA <- c(Kept = 0.7, Discarded = 0.35)
+CF_BOX_ALPHA <- 0.3
+# Dodge slightly wider than the violin: enough that the pair never touches, not so
+# much that the two stop reading as one category.
+CF_DODGE <- position_dodge(width = 0.9)
+
+cf_layers <- function(p, fills, legend_fill, alphas = CF_VIOLIN_ALPHA,
+                      alpha_title = "Filter result") {
+  p +
+    geom_violin(position = CF_DODGE, width = 0.85, scale = "width", trim = TRUE,
+                show.legend = TRUE) +
+    geom_boxplot(position = CF_DODGE, width = 0.06, outlier.shape = NA,
+                 alpha = CF_BOX_ALPHA, colour = "grey20", lwd = 0.3,
+                 show.legend = FALSE) +
+    stat_summary(fun = mean, fun.args = list(na.rm = TRUE), geom = "point",
+                 shape = 4, size = 1, colour = "red", stroke = 1,
+                 position = CF_DODGE, show.legend = FALSE) +
+    scale_fill_manual(values = fills, guide = "none") +
+    scale_colour_manual(values = fills, guide = "none") +
+    scale_alpha_manual(alpha_title, values = alphas) +
+    guides(alpha = guide_legend(override.aes = list(fill = legend_fill,
+                                                    colour = legend_fill))) +
+    theme_classic(base_size = 11) +
+    theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      axis.title = element_text(size = 18),
+      axis.text.y = element_text(size = 16),
+      axis.text.x = element_text(size = 16, angle = 45, hjust = 1),
+      legend.position = "bottom",
+      legend.text = element_text(size = 14),
+      legend.title = element_text(size = 16, face = "bold")
+    )
+}
+
+category_features_map <- list(
+  FSM_prop = list(label = "FSM", color = "#6BAED6"),
+  ISM_prop = list(label = "ISM", color = "#FC8D59"),
+  NIC_prop = list(label = "NIC", color = "#78C679"),
+  NNC_prop = list(label = "NNC", color = "#EE6A50"),
+  Genic_Genomic_prop = list(label = "Genic genomic", color = "#969696"),
+  Antisense_prop = list(label = "Antisense", color = "#66C2A4"),
+  Fusion_prop = list(label = "Fusion", color = "goldenrod1"),
+  Intergenic_prop = list(label = "Intergenic", color = "darksalmon"),
+  Genic_intron_prop = list(label = "Genic intron", color = "#41B6C4")
+)
+
+# One violin pair per feature of `feature_map`, split by `group`. All-NA means the
+# attribute was never measured; all-zero is a real observation and stays.
+filter_pair_plot <- function(df, group, feature_map, title,
+                             alphas = CF_VIOLIN_ALPHA, alpha_title = "Filter result") {
+  cols <- intersect(names(feature_map), colnames(df))
+  cols <- cols[vapply(cols, function(cn)
+    any(is.finite(suppressWarnings(as.numeric(df[[cn]])))), logical(1))]
+  if (length(cols) == 0 || length(unique(group)) < 2) return(NULL)
+  labs_v <- vapply(cols, function(cn) feature_map[[cn]]$label, character(1))
+  fills <- vapply(cols, function(cn) feature_map[[cn]]$color, character(1))
+  names(fills) <- unname(labs_v)
+  d <- do.call(rbind, lapply(cols, function(cn) {
+    v <- suppressWarnings(as.numeric(df[[cn]]))
+    ok <- is.finite(v)
+    data.frame(Feature = factor(labs_v[[cn]], levels = unname(labs_v)),
+               Group = group[ok], Value = pmin(pmax(v[ok], 0), 100),
+               stringsAsFactors = FALSE)
+  }))
+  cf_layers(
+    ggplot(d, aes(x = Feature, y = Value, fill = Feature, colour = Feature,
+                  alpha = Group, group = interaction(Feature, Group))),
+    fills, "grey40", alphas, alpha_title
+  ) + labs(title = title, x = NULL, y = paste0(entity_label_plural, ", %")) +
+    coord_cartesian(ylim = c(0, 100))
+}
 
 # ---- Cell filter section -------------------------------------------------------
 # Built only for a filtered run, from the labelled summary captured above. The QC
@@ -3875,47 +4045,6 @@ if (!is.null(cell_filter_labelled)) {
   cf_verdict <- factor(ifelse(cf_kept, "Kept", "Discarded"),
                        levels = c("Kept", "Discarded"))
 
-  # build_violin_plot() has no dodge dimension, so these are built here -- but with its
-  # styling: violin + narrow boxplot + the red mean cross, on theme_classic.
-  # Dodge width exceeds violin width so the pair never touches.
-  # build_violin_plot() has no dodge dimension, so these are built here -- but with its
-  # exact construction: violin filled AND outlined by the same map at violin_alpha,
-  # a narrow boxplot at box_alpha, the red mean cross on top, and its axis sizes.
-  # Only the alpha differs, because here it is what separates kept from discarded --
-  # the same device SQANTI3's filter report and the coding / non-coding pair both use.
-  CF_VIOLIN_ALPHA <- c(Kept = 0.7, Discarded = 0.35)
-  CF_BOX_ALPHA <- 0.3
-  # Dodge slightly wider than the violin: enough that the pair never touches, not so
-  # much that the two stop reading as one category.
-  CF_DODGE <- position_dodge(width = 0.9)
-
-  cf_layers <- function(p, fills, legend_fill) {
-    p +
-      geom_violin(position = CF_DODGE, width = 0.85, scale = "width", trim = TRUE,
-                  show.legend = TRUE) +
-      geom_boxplot(position = CF_DODGE, width = 0.06, outlier.shape = NA,
-                   alpha = CF_BOX_ALPHA, colour = "grey20", lwd = 0.3,
-                   show.legend = FALSE) +
-      stat_summary(fun = mean, fun.args = list(na.rm = TRUE), geom = "point",
-                   shape = 4, size = 1, colour = "red", stroke = 1,
-                   position = CF_DODGE, show.legend = FALSE) +
-      scale_fill_manual(values = fills, guide = "none") +
-      scale_colour_manual(values = fills, guide = "none") +
-      scale_alpha_manual("Filter result", values = CF_VIOLIN_ALPHA) +
-      guides(alpha = guide_legend(override.aes = list(fill = legend_fill,
-                                                      colour = legend_fill))) +
-      theme_classic(base_size = 11) +
-      theme(
-        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-        axis.title = element_text(size = 18),
-        axis.text.y = element_text(size = 16),
-        axis.text.x = element_text(size = 16, angle = 45, hjust = 1),
-        legend.position = "bottom",
-        legend.text = element_text(size = 14),
-        legend.title = element_text(size = 16, face = "bold")
-      )
-  }
-
   # One plot PER criterion: the rules can mix counts and percentages, and a shared
   # y-axis would flatten a percentage against a depth running into the thousands.
   cf_criterion_plots <- list()
@@ -3936,76 +4065,230 @@ if (!is.null(cell_filter_labelled)) {
   }
   if (length(cf_criterion_plots) > 0) gg_cell_filter_criteria <- cf_criterion_plots
 
-  # Structural categories keep their own colours and use alpha for the verdict, the
-  # same construction SQANTI3's filter report uses and that the coding / non-coding
-  # pair already uses here. Not criteria: a systematic gap means the filter removed a
-  # population rather than scattered poor cells.
-  cf_cat_labels <- c(
-    FSM_prop = "FSM", ISM_prop = "ISM", NIC_prop = "NIC", NNC_prop = "NNC",
-    Genic_Genomic_prop = "Genic genomic", Antisense_prop = "Antisense",
-    Fusion_prop = "Fusion", Intergenic_prop = "Intergenic",
-    Genic_intron_prop = "Genic intron"
+  # Not criteria: a systematic gap in a category means the filter removed a population
+  # rather than scattered poor cells.
+  gg_cell_filter_categories <- filter_pair_plot(
+    cell_filter_labelled, cf_verdict, category_features_map,
+    "Structural categories: kept vs discarded cells")
+  # The SQANTI-specific signals: a gap here says the discarded cells differ in artifact
+  # load, not merely in depth.
+  gg_cell_filter_goodq <- filter_pair_plot(
+    cell_filter_labelled, cf_verdict, all_goodq_features_map,
+    "Good-quality attributes: kept vs discarded cells")
+  gg_cell_filter_badq <- filter_pair_plot(
+    cell_filter_labelled, cf_verdict, all_bad_features_map,
+    "Bad-quality attributes: kept vs discarded cells")
+}
+
+# ---- Transcript filter section -------------------------------------------------
+# Built only when the transcript filter renders the report. "Before" is the summary of
+# the run it filtered, "after" the one recomputed from the kept models.
+tf_counts <- NULL
+tf_rule_counts <- NULL
+tf_category_counts <- NULL
+gg_tf_removed_per_cell <- NULL
+gg_tf_depth <- NULL
+gg_tf_lost_depth <- NULL
+gg_tf_removed_by_cluster <- NULL
+gg_tf_umap_removed <- NULL
+gg_tf_removed_by_rule <- NULL
+gg_tf_categories <- NULL
+gg_tf_goodq <- NULL
+gg_tf_badq <- NULL
+gg_tf_cells_per_model <- NULL
+
+tf_theme <- theme_classic(base_size = 11) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 18),
+    axis.text = element_text(size = 16)
   )
-  cf_cat_fill <- c(
-    FSM = "#6BAED6", ISM = "#FC8D59", NIC = "#78C679", NNC = "#EE6A50",
-    `Genic genomic` = "#969696", Antisense = "#66C2A4", Fusion = "goldenrod1",
-    Intergenic = "darksalmon", `Genic intron` = "#41B6C4"
+
+# Paired single-colour violins, as the cell filter's criteria are drawn.
+tf_verdict_plot <- function(d, alphas, alpha_title, title, y_label) {
+  fills <- setNames(rep(fill_color_orange, length(alphas)), names(alphas))
+  cf_layers(
+    ggplot(d, aes(x = Verdict, y = Value, fill = Verdict, colour = Verdict,
+                  alpha = Verdict, group = Verdict)),
+    fills, fill_color_orange, alphas, alpha_title
+  ) + scale_y_log10(labels = scales::comma) +
+    labs(title = title, x = NULL, y = y_label)
+}
+
+tf_single_violins <- function(d, title, fills, x_title = "", x_tickangle = 45) {
+  build_violin_plot(d, title = title, x_labels = setNames(levels(d$Variable), levels(d$Variable)),
+                    fill_map = fills, x_title = x_title, x_tickangle = x_tickangle,
+                    violin_outline_fill = TRUE, box_alpha = 0.3)
+}
+
+if (!is.null(tf_removed_models)) {
+  tf_before <- drop_filtered_cells(data.table::fread(
+    input_cell_summary_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE,
+    data.table = FALSE))
+  depth_before <- as.numeric(tf_before[[count_col]])
+  depth_after <- as.numeric(SQANTI_cell_summary[[count_col]])[
+    match(tf_before$CB, SQANTI_cell_summary$CB)]
+  tf_lost <- is.na(depth_after)
+  depth_after[tf_lost] <- 0
+  tf_cells <- data.frame(CB = tf_before$CB, before = depth_before, after = depth_after,
+                         removed_pct = 100 * (depth_before - depth_after) / depth_before,
+                         stringsAsFactors = FALSE)
+
+  tf_counts <- data.frame(
+    Measure = c(if (mode == "isoforms") "Transcript models", entity_label_plural,
+                "Genes", "Cells"),
+    Before = c(if (mode == "isoforms") tf_removed_models$models[1],
+               tf_removed_models$counts[1], tf_removed_models$genes[1], nrow(tf_cells)),
+    After = c(if (mode == "isoforms") tf_removed_models$models[2],
+              tf_removed_models$counts[2], tf_removed_models$genes[2], sum(!tf_lost)),
+    stringsAsFactors = FALSE
   )
-  # Good- and bad-quality attributes, kept vs discarded. Same construction as the
-  # categories, and the colours and labels come from the maps the report's own
-  # good/bad sections use, so the same metric never reads two ways. These are the
-  # SQANTI-specific signals, so a gap here is the most interesting kind: it says the
-  # discarded cells differ in artifact load, not merely in depth.
-  cf_quality_plot <- function(feature_map, title) {
-    cols <- intersect(names(feature_map), colnames(cell_filter_labelled))
-    # All-NA means the attribute was never measured in the QC run; all-zero is a real
-    # observation and stays, as the good/bad sections already decide.
-    cols <- cols[vapply(cols, function(cn)
-      any(is.finite(suppressWarnings(as.numeric(cell_filter_labelled[[cn]])))), logical(1))]
-    if (length(cols) == 0 || !any(cf_kept) || !any(!cf_kept)) return(NULL)
-    labs_v <- vapply(cols, function(cn) feature_map[[cn]]$label, character(1))
-    fills <- vapply(cols, function(cn) feature_map[[cn]]$color, character(1))
-    names(fills) <- unname(labs_v)
-    d <- do.call(rbind, lapply(cols, function(cn) {
-      v <- suppressWarnings(as.numeric(cell_filter_labelled[[cn]]))
-      ok <- is.finite(v)
-      if (!any(ok)) return(NULL)
-      data.frame(Feature = factor(labs_v[[cn]], levels = unname(labs_v)),
-                 Verdict = cf_verdict[ok], Value = pmin(pmax(v[ok], 0), 100),
-                 stringsAsFactors = FALSE)
-    }))
-    if (is.null(d)) return(NULL)
-    cf_layers(
-      ggplot(d, aes(x = Feature, y = Value, fill = Feature, colour = Feature,
-                    alpha = Verdict, group = interaction(Feature, Verdict))),
-      fills, "grey40"
-    ) + labs(title = title, x = NULL, y = paste0(entity_label_plural, ", %")) +
-      coord_cartesian(ylim = c(0, 100))
+  tf_counts$Removed <- tf_counts$Before - tf_counts$After
+  tf_counts$`Removed (%)` <- round(100 * tf_counts$Removed / pmax(tf_counts$Before, 1), 2)
+  tf_counts[, c("Before", "After", "Removed")] <- round(tf_counts[, c("Before", "After", "Removed")], 2)
+
+  # Lost cells are included here at 100%: losing everything is the extreme of the same
+  # distribution, not a separate event.
+  gg_tf_removed_per_cell <- tf_single_violins(
+    data.frame(Variable = factor("All cells"), Value = tf_cells$removed_pct),
+    paste(entity_label_plural, "removed per cell"),
+    c("All cells" = fill_color_orange), x_tickangle = 0)
+
+  kept_cells <- tf_cells[!tf_lost, , drop = FALSE]
+  if (nrow(kept_cells) > 0) {
+    lims <- range(c(kept_cells$before, kept_cells$after))
+    gg_tf_depth <- ggplot(kept_cells, aes(x = before, y = after)) +
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey50") +
+      geom_point(colour = fill_color_orange, alpha = 0.6, size = 1) +
+      scale_x_log10(labels = scales::comma, limits = lims) +
+      scale_y_log10(labels = scales::comma, limits = lims) +
+      coord_fixed() +
+      labs(title = paste(entity_label_plural, "per cell, before vs after"),
+           x = paste0(entity_label_plural, " before, count"),
+           y = paste0(entity_label_plural, " after, count")) +
+      tf_theme
   }
 
-  gg_cell_filter_goodq <- cf_quality_plot(
-    all_goodq_features_map, "Good-quality attributes: kept vs discarded cells")
-  gg_cell_filter_badq <- cf_quality_plot(
-    all_bad_features_map, "Bad-quality attributes: kept vs discarded cells")
+  if (any(tf_lost) && any(!tf_lost)) {
+    gg_tf_lost_depth <- tf_verdict_plot(
+      data.frame(Verdict = factor(ifelse(tf_lost, "No model left", "Kept"),
+                                  levels = c("Kept", "No model left")),
+                 Value = tf_cells$before),
+      c(Kept = 0.7, `No model left` = 0.35), "Cells",
+      paste(entity_label_plural, "per cell before filtering"),
+      paste0(entity_label_plural, ", count"))
+  }
 
-  cat_cols <- names(cf_cat_labels)[names(cf_cat_labels) %in% colnames(cell_filter_labelled)]
-  if (length(cat_cols) > 0 && any(cf_kept) && any(!cf_kept)) {
-    d <- do.call(rbind, lapply(cat_cols, function(cn) {
-      v <- suppressWarnings(as.numeric(cell_filter_labelled[[cn]]))
-      ok <- is.finite(v)
-      if (!any(ok)) return(NULL)
-      data.frame(Category = factor(cf_cat_labels[[cn]], levels = unname(cf_cat_labels)),
-                 Verdict = cf_verdict[ok], Value = pmin(pmax(v[ok], 0), 100),
-                 stringsAsFactors = FALSE)
-    }))
-    if (!is.null(d)) {
-      gg_cell_filter_categories <- cf_layers(
-        ggplot(d, aes(x = Category, y = Value, fill = Category, colour = Category,
-                      alpha = Verdict, group = interaction(Category, Verdict))),
-        cf_cat_fill, "grey40"
-      ) + labs(title = "Structural categories: kept vs discarded cells",
-               x = NULL, y = paste0(entity_label_plural, ", %")) +
-        coord_cartesian(ylim = c(0, 100))
+  if (exists("umap_df")) {
+    by_cluster <- merge(umap_df, tf_cells, by.x = "Barcode", by.y = "CB")
+    if (nrow(by_cluster) > 0) {
+      clusters <- levels(droplevels(by_cluster$Cluster))
+      gg_tf_removed_by_cluster <- tf_single_violins(
+        data.frame(Variable = factor(by_cluster$Cluster, levels = clusters),
+                   Value = by_cluster$removed_pct),
+        paste(entity_label_plural, "removed per cell, by cluster"),
+        setNames(scales::hue_pal()(length(clusters)), clusters),
+        x_title = "Cluster", x_tickangle = 0)
+      if (max(by_cluster$removed_pct) > 0) {
+        gg_tf_umap_removed <- build_continuous_umap(
+          by_cluster, "removed_pct", paste(entity_label_plural, "removed per cell"))
+      }
+    }
+  }
+
+  # A model failing several alternative rule-sets lists every rule it failed, so it is
+  # counted under each and the shares can sum to more than the total removed.
+  if (!is.null(transcript_filter_reasons_path)) {
+    reasons <- data.table::fread(transcript_filter_reasons_path, header = TRUE, sep = "\t",
+                                 stringsAsFactors = FALSE, data.table = FALSE)
+    parts <- strsplit(as.character(reasons$filter_reason), "; ", fixed = TRUE)
+    rule_map <- unique(data.frame(
+      isoform = rep(reasons$isoform, lengths(parts)),
+      rule = sub("^([^:]+): .*?([<>] .*)$", "\\1 \\2", unlist(parts)),
+      stringsAsFactors = FALSE))
+    rule_map <- rule_map[nzchar(rule_map$rule), , drop = FALSE]
+
+    if (nrow(rule_map) > 0) {
+      pairs <- data.table::as.data.table(tf_removed_models$pairs)
+      by_rule <- pairs[data.table::as.data.table(rule_map), on = "isoform",
+                       allow.cartesian = TRUE, nomatch = 0]
+      rule_totals <- by_rule[, list(removed = sum(count, na.rm = TRUE)), by = "rule"]
+      rule_totals <- rule_totals[order(-rule_totals$removed)]
+      rules <- rule_totals$rule
+      models_per_rule <- table(rule_map$rule)[rules]
+
+      tf_rule_counts <- data.frame(Rule = rules, stringsAsFactors = FALSE)
+      if (mode == "isoforms") tf_rule_counts$Models <- as.integer(models_per_rule)
+      tf_rule_counts[[paste(entity_label_plural, "removed")]] <- round(rule_totals$removed, 2)
+      tf_rule_counts[[paste0(entity_label_plural, " removed (%)")]] <-
+        round(100 * rule_totals$removed / tf_removed_models$counts[1], 2)
+
+      per_cell <- by_rule[, list(removed = sum(count, na.rm = TRUE)), by = c("CB", "rule")]
+      d <- do.call(rbind, lapply(rules, function(r) {
+        sub_r <- per_cell[per_cell$rule == r]
+        v <- sub_r$removed[match(tf_cells$CB, sub_r$CB)]
+        v[is.na(v)] <- 0
+        data.frame(Variable = r, Value = 100 * v / tf_cells$before, stringsAsFactors = FALSE)
+      }))
+      d$Variable <- factor(d$Variable, levels = rules)
+      gg_tf_removed_by_rule <- tf_single_violins(
+        d, paste(entity_label_plural, "removed per cell, by rule"),
+        setNames(rep(fill_color_orange, length(rules)), rules))
+    }
+  }
+
+  tf_category_labels <- c(
+    "full-splice_match" = "FSM", "incomplete-splice_match" = "ISM",
+    "novel_in_catalog" = "NIC", "novel_not_in_catalog" = "NNC",
+    "genic" = "Genic genomic", "antisense" = "Antisense", "fusion" = "Fusion",
+    "intergenic" = "Intergenic", "genic_intron" = "Genic intron"
+  )
+  bc <- tf_removed_models$by_category
+  bc <- bc[order(match(bc$category, names(tf_category_labels))), , drop = FALSE]
+  tf_category_counts <- data.frame(
+    Category = ifelse(bc$category %in% names(tf_category_labels),
+                      tf_category_labels[bc$category], bc$category),
+    stringsAsFactors = FALSE
+  )
+  if (mode == "isoforms") {
+    tf_category_counts$`Models before` <- bc$models_before
+    tf_category_counts$`Models removed` <- bc$models_removed
+    tf_category_counts$`Models removed (%)` <-
+      round(100 * bc$models_removed / pmax(bc$models_before, 1), 2)
+  }
+  tf_category_counts[[paste(entity_label_plural, "before")]] <- round(bc$count_before, 2)
+  tf_category_counts[[paste(entity_label_plural, "removed")]] <- round(bc$count_removed, 2)
+  tf_category_counts[[paste0(entity_label_plural, " removed (%)")]] <-
+    round(100 * bc$count_removed / pmax(bc$count_before, 1), 2)
+
+  # Same cells on both sides, so a shift is the filter changing those cells rather than
+  # the loss of the cells it emptied.
+  surv <- kept_cells$CB
+  pair_cols <- intersect(
+    c(names(category_features_map), names(all_goodq_features_map), names(all_bad_features_map)),
+    intersect(colnames(tf_before), colnames(SQANTI_cell_summary)))
+  tf_pairs <- rbind(tf_before[match(surv, tf_before$CB), pair_cols, drop = FALSE],
+                    SQANTI_cell_summary[match(surv, SQANTI_cell_summary$CB), pair_cols, drop = FALSE])
+  tf_stage <- factor(rep(c("Before", "After"), each = length(surv)),
+                     levels = c("Before", "After"))
+  tf_stage_alpha <- c(Before = 0.35, After = 0.7)
+  gg_tf_categories <- filter_pair_plot(
+    tf_pairs, tf_stage, category_features_map,
+    "Structural categories per cell, before vs after", tf_stage_alpha, "Filtering")
+  gg_tf_goodq <- filter_pair_plot(
+    tf_pairs, tf_stage, all_goodq_features_map,
+    "Good-quality attributes per cell, before vs after", tf_stage_alpha, "Filtering")
+  gg_tf_badq <- filter_pair_plot(
+    tf_pairs, tf_stage, all_bad_features_map,
+    "Bad-quality attributes per cell, before vs after", tf_stage_alpha, "Filtering")
+
+  cpm <- tf_removed_models$cells_per_model
+  if (!is.null(cpm)) {
+    cpm <- cpm[cpm$Value > 0, , drop = FALSE]
+    if (length(unique(cpm$Verdict)) == 2) {
+      gg_tf_cells_per_model <- tf_verdict_plot(
+        cpm, c(Kept = 0.7, Removed = 0.35), "Models",
+        "Cells each transcript model is found in", "Cells, count")
     }
   }
 }
