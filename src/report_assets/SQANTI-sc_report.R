@@ -3632,44 +3632,49 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       }
     }
 
-    # Cell filter section. Present only for a filtered run; the objects are built at
+    # The filter sections are present only for a filtered run; their objects are built at
     # the top level before this function is called, so they are visible here.
-    if (exists("gg_cell_filter_reasons") && !is.null(gg_cell_filter_reasons)) {
-      print(apply_pdf_theme(gg_cell_filter_reasons))
+    # The font size follows the table, so a four-row table fills the page and a long one
+    # still fits on it. Padding scales with the font, so size is proportional to it.
+    filter_table_page <- function(df, title) {
+      colnames(df) <- stringr::str_wrap(colnames(df), width = 12)
+      theme_at <- function(size) ttheme_default(
+        base_size = size, padding = unit(c(4, 4) * size / 12, "mm"),
+        colhead = list(fg_params = list(fontface = "bold")))
+      probe <- tableGrob(df, rows = NULL, theme = theme_at(12))
+      page <- dev.size("in")
+      fit <- min(0.85 * page[1] / convertWidth(sum(probe$widths), "in", valueOnly = TRUE),
+                 0.75 * page[2] / convertHeight(sum(probe$heights), "in", valueOnly = TRUE))
+      size <- max(9, min(24, 12 * fit))
+      grid.arrange(textGrob(title, gp = gpar(fontface = "italic", fontsize = 24)),
+                   tableGrob(df, rows = NULL, theme = theme_at(size)),
+                   ncol = 1, heights = c(0.15, 1))
     }
-    if (exists("gg_cell_filter_criteria") && !is.null(gg_cell_filter_criteria)) {
-      for (nm in names(gg_cell_filter_criteria)) {
-        print(apply_pdf_theme(gg_cell_filter_criteria[[nm]]))
+
+    if (!is.null(cell_filter_counts)) {
+      section_page("Cell Filtering")
+      filter_table_page(cell_filter_counts, "Before and after the cell filter")
+      if (!is.null(cell_filter_rule_counts)) filter_table_page(cell_filter_rule_counts, "Rules applied")
+      if (!is.null(gg_cell_filter_reasons)) print(apply_pdf_theme(gg_cell_filter_reasons))
+      if (!is.null(cell_filter_sketch)) filter_table_page(cell_filter_sketch, "Kept vs discarded")
+      for (p in c(gg_cell_filter_criteria, list(gg_cell_filter_categories,
+                                                 gg_cell_filter_goodq, gg_cell_filter_badq))) {
+        if (!is.null(p)) print(apply_pdf_theme(p))
       }
-    }
-    if (exists("gg_cell_filter_categories") && !is.null(gg_cell_filter_categories)) {
-      print(apply_pdf_theme(gg_cell_filter_categories))
-    }
-    if (exists("gg_cell_filter_goodq") && !is.null(gg_cell_filter_goodq)) {
-      print(apply_pdf_theme(gg_cell_filter_goodq))
-    }
-    if (exists("gg_cell_filter_badq") && !is.null(gg_cell_filter_badq)) {
-      print(apply_pdf_theme(gg_cell_filter_badq))
     }
 
     if (!is.null(tf_counts)) {
       section_page("Transcript Filtering")
-      tf_table_page <- function(df, title) {
-        colnames(df) <- stringr::str_wrap(colnames(df), width = 12)
-        grid.arrange(textGrob(title, gp = gpar(fontface = "italic", fontsize = 20)),
-                     tableGrob(df, rows = NULL, theme = big_table_theme),
-                     ncol = 1, heights = c(0.15, 1))
-      }
-      tf_table_page(tf_counts, "Before and after the transcript filter")
+      filter_table_page(tf_counts, "Before and after the transcript filter")
       render_pdf_plot_centered("gg_tf_removed_per_cell", width_frac = 0.5)
       if (!is.null(gg_tf_depth)) render_pdf_plot_centered("gg_tf_depth", width_frac = 0.6)
       for (p in list(gg_tf_lost_depth, gg_tf_removed_by_cluster, gg_tf_umap_removed)) {
         if (!is.null(p)) print(apply_pdf_theme(p))
       }
-      if (!is.null(tf_rule_counts)) tf_table_page(tf_rule_counts, "Rules that removed models")
+      if (!is.null(tf_rule_counts)) filter_table_page(tf_rule_counts, paste("Rules that removed", tf_unit))
       if (!is.null(gg_tf_removed_by_rule)) print(apply_pdf_theme(gg_tf_removed_by_rule))
-      tf_table_page(tf_category_counts, "Removed by structural category")
-      for (p in list(gg_tf_categories, gg_tf_goodq, gg_tf_badq, gg_tf_cells_per_model)) {
+      filter_table_page(tf_category_counts, "Removed by structural category")
+      for (p in list(gg_tf_categories, gg_tf_goodq, gg_tf_badq)) {
         if (!is.null(p)) print(apply_pdf_theme(p))
       }
     }
@@ -3710,17 +3715,9 @@ summarise_removed_models <- function(cls) {
     fls <- strsplit(as.character(art$FL), ",", fixed = TRUE)
     pairs <- data.frame(isoform = rep(art$isoform, lengths(cbs)), CB = unlist(cbs),
                         count = as.numeric(unlist(fls)), stringsAsFactors = FALSE)
-    cb <- as.character(cls$CB)
-    n_cells <- nchar(cb) - nchar(gsub(",", "", cb, fixed = TRUE)) + 1
-    n_cells[cb %in% c("", "NA", "unassigned")] <- 0
-    cells_per_model <- data.frame(
-      Verdict = factor(ifelse(removed, "Removed", "Kept"), levels = c("Kept", "Removed")),
-      Value = n_cells
-    )
   } else {
     pairs <- data.frame(isoform = art$isoform, CB = as.character(art$CB), count = 1,
                         stringsAsFactors = FALSE)
-    cells_per_model <- NULL
   }
 
   list(
@@ -3729,8 +3726,7 @@ summarise_removed_models <- function(cls) {
     genes = c(length(unique(cls$associated_gene)),
               length(unique(cls$associated_gene[!removed]))),
     by_category = by_category,
-    pairs = pairs,
-    cells_per_model = cells_per_model
+    pairs = pairs
   )
 }
 
@@ -4095,7 +4091,8 @@ gg_tf_removed_by_rule <- NULL
 gg_tf_categories <- NULL
 gg_tf_goodq <- NULL
 gg_tf_badq <- NULL
-gg_tf_cells_per_model <- NULL
+# What the filter judges and removes: collapsed models in isoforms mode, reads otherwise.
+tf_unit <- if (mode == "isoforms") "isoforms" else entity_label_plural_lower
 
 tf_theme <- theme_classic(base_size = 11) +
   theme(
@@ -4135,7 +4132,7 @@ if (!is.null(tf_removed_models)) {
                          stringsAsFactors = FALSE)
 
   tf_counts <- data.frame(
-    Measure = c(if (mode == "isoforms") "Transcript models", entity_label_plural,
+    Measure = c(if (mode == "isoforms") "Isoforms", entity_label_plural,
                 "Genes", "Cells"),
     Before = c(if (mode == "isoforms") tf_removed_models$models[1],
                tf_removed_models$counts[1], tf_removed_models$genes[1], nrow(tf_cells)),
@@ -4170,11 +4167,12 @@ if (!is.null(tf_removed_models)) {
   }
 
   if (any(tf_lost) && any(!tf_lost)) {
+    lost_label <- paste("No", tf_unit, "left")
     gg_tf_lost_depth <- tf_verdict_plot(
-      data.frame(Verdict = factor(ifelse(tf_lost, "No model left", "Kept"),
-                                  levels = c("Kept", "No model left")),
+      data.frame(Verdict = factor(ifelse(tf_lost, lost_label, "Kept"),
+                                  levels = c("Kept", lost_label)),
                  Value = tf_cells$before),
-      c(Kept = 0.7, `No model left` = 0.35), "Cells",
+      setNames(c(0.7, 0.35), c("Kept", lost_label)), "Cells",
       paste(entity_label_plural, "per cell before filtering"),
       paste0(entity_label_plural, ", count"))
   }
@@ -4218,7 +4216,11 @@ if (!is.null(tf_removed_models)) {
       models_per_rule <- table(rule_map$rule)[rules]
 
       tf_rule_counts <- data.frame(Rule = rules, stringsAsFactors = FALSE)
-      if (mode == "isoforms") tf_rule_counts$Models <- as.integer(models_per_rule)
+      if (mode == "isoforms") {
+        tf_rule_counts$`Isoforms removed` <- as.integer(models_per_rule)
+        tf_rule_counts$`Isoforms removed (%)` <-
+          round(100 * as.integer(models_per_rule) / tf_removed_models$models[1], 2)
+      }
       tf_rule_counts[[paste(entity_label_plural, "removed")]] <- round(rule_totals$removed, 2)
       tf_rule_counts[[paste0(entity_label_plural, " removed (%)")]] <-
         round(100 * rule_totals$removed / tf_removed_models$counts[1], 2)
@@ -4251,12 +4253,15 @@ if (!is.null(tf_removed_models)) {
     stringsAsFactors = FALSE
   )
   if (mode == "isoforms") {
-    tf_category_counts$`Models before` <- bc$models_before
-    tf_category_counts$`Models removed` <- bc$models_removed
-    tf_category_counts$`Models removed (%)` <-
+    tf_category_counts$`Isoforms before` <- bc$models_before
+    tf_category_counts$`Isoforms after` <- bc$models_before - bc$models_removed
+    tf_category_counts$`Isoforms removed` <- bc$models_removed
+    tf_category_counts$`Isoforms removed (%)` <-
       round(100 * bc$models_removed / pmax(bc$models_before, 1), 2)
   }
   tf_category_counts[[paste(entity_label_plural, "before")]] <- round(bc$count_before, 2)
+  tf_category_counts[[paste(entity_label_plural, "after")]] <-
+    round(bc$count_before - bc$count_removed, 2)
   tf_category_counts[[paste(entity_label_plural, "removed")]] <- round(bc$count_removed, 2)
   tf_category_counts[[paste0(entity_label_plural, " removed (%)")]] <-
     round(100 * bc$count_removed / pmax(bc$count_before, 1), 2)
@@ -4281,16 +4286,6 @@ if (!is.null(tf_removed_models)) {
   gg_tf_badq <- filter_pair_plot(
     tf_pairs, tf_stage, all_bad_features_map,
     "Bad-quality attributes per cell, before vs after", tf_stage_alpha, "Filtering")
-
-  cpm <- tf_removed_models$cells_per_model
-  if (!is.null(cpm)) {
-    cpm <- cpm[cpm$Value > 0, , drop = FALSE]
-    if (length(unique(cpm$Verdict)) == 2) {
-      gg_tf_cells_per_model <- tf_verdict_plot(
-        cpm, c(Kept = 0.7, Removed = 0.35), "Models",
-        "Cells each transcript model is found in", "Cells, count")
-    }
-  }
 }
 
 # Generate reports based on format

@@ -254,8 +254,6 @@ show_tf_badq <- show_tf && !is.null(gg_tf_badq)
 
 ```{r tf-header, results='asis', eval=show_tf}
 cat("# Transcript Filtering\n\n")
-cat("Transcript models judged by the SQANTI3 rules filter. Every per-cell figure",
-    "compares each cell before the filter with the same cell after it.\n\n")
 ```
 
 ```{r tf-counts, eval=show_tf}
@@ -264,35 +262,36 @@ render_sqanti_table(tf_counts, page_len = 5)
 
 ```{r tf-per-cell-header, results='asis', eval=show_tf}
 cat("## Removed per cell\n\n")
-cat("The share of each cell's", entity_label_plural_lower, "that the filter removed.",
-    "A cell left with no model counts as 100%.\n")
+cat('<div class="narrow-plot">\n')
 ```
 
-```{r tf-per-cell, fig.height=7, fig.width=6, eval=show_tf}
+```{r tf-per-cell, fig.height=7, fig.width=5, eval=show_tf}
 print(gg_tf_removed_per_cell)
 ```
 
-```{r tf-depth, fig.height=8, fig.width=8, eval=show_tf && !is.null(gg_tf_depth)}
-cat("\n\nCells that kept at least one model. The dashed line is no change; distance",
-    "below it is the loss.\n\n")
+```{r tf-depth, fig.height=6, fig.width=6, eval=show_tf && !is.null(gg_tf_depth)}
 print(gg_tf_depth)
 ```
 
-```{r tf-lost-header, results='asis', eval=show_tf && !is.null(gg_tf_lost_depth)}
-cat("## Cells left with no model\n\n")
-cat(sum(tf_lost), "cells lost every model and are absent from the rest of this report.",
-    "Their depth before the filter, beside the cells that kept at least one:\n")
+```{r tf-per-cell-div-end, results='asis', eval=show_tf}
+cat("</div>\n")
 ```
 
-```{r tf-lost, fig.height=7, fig.width=8, eval=show_tf && !is.null(gg_tf_lost_depth)}
+```{r tf-lost-header, results='asis', eval=show_tf && !is.null(gg_tf_lost_depth)}
+cat(paste0("## Cells left with no ", tf_unit, "\n\n"))
+cat('<div class="narrow-plot">\n')
+```
+
+```{r tf-lost, fig.height=7, fig.width=6, eval=show_tf && !is.null(gg_tf_lost_depth)}
 print(gg_tf_lost_depth)
+```
+
+```{r tf-lost-div-end, results='asis', eval=show_tf && !is.null(gg_tf_lost_depth)}
+cat("</div>\n")
 ```
 
 ```{r tf-cluster-header, results='asis', eval=show_tf_cluster}
 cat("## Removal by cluster {.tabset .tabset-fade}\n\n")
-cat("Clusters are those of the filtered data, so cells left with no model are not",
-    "among them. A cluster that loses far more than the rest means the filter acts on",
-    "a cell population, not only on scattered models.\n\n")
 cat("### Per cluster\n\n")
 ```
 
@@ -304,14 +303,14 @@ print(gg_tf_removed_by_cluster)
 cat("\n### On the UMAP\n\n")
 ```
 
-```{r tf-umap, fig.height=8, fig.width=10, eval=show_tf_umap}
+```{r tf-umap, fig.height=6, fig.width=8, eval=show_tf_umap}
 print(gg_tf_umap_removed)
 ```
 
 ```{r tf-rules-header, results='asis', eval=show_tf && !is.null(tf_rule_counts)}
-cat("## Rules that removed models\n\n")
-cat("A model failing several rule-sets is counted under each rule it failed, so these",
-    "may sum to more than the total removed.\n")
+cat(paste0("## Rules that removed ", tf_unit, "\n\n"))
+cat("Each removed", sub("s$", "", tf_unit), "is counted once per rule it failed, so these",
+    "counts may sum to more than the total removed.\n")
 ```
 
 ```{r tf-rules, eval=show_tf && !is.null(tf_rule_counts)}
@@ -331,14 +330,11 @@ render_sqanti_table(tf_category_counts, page_len = 15)
 ```
 
 ```{r tf-categories, fig.height=8, fig.width=12, eval=show_tf && !is.null(gg_tf_categories)}
-cat("\n\nCells that kept at least one model.\n\n")
 print(gg_tf_categories)
 ```
 
 ```{r tf-quality-header, results='asis', eval=show_tf_goodq || show_tf_badq}
 cat("## Quality attributes, before vs after {.tabset .tabset-fade}\n\n")
-cat("Cells that kept at least one model. An attribute a rule removes outright drops to",
-    "zero after the filter.\n\n")
 ```
 
 ```{r tf-goodq-tab, results='asis', eval=show_tf_goodq}
@@ -355,15 +351,6 @@ cat("\n### Bad quality\n")
 
 ```{r tf-badq, fig.height=8, fig.width=12, eval=show_tf_badq}
 print(gg_tf_badq)
-```
-
-```{r tf-models-header, results='asis', eval=show_tf && !is.null(gg_tf_cells_per_model)}
-cat("## Models across cells\n\n")
-cat("How many cells each kept and each removed model is found in.\n")
-```
-
-```{r tf-models, fig.height=7, fig.width=8, eval=show_tf && !is.null(gg_tf_cells_per_model)}
-print(gg_tf_cells_per_model)
 ```
 
 
