@@ -336,6 +336,41 @@ class TestLabelledClassificationReaders:
         qc_reports.generate_report(args, pd.DataFrame({'sampleID': ['s1'], 'file_acc': ['rep1']}))
         assert f'"{prefix}_RulesFilter_classification.txt"' in calls[0]
 
+    def _report_cmd(self, tmp_path, monkeypatch, **extra):
+        import qc_reports
+        calls = []
+        monkeypatch.setattr(qc_reports.subprocess, 'run', lambda cmd, **kw: calls.append(cmd))
+        args = argparse.Namespace(out_dir=str(tmp_path), mode='isoforms', report='html', **extra)
+        qc_reports.generate_report(args, pd.DataFrame({'sampleID': ['s1'], 'file_acc': ['rep1']}))
+        return calls[0]
+
+    def test_the_transcript_filter_hands_the_report_its_input_summary_and_reasons(
+            self, tmp_path, monkeypatch):
+        prefix = self._labelled(tmp_path)
+        open(f"{prefix}_filtering_reasons.txt", 'w').close()
+        qc_dir = tmp_path / "qc"
+        cmd = self._report_cmd(tmp_path, monkeypatch, subcommand='transcripts',
+                               qc_dir=str(qc_dir))
+        assert f'--input_cell_summary "{qc_dir}/rep1/s1_SQANTI_cell_summary.txt.gz"' in cmd
+        assert f'--transcript_filter_reasons "{prefix}_filtering_reasons.txt"' in cmd
+
+    def test_a_cell_filter_input_is_passed_as_its_labelled_summary(self, tmp_path, monkeypatch):
+        self._labelled(tmp_path)
+        qc_sample = tmp_path / "cells" / "rep1"
+        qc_sample.mkdir(parents=True)
+        (qc_sample / "s1_CellFilter_cell_summary.txt.gz").touch()
+        cmd = self._report_cmd(tmp_path, monkeypatch, subcommand='transcripts',
+                               qc_dir=str(tmp_path / "cells"))
+        assert f'--input_cell_summary "{qc_sample}/s1_CellFilter_cell_summary.txt.gz"' in cmd
+
+    @pytest.mark.parametrize('extra', [{}, {'subcommand': 'cells', 'qc_dir': 'qc'}])
+    def test_other_callers_get_no_transcript_filter_inputs(self, tmp_path, monkeypatch, extra):
+        prefix = self._labelled(tmp_path)
+        open(f"{prefix}_filtering_reasons.txt", 'w').close()
+        cmd = self._report_cmd(tmp_path, monkeypatch, **extra)
+        assert '--input_cell_summary' not in cmd
+        assert '--transcript_filter_reasons' not in cmd
+
     def test_h5ad_export_skips_artifacts(self, tmp_path):
         from sc_export import _prepare_classification
         prefix = self._labelled(tmp_path)
