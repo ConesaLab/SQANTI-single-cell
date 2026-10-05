@@ -30,6 +30,13 @@ SQANTI-single cell reads report structure:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, cache = FALSE, warning = FALSE, message = FALSE, results = "asis")
 
+# 12-inch figures are always shrunk to fill the column; showing a narrower one at
+# fig.width/12 of the column shrinks it by the same factor, so its text matches theirs.
+knitr::opts_hooks$set(match_12in = function(options) {
+  if (isTRUE(options$match_12in)) options$out.width <- sprintf("%.2f%%", 100 * options$fig.width / 12)
+  options
+})
+
 # Helper function to check if data exists
 has_data <- function(df) !is.null(df) && is.data.frame(df) && nrow(df) > 0
 
@@ -265,11 +272,11 @@ cat("## Removed per cell\n\n")
 cat('<div class="narrow-plot">\n')
 ```
 
-```{r tf-per-cell, fig.height=7, fig.width=5, eval=show_tf}
+```{r tf-per-cell, fig.height=7, fig.width=5, match_12in=TRUE, eval=show_tf}
 print(gg_tf_removed_per_cell)
 ```
 
-```{r tf-depth, fig.height=6, fig.width=6, eval=show_tf && !is.null(gg_tf_depth)}
+```{r tf-depth, fig.height=6, fig.width=6, match_12in=TRUE, eval=show_tf && !is.null(gg_tf_depth)}
 print(gg_tf_depth)
 ```
 
@@ -282,7 +289,7 @@ cat(paste0("## Cells left with no ", tf_unit, "\n\n"))
 cat('<div class="narrow-plot">\n')
 ```
 
-```{r tf-lost, fig.height=7, fig.width=6, eval=show_tf && !is.null(gg_tf_lost_depth)}
+```{r tf-lost, fig.height=7, fig.width=6, match_12in=TRUE, eval=show_tf && !is.null(gg_tf_lost_depth)}
 print(gg_tf_lost_depth)
 ```
 
@@ -868,7 +875,7 @@ if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") 
 <div class="narrow-plot">
 ```
 
-```{r cells-reads-plot, fig.height=7, fig.width=5}
+```{r cells-reads-plot, fig.height=7, fig.width=5, match_12in=TRUE}
 if (exists("gg_reads_in_cells")) {
   print(gg_reads_in_cells)
 }
@@ -892,7 +899,7 @@ show_isoforms <- (mode == "isoforms" && exists("gg_isoforms_in_cells"))
 if (show_isoforms) cat('<div class="narrow-plot">\n')
 ```
 
-```{r depth-isoforms, fig.height=7, fig.width=5, eval=show_isoforms}
+```{r depth-isoforms, fig.height=7, fig.width=5, match_12in=TRUE, eval=show_isoforms}
 print(gg_isoforms_in_cells)
 ```
 
@@ -914,7 +921,7 @@ show_umis <- (mode != "isoforms" && exists("gg_umis_in_cells"))
 if (show_umis) cat('<div class="narrow-plot">\n')
 ```
 
-```{r depth-umis, fig.height=7, fig.width=5, eval=show_umis}
+```{r depth-umis, fig.height=7, fig.width=5, match_12in=TRUE, eval=show_umis}
 print(gg_umis_in_cells)
 ```
 
@@ -936,7 +943,7 @@ show_ujcs <- (mode != "isoforms" && exists("gg_JCs_in_cell"))
 if (show_ujcs) cat('<div class="narrow-plot">\n')
 ```
 
-```{r depth-ujcs, fig.height=7, fig.width=5, eval=show_ujcs}
+```{r depth-ujcs, fig.height=7, fig.width=5, match_12in=TRUE, eval=show_ujcs}
 print(gg_JCs_in_cell)
 ```
 
@@ -964,13 +971,15 @@ if (show_ujcs) cat("</div>\n")
 ```
 
 <div id="genesacross-genes" class="toggle-pane" style="display:block;">
+<div class="narrow-plot">
 
-```{r cells-genes-plot, fig.height=7, fig.width=5}
+```{r cells-genes-plot, fig.height=7, fig.width=5, match_12in=TRUE}
 if (exists("gg_genes_in_cells")) {
   print(gg_genes_in_cells)
 }
 ```
 
+</div>
 </div>
 
 <div id="genesacross-knownnovel" class="toggle-pane hidden-pane" style="display:block;">
@@ -1063,7 +1072,7 @@ if (mode != "isoforms" && exists("gg_ujc_bins_all")) {
 <div class="narrow-plot">
 ```
 
-```{r genechar-mt, fig.height=7, fig.width=5}
+```{r genechar-mt, fig.height=7, fig.width=5, match_12in=TRUE}
 if (exists("gg_MT_perc")) {
   print(gg_MT_perc)
 }
