@@ -236,6 +236,15 @@ pivot_long <- function(df, cols) {
   out
 }
 
+# Text copy for tableGrob only: the HTML tables read the same data frames and sort on
+# the numbers, so those must stay numeric.
+format_table_numbers <- function(df) {
+  df[] <- lapply(df, function(x) if (is.numeric(x)) {
+    trimws(formatC(x, format = "f", digits = 3, big.mark = ",", drop0trailing = TRUE))
+  } else x)
+  df
+}
+
 # Above this the data would collide with the inset, which is anchored at y = 45 in the
 # main panel's coordinates — raise the two together or not at all.
 ZOOM_INSET_MAX_PCT <- 25
@@ -3108,9 +3117,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     title_reads <- textGrob(paste(entity_label, "Classification"), gp = gpar(fontface = "italic", fontsize = 20), vjust = -7.7)
     title_sj <- textGrob("Splice Junction Classification", gp = gpar(fontface = "italic", fontsize = 20), vjust = -4.3)
 
-    table_genes <- tableGrob(gene_class_table, rows = NULL, theme = big_table_theme)
-    table_reads <- tableGrob(read_class_table, rows = NULL, theme = big_table_theme)
-    table_sj <- tableGrob(SJ_class_table, rows = NULL, theme = big_table_theme)
+    table_genes <- tableGrob(format_table_numbers(gene_class_table), rows = NULL, theme = big_table_theme)
+    table_reads <- tableGrob(format_table_numbers(read_class_table), rows = NULL, theme = big_table_theme)
+    table_sj <- tableGrob(format_table_numbers(SJ_class_table), rows = NULL, theme = big_table_theme)
 
     if (mode == "isoforms") {
       unique_counts_text <- sprintf(
@@ -3175,7 +3184,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # Number of cells
     num_cells <- nrow(SQANTI_cell_summary)
     num_cells_grob <- textGrob(
-      sprintf("Unique Cell Barcodes: %d", num_cells),
+      paste("Unique Cell Barcodes:", format(num_cells, big.mark = ",")),
       gp = gpar(fontface = "italic", fontsize = 28), vjust = 0.5, hjust = 0.5
     )
 
@@ -3218,7 +3227,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       summary_table1 <- summary_table1[summary_table1$Feature != "Isoforms", , drop = FALSE]
     }
     summary_table1[, 2:7] <- round(summary_table1[, 2:7], 3)
-    table_summary1 <- tableGrob(summary_table1, rows = NULL, theme = big_table_theme)
+    table_summary1 <- tableGrob(format_table_numbers(summary_table1), rows = NULL, theme = big_table_theme)
     gt_summary1 <- gTree(children = gList(table_summary1))
 
     # 2. Gene Classification summary table (across all cells)
@@ -3231,7 +3240,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       SD = c(sd(SQANTI_cell_summary$Annotated_genes, na.rm = TRUE), sd(SQANTI_cell_summary$Novel_genes, na.rm = TRUE))
     )
     gene_class_stats[, 2:6] <- round(gene_class_stats[, 2:6], 3)
-    table_gene_class_stats <- tableGrob(gene_class_stats, rows = NULL, theme = big_table_theme)
+    table_gene_class_stats <- tableGrob(format_table_numbers(gene_class_stats), rows = NULL, theme = big_table_theme)
     title_gene_class_stats <- textGrob("Gene Classification (per cell)", gp = gpar(fontface = "italic", fontsize = 22), vjust = -2.9)
     gt_gene_class_stats <- gTree(children = gList(table_gene_class_stats, title_gene_class_stats))
 
@@ -3285,7 +3294,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       numeric_cols <- sapply(sj_stats_df[, -1], is.numeric)
       sj_stats_df[, -1][numeric_cols] <- round(sj_stats_df[, -1][numeric_cols], 3)
     }
-    table_sj_stats <- tableGrob(sj_stats_df, rows = NULL, theme = big_table_theme)
+    table_sj_stats <- tableGrob(format_table_numbers(sj_stats_df), rows = NULL, theme = big_table_theme)
     title_sj_stats <- textGrob("Splice Junction Classification (per cell, %)", gp = gpar(fontface = "italic", fontsize = 22), vjust = -4.4)
     gt_sj_stats <- gTree(children = gList(table_sj_stats, title_sj_stats))
 
@@ -3334,7 +3343,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     )
     colnames(count_stats_df)[2:7] <- c("Mean", "Median", "Min", "Max", "IQR", "SD")
     count_stats_df[, 2:7] <- round(count_stats_df[, 2:7], 3)
-    table_count_stats <- tableGrob(count_stats_df, rows = NULL, theme = small_table_theme)
+    table_count_stats <- tableGrob(format_table_numbers(count_stats_df), rows = NULL, theme = small_table_theme)
 
     # 2. Proportions summary table
     prop_cat_cols <- paste0(struct_cat_cols, "_prop")
@@ -3355,7 +3364,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     )
     colnames(prop_stats_df)[2:7] <- c("Mean", "Median", "Min", "Max", "IQR", "SD")
     prop_stats_df[, 2:7] <- round(prop_stats_df[, 2:7], 3)
-    table_prop_stats <- tableGrob(prop_stats_df, rows = NULL, theme = small_table_theme)
+    table_prop_stats <- tableGrob(format_table_numbers(prop_stats_df), rows = NULL, theme = small_table_theme)
 
     grid.arrange(
       title_read_class,
@@ -3637,6 +3646,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     # The font size follows the table, so a four-row table fills the page and a long one
     # still fits on it. Padding scales with the font, so size is proportional to it.
     filter_table_page <- function(df, title) {
+      df <- format_table_numbers(df)
       colnames(df) <- stringr::str_wrap(colnames(df), width = 12)
       theme_at <- function(size) ttheme_default(
         base_size = size, padding = unit(c(4, 4) * size / 12, "mm"),

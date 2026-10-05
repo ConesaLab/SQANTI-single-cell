@@ -52,7 +52,7 @@ library(gridExtra)
 library(grDevices)
 
 # Reusable table renderer: interactive, sortable, and consistent alignment
-render_sqanti_table <- function(df, digits = 3, page_len = 10) {
+render_sqanti_table <- function(df) {
   stopifnot(is.data.frame(df))
   num_cols <- which(sapply(df, is.numeric))
   non_num_cols <- setdiff(seq_along(df), num_cols)
@@ -63,7 +63,6 @@ render_sqanti_table <- function(df, digits = 3, page_len = 10) {
     width = "100%",
     options = list(
       ordering = TRUE,
-      pageLength = page_len,
       paging = FALSE,
       autoWidth = FALSE,
       lengthChange = FALSE,
@@ -75,14 +74,14 @@ render_sqanti_table <- function(df, digits = 3, page_len = 10) {
         list(className = "dt-right", targets = numeric_targets),
         list(
           targets = numeric_targets,
+          # en-US pinned: a browser locale must not swap the separators and disagree with the PDF.
           render = DT::JS(
             "function(data, type, row, meta) {",
             "  if (type !== 'display') { return data; }",
             "  if (data === null || data === '' ) { return data; }",
             "  var n = parseFloat(data);",
             "  if (isNaN(n)) { return data; }",
-            "  var s = (Math.round(n * 1000) / 1000).toFixed(3).replace(/\\.?0+$/, '');",
-            "  return s;",
+            "  return n.toLocaleString('en-US', { maximumFractionDigits: 3 });",
             "}"
           )
         )
@@ -102,7 +101,7 @@ if (exists("cell_filter_counts") && !is.null(cell_filter_counts)) {
 
 ```{r cell-filter-counts}
 if (exists("cell_filter_counts") && !is.null(cell_filter_counts)) {
-  render_sqanti_table(cell_filter_counts, page_len = 5)
+  render_sqanti_table(cell_filter_counts)
 }
 ```
 
@@ -117,7 +116,7 @@ if (exists("cell_filter_rule_counts") && !is.null(cell_filter_rule_counts)) {
 
 ```{r cell-filter-rules}
 if (exists("cell_filter_rule_counts") && !is.null(cell_filter_rule_counts)) {
-  render_sqanti_table(cell_filter_rule_counts, page_len = 15)
+  render_sqanti_table(cell_filter_rule_counts)
 }
 ```
 
@@ -147,7 +146,7 @@ if (exists("cell_filter_sketch") && !is.null(cell_filter_sketch)) {
 
 ```{r cell-filter-sketch}
 if (exists("cell_filter_sketch") && !is.null(cell_filter_sketch)) {
-  render_sqanti_table(cell_filter_sketch, page_len = 15)
+  render_sqanti_table(cell_filter_sketch)
 }
 ```
 
@@ -264,7 +263,7 @@ cat("# Transcript Filtering\n\n")
 ```
 
 ```{r tf-counts, eval=show_tf}
-render_sqanti_table(tf_counts, page_len = 5)
+render_sqanti_table(tf_counts)
 ```
 
 ```{r tf-per-cell-header, results='asis', eval=show_tf}
@@ -321,7 +320,7 @@ cat("Each removed", sub("s$", "", tf_unit), "is counted once per rule it failed,
 ```
 
 ```{r tf-rules, eval=show_tf && !is.null(tf_rule_counts)}
-render_sqanti_table(tf_rule_counts, page_len = 15)
+render_sqanti_table(tf_rule_counts)
 ```
 
 ```{r tf-rules-plot, fig.height=8, fig.width=12, eval=show_tf && !is.null(gg_tf_removed_by_rule)}
@@ -333,7 +332,7 @@ cat("## Structural categories, before vs after\n\n")
 ```
 
 ```{r tf-categories-table, eval=show_tf}
-render_sqanti_table(tf_category_counts, page_len = 15)
+render_sqanti_table(tf_category_counts)
 ```
 
 ```{r tf-categories, fig.height=8, fig.width=12, eval=show_tf && !is.null(gg_tf_categories)}
@@ -408,7 +407,7 @@ if (exists("Classification") && has_data(Classification)) {
   )
 
   rownames(gene_class_table) <- NULL
-  render_sqanti_table(gene_class_table, digits = 2, page_len = 10)
+  render_sqanti_table(gene_class_table)
 }
 ```
 
@@ -443,7 +442,7 @@ if (exists("Classification") && has_data(Classification)) {
   read_class_table <- read_class_table[read_class_table[[count_col_name]] > 0, ]
 
   rownames(read_class_table) <- NULL
-  render_sqanti_table(read_class_table, digits = 2, page_len = 10)
+  render_sqanti_table(read_class_table)
 }
 ```
 
@@ -473,7 +472,7 @@ if (exists("Junctions") && has_data(Junctions)) {
 
   # Remove row names and clean up
   rownames(SJ_class_table) <- NULL
-  render_sqanti_table(SJ_class_table, digits = 2, page_len = 10)
+  render_sqanti_table(SJ_class_table)
 }
 ```
 
@@ -538,7 +537,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
   summary_table1[, 2:7] <- round(summary_table1[, 2:7], 3)
 
   rownames(summary_table1) <- NULL
-  render_sqanti_table(summary_table1, digits = 3, page_len = 10)
+  render_sqanti_table(summary_table1)
 }
 ```
 
@@ -558,7 +557,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
   gene_class_stats[, 2:6] <- round(gene_class_stats[, 2:6], 3)
 
   rownames(gene_class_stats) <- NULL
-  render_sqanti_table(gene_class_stats, digits = 3, page_len = 10)
+  render_sqanti_table(gene_class_stats)
 }
 ```
 
@@ -606,7 +605,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
   colnames(count_stats_df)[2:7] <- c("Mean", "Median", "Min", "Max", "IQR", "SD")
   count_stats_df[, 2:7] <- round(count_stats_df[, 2:7], 3)
   rownames(count_stats_df) <- NULL
-  render_sqanti_table(count_stats_df, digits = 3, page_len = 10)
+  render_sqanti_table(count_stats_df)
 }
 ```
 
@@ -641,7 +640,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
   colnames(prop_stats_df)[2:7] <- c("Mean", "Median", "Min", "Max", "IQR", "SD")
   prop_stats_df[, 2:7] <- round(prop_stats_df[, 2:7], 3)
   rownames(prop_stats_df) <- NULL
-  render_sqanti_table(prop_stats_df, digits = 3, page_len = 10)
+  render_sqanti_table(prop_stats_df)
 }
 ```
 
@@ -706,7 +705,7 @@ if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") 
     sj_count_stats_df[, -1][numeric_cols] <- round(sj_count_stats_df[, -1][numeric_cols], 3)
   }
   rownames(sj_count_stats_df) <- NULL
-  render_sqanti_table(sj_count_stats_df, digits = 3, page_len = 10)
+  render_sqanti_table(sj_count_stats_df)
 }
 ```
 
@@ -756,7 +755,7 @@ if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") 
     sj_prop_stats_df[, -1][numeric_cols] <- round(sj_prop_stats_df[, -1][numeric_cols], 3)
   }
   rownames(sj_prop_stats_df) <- NULL
-  render_sqanti_table(sj_prop_stats_df, digits = 3, page_len = 10)
+  render_sqanti_table(sj_prop_stats_df)
 }
 ```
 

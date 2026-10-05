@@ -29,7 +29,19 @@ if (exists("multi_summary_tbl_html", envir = .GlobalEnv)) {
   nc <- ncol(summary_tbl)
   column_defs <- list(list(className = "dt-left", targets = 0))
   if (nc > 1L) {
-    column_defs <- c(column_defs, list(list(className = "dt-right", targets = seq_len(nc - 1L))))
+    # Formats the display only, so sorting still uses the raw number. en-US pinned: a
+    # browser locale must not swap the separators and disagree with the PDF.
+    number_render <- DT::JS(
+      "function(data, type, row, meta) {",
+      "  if (type !== 'display') { return data; }",
+      "  if (data === null || data === '' ) { return data; }",
+      "  var n = parseFloat(data);",
+      "  if (isNaN(n)) { return data; }",
+      "  return n.toLocaleString('en-US', { maximumFractionDigits: 3 });",
+      "}"
+    )
+    column_defs <- c(column_defs, list(list(className = "dt-right", targets = seq_len(nc - 1L),
+                                            render = number_render)))
   }
   DT::datatable(
     summary_tbl,
@@ -38,7 +50,6 @@ if (exists("multi_summary_tbl_html", envir = .GlobalEnv)) {
     escape = FALSE,
     options = list(
       ordering = TRUE,
-      pageLength = 100L,
       paging = FALSE,
       searching = FALSE,
       info = FALSE,

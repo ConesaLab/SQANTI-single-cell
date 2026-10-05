@@ -82,6 +82,15 @@ lighten_hex <- function(hex, amount) {
   grDevices::rgb(new_rgb[1, ], new_rgb[2, ], new_rgb[3, ])
 }
 
+# Text copy for tableGrob only: the HTML table reads the same data and sorts on the
+# numbers, so that copy must stay numeric.
+format_table_numbers <- function(df) {
+  df[] <- lapply(df, function(x) if (is.numeric(x)) {
+    trimws(formatC(x, format = "f", digits = 3, big.mark = ",", drop0trailing = TRUE))
+  } else x)
+  df
+}
+
 # Helper: parse a comma-separated group vector from a CLI arg; returns NULL if absent/mismatched
 parse_group_vec <- function(param_val, n_files) {
   if (is.null(param_val) || !nzchar(param_val)) return(NULL)
@@ -2515,7 +2524,7 @@ main <- function() {
       core = list(fg_params = list(cex = 1.4, hjust = 0.5, x = 0.5)),
       colhead = list(fg_params = list(cex = 1.4, fontface = "bold", hjust = 0.5, x = 0.5))
     )
-    tbl_grob <- tableGrob(summary_tbl, rows = NULL, theme = tbl_theme)
+    tbl_grob <- tableGrob(format_table_numbers(summary_tbl), rows = NULL, theme = tbl_theme)
     title_grob <- textGrob("Per cell summary of samples", gp = gpar(fontface = "italic", fontsize = 28))
     grid.newpage()
     pushViewport(viewport(x = 0.5, y = 0.95))
