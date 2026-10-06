@@ -3684,7 +3684,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       if (!is.null(tf_rule_counts)) filter_table_page(tf_rule_counts, paste("Rules that removed", tf_unit))
       if (!is.null(gg_tf_removed_by_rule)) print(apply_pdf_theme(gg_tf_removed_by_rule))
       filter_table_page(tf_category_counts, "Removed by structural category")
-      for (p in list(gg_tf_categories, gg_tf_goodq, gg_tf_badq)) {
+      for (p in list(gg_tf_categories, gg_tf_goodq, gg_tf_badq, gg_tf_cells_per_model)) {
         if (!is.null(p)) print(apply_pdf_theme(p))
       }
     }
@@ -3730,13 +3730,23 @@ summarise_removed_models <- function(cls) {
                         stringsAsFactors = FALSE)
   }
 
+  # Reads mode is left out: a UJC can have both kept and removed reads, so it has no verdict.
+  cells_per_model <- NULL
+  if (mode == "isoforms" && "cells_detected" %in% colnames(cls)) {
+    cells_per_model <- data.frame(
+      Verdict = factor(ifelse(removed, "Removed", "Kept"), levels = c("Kept", "Removed")),
+      Value = suppressWarnings(as.numeric(cls$cells_detected))
+    )
+  }
+
   list(
     models = c(nrow(cls), sum(!removed)),
     counts = c(sum(cls$count), sum(cls$count[!removed])),
     genes = c(length(unique(cls$associated_gene)),
               length(unique(cls$associated_gene[!removed]))),
     by_category = by_category,
-    pairs = pairs
+    pairs = pairs,
+    cells_per_model = cells_per_model
   )
 }
 
@@ -4101,6 +4111,7 @@ gg_tf_removed_by_rule <- NULL
 gg_tf_categories <- NULL
 gg_tf_goodq <- NULL
 gg_tf_badq <- NULL
+gg_tf_cells_per_model <- NULL
 # What the filter judges and removes: collapsed models in isoforms mode, reads otherwise.
 tf_unit <- if (mode == "isoforms") "isoforms" else entity_label_plural_lower
 
@@ -4296,6 +4307,16 @@ if (!is.null(tf_removed_models)) {
   gg_tf_badq <- filter_pair_plot(
     tf_pairs, tf_stage, all_bad_features_map,
     "Bad-quality attributes per cell, before vs after", tf_stage_alpha, "Filtering")
+
+  cpm <- tf_removed_models$cells_per_model
+  if (!is.null(cpm)) {
+    cpm <- cpm[!is.na(cpm$Value) & cpm$Value > 0, , drop = FALSE]
+    if (length(unique(cpm$Verdict)) == 2) {
+      gg_tf_cells_per_model <- tf_verdict_plot(
+        cpm, c(Kept = 0.7, Removed = 0.35), "Isoforms",
+        "Cells each isoform is found in", "Cells, count")
+    }
+  }
 }
 
 # Generate reports based on format

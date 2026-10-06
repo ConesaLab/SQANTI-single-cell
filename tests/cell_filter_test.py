@@ -632,6 +632,16 @@ class TestRunCellFilter:
         passing = (tmp_path / "filter" / "rep1" / "s1_pass_cells.txt").read_text().split()
         assert passing == ['bc_good']
 
+    def test_cell_context_is_recomputed_for_the_kept_cells(self, qc_run):
+        """The input's clusters described a cell set that no longer exists, so the cluster
+        columns go back to NA until --run_clustering refits them."""
+        tmp_path, qc_dir, design = qc_run
+        self._run(tmp_path, qc_dir, design)
+        out = _read_tsv(tmp_path / "filter" / "rep1" / "s1_classification.txt")
+        assert out['isoform'].tolist() == ['PB.1.1']
+        assert out['cells_detected'].tolist() == ['1']
+        assert out['max_cluster_cells'].tolist() == ['NA']
+
     def test_verdict_table_keeps_every_barcode(self, qc_run):
         tmp_path, qc_dir, design = qc_run
         self._run(tmp_path, qc_dir, design)

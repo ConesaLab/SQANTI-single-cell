@@ -4,6 +4,7 @@ import os
 import numpy as np
 import pandas as pd
 
+import cell_context
 import filter_io
 from filter_io import RESULT_ARTIFACT, RESULT_COLUMN, SENTINEL_BARCODES
 
@@ -339,8 +340,12 @@ def run_cell_filter(args, df, log=print):
         # Kept under the input's name, so a transcript filter's verdict column stays
         # where the readers look for it.
         in_class = filter_io.classification_path(qc_prefix)
+        out_class = os.path.join(out_dir, os.path.basename(in_class))
         rows_in, rows_out, surviving, no_barcode = filter_io.subset_classification(
-            in_class, os.path.join(out_dir, os.path.basename(in_class)), mode, keep_cells)
+            in_class, out_class, mode, keep_cells)
+        # The cell set changed, so the input's clusters no longer apply; re-clustering
+        # (--run_clustering) fills the cluster columns again.
+        cell_context.refresh(out_class, mode)
         j_in, j_out, rewrote_cb = filter_io.subset_junctions(
             f"{qc_prefix}_junctions.txt", f"{out_prefix}_junctions.txt",
             mode, surviving, keep_cells)

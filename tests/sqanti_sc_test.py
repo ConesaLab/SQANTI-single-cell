@@ -389,6 +389,11 @@ def test_add_cell_data_isoform_mode_tsv(
     assert final_class_df.loc[
         final_class_df.isoform == 'iso1', 'RTS_stage'
     ].iloc[0] == 'TRUE'
+    # Barcodes alone give the cell count; the cluster columns wait for clustering.
+    iso1 = final_class_df.set_index('isoform').loc['iso1']
+    assert iso1['cells_detected'] == '2'
+    assert iso1['max_cluster_cells'] == 'NA'
+    assert iso1['max_cluster_pct'] == 'NA'
 
 
 def test_annotate_with_sample_support(mock_args, tmpdir):
