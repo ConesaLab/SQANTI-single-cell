@@ -331,6 +331,9 @@ def test_add_cell_data_reads_mode_bam(
     assert final_class_df.loc[
         final_class_df.isoform == 'iso1', 'CB'
     ].iloc[0] == 'CELL1'
+    # The cell-context columns are isoforms mode only.
+    assert not {'cells_detected', 'max_cluster_cells', 'max_cluster_pct'} & \
+        set(final_class_df.columns)
 
     # Check that the junctions df has CB
     final_junc_df = saved_dfs[1]
@@ -389,6 +392,11 @@ def test_add_cell_data_isoform_mode_tsv(
     assert final_class_df.loc[
         final_class_df.isoform == 'iso1', 'RTS_stage'
     ].iloc[0] == 'TRUE'
+    # Barcodes alone give the cell count; the cluster columns wait for clustering.
+    iso1 = final_class_df.set_index('isoform').loc['iso1']
+    assert iso1['cells_detected'] == '2'
+    assert iso1['max_cluster_cells'] == 'NA'
+    assert iso1['max_cluster_pct'] == 'NA'
 
 
 def test_annotate_with_sample_support(mock_args, tmpdir):

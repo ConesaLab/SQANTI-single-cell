@@ -1,0 +1,21 @@
+{
+    "full-splice_match": [
+        {
+            "perc_A_downstream_TTS": [0, 59]
+        }
+    ],
+    "rest": [
+        {
+            "perc_A_downstream_TTS": [0, 59],
+            "all_canonical": "canonical",
+            "RTS_stage": "FALSE",
+            "max_cluster_cells": 3
+        },
+        {
+            "perc_A_downstream_TTS": [0, 59],
+            "RTS_stage": "FALSE",
+            "min_cov": 3,
+            "max_cluster_cells": 3
+        }
+    ]
+}

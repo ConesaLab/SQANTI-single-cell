@@ -9,7 +9,7 @@ CHUNKSIZE = 500000
 # 'NA', so pandas' default NA handling would read those back as NaN and write
 # them out as '' -- corrupting rows the filter never touched. na_filter=False
 # keeps every field an exact string on the way through.
-_READ_KW = dict(sep='\t', dtype=str, na_filter=False, low_memory=False)
+READ_KW = dict(sep='\t', dtype=str, na_filter=False, low_memory=False)
 
 SENTINEL_BARCODES = ('', 'NA', 'unassigned', '-', '*')
 
@@ -77,7 +77,7 @@ def read_sample_table(design_path, qc_dir, labelled_summary_ok=False):
 
 
 def read_cell_summary(path):
-    return pd.read_csv(path, **_READ_KW)
+    return pd.read_csv(path, **READ_KW)
 
 
 def _split_cb_fl(chunk):
@@ -126,7 +126,7 @@ def subset_classification(src, dst, mode, keep_cells, chunksize=CHUNKSIZE):
     surviving = set()
     header = True
     with open(dst, 'w') as out_fh:
-        for chunk in pd.read_csv(src, chunksize=chunksize, **_READ_KW):
+        for chunk in pd.read_csv(src, chunksize=chunksize, **READ_KW):
             rows_in += len(chunk)
             if 'CB' not in chunk.columns:
                 raise ValueError(f"ERROR: {src} has no CB column; run the QC pipeline first.")
@@ -160,7 +160,7 @@ def subset_junctions(src, dst, mode, keep_isoforms, keep_cells, chunksize=CHUNKS
     rewrote_cb = False
     header = True
     with open(dst, 'w') as out_fh:
-        for chunk in pd.read_csv(src, chunksize=chunksize, **_READ_KW):
+        for chunk in pd.read_csv(src, chunksize=chunksize, **READ_KW):
             rows_in += len(chunk)
             kept = chunk[chunk['isoform'].isin(keep_isoforms)] if 'isoform' in chunk.columns else chunk
             if mode == 'isoforms' and 'CB' in kept.columns and len(kept):
@@ -183,7 +183,7 @@ def subset_by_isoform(src, dst, keep_isoforms, chunksize=CHUNKSIZE):
     rows_in = rows_out = 0
     header = True
     with open(dst, 'w') as out_fh:
-        for chunk in pd.read_csv(src, chunksize=chunksize, **_READ_KW):
+        for chunk in pd.read_csv(src, chunksize=chunksize, **READ_KW):
             rows_in += len(chunk)
             kept = chunk[chunk['isoform'].isin(keep_isoforms)]
             rows_out += len(kept)
@@ -198,7 +198,7 @@ def write_labelled_classification(src, dst, keep_isoforms, chunksize=CHUNKSIZE):
     rows_in = rows_kept = 0
     header = True
     with open(dst, 'w') as out_fh:
-        for chunk in pd.read_csv(src, chunksize=chunksize, **_READ_KW):
+        for chunk in pd.read_csv(src, chunksize=chunksize, **READ_KW):
             kept = chunk['isoform'].isin(keep_isoforms)
             chunk[RESULT_COLUMN] = RESULT_ARTIFACT
             chunk.loc[kept, RESULT_COLUMN] = RESULT_ISOFORM
