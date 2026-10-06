@@ -642,6 +642,24 @@ class TestRunCellFilter:
         assert out['cells_detected'].tolist() == ['1']
         assert out['max_cluster_cells'].tolist() == ['NA']
 
+    def test_reads_mode_gets_no_cell_context(self, tmp_path):
+        qc_dir = tmp_path / "qc"
+        (qc_dir / "rep1").mkdir(parents=True)
+        prefix = qc_dir / "rep1" / "s1"
+        pd.DataFrame({'isoform': ['r1', 'r2', 'r3'],
+                      'CB': ['bc_good', 'bc_good', 'bc_shallow']}).to_csv(
+            f"{prefix}_classification.txt", sep='\t', index=False)
+        pd.DataFrame({'CB': ['bc_good', 'bc_shallow'], 'Reads_in_cell': [5000, 5],
+                      'Annotated_genes': [1200, 2], 'MT_perc': [3.0, 0.0]}).to_csv(
+            f"{prefix}_SQANTI_cell_summary.txt.gz", sep='\t', index=False,
+            compression='gzip')
+        design = tmp_path / "design.csv"
+        design.write_text("sampleID,file_acc\ns1,rep1\n")
+        self._run(tmp_path, qc_dir, str(design))
+        out = _read_tsv(tmp_path / "filter" / "rep1" / "s1_classification.txt")
+        assert out['isoform'].tolist() == ['r1', 'r2']
+        assert not {'cells_detected', 'max_cluster_cells', 'max_cluster_pct'} & set(out.columns)
+
     def test_verdict_table_keeps_every_barcode(self, qc_run):
         tmp_path, qc_dir, design = qc_run
         self._run(tmp_path, qc_dir, design)

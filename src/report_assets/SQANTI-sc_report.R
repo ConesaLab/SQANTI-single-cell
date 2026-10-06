@@ -3730,9 +3730,8 @@ summarise_removed_models <- function(cls) {
                         stringsAsFactors = FALSE)
   }
 
-  # Reads mode is left out: a UJC can have both kept and removed reads, so it has no verdict.
   cells_per_model <- NULL
-  if (mode == "isoforms" && "cells_detected" %in% colnames(cls)) {
+  if ("cells_detected" %in% colnames(cls)) {
     cells_per_model <- data.frame(
       Verdict = factor(ifelse(removed, "Removed", "Kept"), levels = c("Kept", "Removed")),
       Value = suppressWarnings(as.numeric(cls$cells_detected))

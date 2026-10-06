@@ -170,10 +170,11 @@ def run_clustering_analysis(args, row):
         results.to_csv(out_file, index=False)
         print(f"**** Clustering results saved to {out_file}", file=sys.stdout)
 
-        cell_context.refresh(classification_path(outputPathPrefix), args.mode,
-                             results.set_index('Barcode')['Cluster'].astype(str))
-        print(f"**** Cluster columns updated in {classification_path(outputPathPrefix)}",
-              file=sys.stdout)
+        if args.mode == 'isoforms':
+            cell_context.refresh(classification_path(outputPathPrefix),
+                                 results.set_index('Barcode')['Cluster'].astype(str))
+            print(f"**** Cluster columns updated in {classification_path(outputPathPrefix)}",
+                  file=sys.stdout)
         
     except Exception as e:
         print(f"[ERROR] Clustering analysis failed for {file_acc}: {e}", file=sys.stderr)

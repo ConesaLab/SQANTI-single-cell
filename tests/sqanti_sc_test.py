@@ -331,6 +331,9 @@ def test_add_cell_data_reads_mode_bam(
     assert final_class_df.loc[
         final_class_df.isoform == 'iso1', 'CB'
     ].iloc[0] == 'CELL1'
+    # The cell-context columns are isoforms mode only.
+    assert not {'cells_detected', 'max_cluster_cells', 'max_cluster_pct'} & \
+        set(final_class_df.columns)
 
     # Check that the junctions df has CB
     final_junc_df = saved_dfs[1]

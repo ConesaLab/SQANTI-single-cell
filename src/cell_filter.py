@@ -345,7 +345,8 @@ def run_cell_filter(args, df, log=print):
             in_class, out_class, mode, keep_cells)
         # The cell set changed, so the input's clusters no longer apply; re-clustering
         # (--run_clustering) fills the cluster columns again.
-        cell_context.refresh(out_class, mode)
+        if mode == 'isoforms':
+            cell_context.refresh(out_class)
         j_in, j_out, rewrote_cb = filter_io.subset_junctions(
             f"{qc_prefix}_junctions.txt", f"{out_prefix}_junctions.txt",
             mode, surviving, keep_cells)

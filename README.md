@@ -484,7 +484,7 @@ SQANTI-sc includes an optional step to perform cell clustering based on the expr
 
 To enable this step, you must use the flag `--run_clustering`.
 
-Clustering also fills two columns of the classification, `max_cluster_cells` and `max_cluster_pct` (see [the classification columns](#1-sqanti3-based-outputs)). They are recomputed every time clustering runs, in the QC run and in the filters.
+In isoforms mode, clustering also fills two columns of the classification, `max_cluster_cells` and `max_cluster_pct` (see [the classification columns](#1-sqanti3-based-outputs)). They are recomputed every time clustering runs, in the QC run and in the filters.
 
 ### Customization options
 The clustering process can be customized using the following arguments:
@@ -536,7 +536,7 @@ Always written, mirroring the SQANTI3 filter's contract:
 | `<sampleID>_pass_cells.txt` | Passing barcodes, one per line — usable directly as a Scanpy/Seurat subset |
 | `<sampleID>_cell_filtering_reasons.txt` | Discarded barcodes and why: `CB` and `filter_reason`. Artifacts only, as in SQANTI3 |
 | `<sampleID>_cell_filter_params.txt` | Every threshold used, plus the run statistics |
-| `<sampleID>_classification.txt` | Filtered: only retained cells. `cells_detected` is recounted over them; `max_cluster_cells`/`max_cluster_pct` are `NA` unless `--run_clustering` refits the clusters |
+| `<sampleID>_classification.txt` | Filtered: only retained cells. In isoforms mode `cells_detected` is recounted over them, and `max_cluster_cells`/`max_cluster_pct` are `NA` unless `--run_clustering` refits the clusters |
 | `<sampleID>_junctions.txt` | Filtered, with the per-row barcode list rewritten |
 | `<sampleID>_corrected.gtf` | Filtered: only the surviving transcript models |
 | `<sampleID>_corrected.fasta` | Filtered: the sequences of those same models |
@@ -632,7 +632,7 @@ Mono-exonic models are judged by the rules like any other model; SQANTI3's `-e`,
 
 #### Rules on cell context
 
-The classification carries three cell-context columns — `cells_detected`, `max_cluster_cells` and `max_cluster_pct` (see [the classification columns](#1-sqanti3-based-outputs)) — and a rule can use them like any other column. This is how a model that is not seen again across the cells of one cluster can be discarded. `src/filter_assets/transcript_filter_cluster_example.json` is SQANTI3's default with `"max_cluster_cells": 3` added to both `rest` rule-sets: a novel model must reach at least 3 cells of one cluster, while full-splice matches are judged as before. The 3 is an example, not a calibrated value. Without `--rules` nothing changes.
+In isoforms mode the classification carries three cell-context columns — `cells_detected`, `max_cluster_cells` and `max_cluster_pct` (see [the classification columns](#1-sqanti3-based-outputs)) — and a rule can use them like any other column. Reads-mode classifications do not have them, since each row there is a single read from a single cell, so SQANTI3 stops with "column not found" if a rule names them. This is how a model that is not seen again across the cells of one cluster can be discarded. `src/filter_assets/transcript_filter_cluster_example.json` is SQANTI3's default with `"max_cluster_cells": 3` added to both `rest` rule-sets: a novel model must reach at least 3 cells of one cluster, while full-splice matches are judged as before. The 3 is an example, not a calibrated value. Without `--rules` nothing changes.
 
 Put the rule in every alternative rule-set of a category: a rule-set without it accepts models regardless.
 
@@ -682,8 +682,8 @@ Standard SQANTI3 output files are generated for each sample, but they include ad
         *   `CB`: Cell Barcode associated with the read/isoform. In isoforms mode, this column is a comma-separated list of the cell barcodes in which the isoform appears.
         *   `UMI`: Unique Molecular Identifier (**Reads Mode only**, if UMI information available (through cell association file)).
         *   `jxn_string` / `jxnHash` (**Reads Mode only**): Unique Junction Chain (UJC) representation of the transcript model structure. These columns, introduced by [SQANTI-reads](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI-reads), allow for read grouping based on splice junctions structure. This step can be skipped using the `--skip_hash` option.
-        *   `cells_detected`: Number of cells the model is detected in. In isoforms mode, the cells in `CB` with a count above 0 — so the fractional counts of EM-based quantifiers (Isosceles, bambu) count as detection. In reads mode, the cells holding any read of the same UJC (`jxn_string`), so every read of a UJC carries the same value; mono-exonic reads are keyed by chromosome, strand and reference transcript, so all novel mono-exons on a strand share one value. `NA` in reads mode with `--skip_hash`.
-        *   `max_cluster_cells` / `max_cluster_pct`: The most cells the model reaches in any one cluster, and the highest share of a cluster's cells it reaches. Each is maximised on its own, so the two can come from different clusters — a model confined to a small cluster can have few cells but a high share. Counted the same way as `cells_detected`. `NA` unless clustering was run; a model whose cells are all outside the UMAP gets 0.
+        *   `cells_detected` (**Isoforms Mode only**): Number of cells the model is detected in: the cells in `CB` with a count above 0, so the fractional counts of EM-based quantifiers (Isosceles, bambu) count as detection.
+        *   `max_cluster_cells` / `max_cluster_pct` (**Isoforms Mode only**): The most cells the model reaches in any one cluster, and the highest share of a cluster's cells it reaches. Each is maximised on its own, so the two can come from different clusters — a model confined to a small cluster can have few cells but a high share. Counted the same way as `cells_detected`. `NA` unless clustering was run; a model whose cells are all outside the UMAP gets 0.
     * Changed columns:
         *   `FL`: Full-length count. In reads mode, this column will always diplay values of 1, as each row of the classification is suppossed to represent a unique UMI. In isoforms mode it will also display values of 1 except if quantification information is provided, in which case the column will be a comma-separated list of numeric values that represent the number of counts of that transcript model in each of the cells in the `CB` column, following the same order.
 *   **`*_junctions.txt`**: File containing all splice junctions identified.
