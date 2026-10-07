@@ -33,12 +33,19 @@ def cell_summary_path(outputPathPrefix):
     return f"{outputPathPrefix}_SQANTI_cell_summary.txt.gz"
 
 
+# The classification each transcript-filter method writes, under SQANTI3's names.
+LABELLED_CLASSIFICATIONS = {
+    'rules': '_RulesFilter_classification.txt',
+    'ml': '_ML_classification.txt',
+}
+
+
 def classification_path(outputPathPrefix):
     """The transcript filter labels the classification rather than subsetting it, as
     SQANTI3 does, so a filtered run has the labelled file and no plain one."""
-    labelled = f"{outputPathPrefix}_RulesFilter_classification.txt"
-    if os.path.isfile(labelled):
-        return labelled
+    for suffix in LABELLED_CLASSIFICATIONS.values():
+        if os.path.isfile(outputPathPrefix + suffix):
+            return outputPathPrefix + suffix
     return f"{outputPathPrefix}_classification.txt"
 
 
@@ -192,13 +199,28 @@ def subset_by_isoform(src, dst, keep_isoforms, chunksize=CHUNKSIZE):
     return rows_in, rows_out
 
 
-def write_labelled_classification(src, dst, keep_isoforms, chunksize=CHUNKSIZE):
-    """Every row of src, verbatim, plus the verdict column. Returns (rows_in, rows_kept)."""
+def write_labelled_classification(src, dst, keep_isoforms, columns_from=None, columns=(),
+                                  chunksize=CHUNKSIZE):
+    """Every row of src, verbatim, plus the verdict column. `columns` are carried over
+    from columns_from, a file with the same rows in the same order, and placed before the
+    verdict as SQANTI3's ML filter places its own. Returns (rows_in, rows_kept)."""
     keep_isoforms = set(keep_isoforms)
     rows_in = rows_kept = 0
     header = True
+    extra = None
+    if columns_from is not None:
+        extra = pd.read_csv(columns_from, chunksize=chunksize,
+                            usecols=['isoform', *columns], **READ_KW)
     with open(dst, 'w') as out_fh:
         for chunk in pd.read_csv(src, chunksize=chunksize, **READ_KW):
+            if extra is not None:
+                added = next(extra, None)
+                if (added is None or len(added) != len(chunk)
+                        or not (added['isoform'].to_numpy() == chunk['isoform'].to_numpy()).all()):
+                    raise ValueError(f"ERROR: {columns_from} does not list the models of "
+                                     f"{src} in the same order.")
+                for column in columns:
+                    chunk[column] = added[column].to_numpy()
             kept = chunk['isoform'].isin(keep_isoforms)
             chunk[RESULT_COLUMN] = RESULT_ARTIFACT
             chunk.loc[kept, RESULT_COLUMN] = RESULT_ISOFORM
@@ -206,6 +228,8 @@ def write_labelled_classification(src, dst, keep_isoforms, chunksize=CHUNKSIZE):
             rows_kept += int(kept.sum())
             chunk.to_csv(out_fh, sep='\t', index=False, header=header)
             header = False
+    if extra is not None and next(extra, None) is not None:
+        raise ValueError(f"ERROR: {columns_from} has more models than {src}.")
     return rows_in, rows_kept
 
 

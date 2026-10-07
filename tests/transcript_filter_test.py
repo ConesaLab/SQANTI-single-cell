@@ -116,8 +116,9 @@ def fake_sqanti3(monkeypatch):
 
 
 def _args(qc_dir, out_dir, *extra):
-    return filter_args.build_filter_parser().parse_args(
-        ['transcripts', '-de', 'design.csv', '-q', str(qc_dir), '-d', str(out_dir), *extra])
+    argv = ['transcripts', '-de', 'design.csv', '-q', str(qc_dir), '-d', str(out_dir), *extra]
+    return filter_args.build_filter_parser(
+        method=filter_args.transcript_method(argv)).parse_args(argv)
 
 
 def _run(tmp_path, qc_dir, design, *extra, log=None):
@@ -350,7 +351,7 @@ class TestLabelledClassificationReaders:
         open(f"{prefix}_filtering_reasons.txt", 'w').close()
         qc_dir = tmp_path / "qc"
         cmd = self._report_cmd(tmp_path, monkeypatch, subcommand='transcripts',
-                               qc_dir=str(qc_dir))
+                               method='rules', qc_dir=str(qc_dir))
         assert f'--input_cell_summary "{qc_dir}/rep1/s1_SQANTI_cell_summary.txt.gz"' in cmd
         assert f'--transcript_filter_reasons "{prefix}_filtering_reasons.txt"' in cmd
 
@@ -360,7 +361,7 @@ class TestLabelledClassificationReaders:
         qc_sample.mkdir(parents=True)
         (qc_sample / "s1_CellFilter_cell_summary.txt.gz").touch()
         cmd = self._report_cmd(tmp_path, monkeypatch, subcommand='transcripts',
-                               qc_dir=str(tmp_path / "cells"))
+                               method='rules', qc_dir=str(tmp_path / "cells"))
         assert f'--input_cell_summary "{qc_sample}/s1_CellFilter_cell_summary.txt.gz"' in cmd
 
     @pytest.mark.parametrize('extra', [{}, {'subcommand': 'cells', 'qc_dir': 'qc'}])
@@ -369,6 +370,15 @@ class TestLabelledClassificationReaders:
         open(f"{prefix}_filtering_reasons.txt", 'w').close()
         cmd = self._report_cmd(tmp_path, monkeypatch, **extra)
         assert '--input_cell_summary' not in cmd
+        assert '--transcript_filter_reasons' not in cmd
+
+    def test_the_ml_filter_hands_the_report_its_directory_not_reasons(
+            self, tmp_path, monkeypatch):
+        prefix = self._labelled(tmp_path)
+        open(f"{prefix}_filtering_reasons.txt", 'w').close()
+        cmd = self._report_cmd(tmp_path, monkeypatch, subcommand='transcripts',
+                               method='ml', qc_dir=str(tmp_path / "qc"))
+        assert f'--ml_dir "{tmp_path}/rep1"' in cmd
         assert '--transcript_filter_reasons' not in cmd
 
     def test_h5ad_export_skips_artifacts(self, tmp_path):
@@ -494,6 +504,231 @@ class TestTranscriptsParser:
         assert ns.multisample_report is True
 
 
+# What the fake ML filter decides, as SQANTI3's R script would: PB.2.1 is a classifier
+# negative and intra-primed, PB.3.1 only intra-primed.
+ML_VERDICTS = {
+    'PB.1.1': ('0.91', '0.09', 'Positive', 'FALSE'),
+    'PB.2.1': ('0.12', '0.88', 'Negative', 'TRUE'),
+    'PB.3.1': ('0.80', '0.20', 'Positive', 'TRUE'),
+}
+
+
+@pytest.fixture
+def fake_sqanti3_ml(monkeypatch):
+    """Stands in for sqanti3_filter.py ml: records the command and the input it was
+    handed, and writes its classification as the R script does -- the input it read plus
+    the four ML columns and the verdict."""
+    calls = []
+
+    def run(cmd, check=False, **kw):
+        out_dir, prefix = cmd[cmd.index('-d') + 1], cmd[cmd.index('-o') + 1]
+        ml_input = _read_tsv(cmd[cmd.index('--sqanti_class') + 1])
+        calls.append((cmd, ml_input))
+        with open(os.path.join(out_dir, f"{prefix}_pass_isoforms.txt"), 'w') as fh:
+            fh.write(''.join(f"{iso}\n" for iso in PASSING))
+        out = ml_input.copy()
+        for i, column in enumerate(transcript_filter.ML_COLUMNS):
+            out[column] = [ML_VERDICTS[iso][i] for iso in out['isoform']]
+        out['filter_result'] = ['Isoform' if i in PASSING else 'Artifact'
+                                for i in out['isoform']]
+        out.to_csv(os.path.join(out_dir, f"{prefix}_ML_classification.txt"),
+                   sep='\t', index=False)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(transcript_filter.subprocess, 'run', run)
+    return calls
+
+
+class TestMethodOption:
+    def test_the_method_is_read_before_the_parser_is_built(self):
+        assert filter_args.transcript_method(['transcripts', '--method', 'ml']) == 'ml'
+        assert filter_args.transcript_method(['transcripts']) == 'rules'
+
+    def test_an_unknown_method_is_rejected_by_the_parser(self):
+        assert filter_args.transcript_method(['transcripts', '--method', 'svm']) == 'rules'
+        with pytest.raises(SystemExit):
+            _args('qc', 'out', '--method', 'svm')
+
+    def test_j_is_the_rules_json_under_rules(self):
+        ns = _args('qc', 'out', '-j', 'rules.json')
+        assert ns.method == 'rules'
+        assert ns.rules == 'rules.json'
+
+    def test_j_is_the_probability_threshold_under_ml(self):
+        ns = _args('qc', 'out', '--method', 'ml', '-j', '0.8')
+        assert ns.threshold == 0.8
+        assert not hasattr(ns, 'rules')
+        with pytest.raises(SystemExit):
+            _args('qc', 'out', '--method', 'ml', '-j', 'rules.json')
+
+    @pytest.mark.parametrize('option', [['-t', '0.5'], ['-f'], ['--TP', 'tp.txt'],
+                                        ['-i', '70']])
+    def test_ml_options_are_refused_under_rules(self, option):
+        with pytest.raises(SystemExit):
+            _args('qc', 'out', *option)
+
+
+class TestMLCommand:
+    def _cmd(self, *extra):
+        args = _args('qc', 'out', '--method', 'ml', *extra)
+        return transcript_filter.build_sqanti3_filter_command(
+            args, 'out/rep1/s1_ML_input.tmp', 'out/rep1', 's1')
+
+    def test_runs_the_ml_filter_with_the_report_skipped(self):
+        cmd = self._cmd()
+        assert cmd[1].endswith('sqanti3_filter.py')
+        assert cmd[2] == 'ml'
+        assert cmd[cmd.index('-o') + 1] == 's1'
+        assert '--skip_report' in cmd
+
+    def test_sqanti3_defaults_apply_unless_an_option_is_given(self):
+        cmd = self._cmd()
+        for flag in ('-j', '-t', '-p', '-n', '-f', '-r', '-z', '-i', '-e',
+                     '--intermediate_files'):
+            assert flag not in cmd, flag
+
+    def test_options_are_passed_under_sqanti3_flags(self):
+        cmd = self._cmd('-j', '0.8', '-t', '0.7', '-z', '2000', '-i', '70', '-f',
+                        '--intermediate_files', '-p', 'tp.txt', '-n', 'tn.txt',
+                        '-r', 'drop.txt')
+        values = {flag: cmd[cmd.index(flag) + 1] for flag in
+                  ('-j', '-t', '-z', '-i', '-p', '-n', '-r')}
+        assert values == {'-j': '0.8', '-t': '0.7', '-z': '2000', '-i': '70.0',
+                          '-p': os.path.abspath('tp.txt'), '-n': os.path.abspath('tn.txt'),
+                          '-r': os.path.abspath('drop.txt')}
+        assert '-f' in cmd and '--intermediate_files' in cmd
+
+
+class TestMLInput:
+    def test_fl_becomes_the_models_total_over_its_cells(self, tmp_path):
+        src, dst = tmp_path / "in.txt", tmp_path / "out.txt"
+        pd.DataFrame([_cls_row('PB.1.1', 'bc1,bc2', '5,3'), _cls_row('PB.2.1', 'bc2', '7'),
+                      _cls_row('PB.3.1', 'bc1,bc3', '0.5,1.25'),
+                      _cls_row('PB.4.1', 'bc1', 'NA')]).to_csv(src, sep='\t', index=False)
+        transcript_filter.write_ml_input(str(src), str(dst), 'isoforms')
+        assert _read_tsv(dst)['FL'].tolist() == ['8', '7', '1.75', 'NA']
+
+    def test_cell_and_junction_chain_columns_are_left_out(self, tmp_path):
+        src, dst = tmp_path / "in.txt", tmp_path / "out.txt"
+        rows = pd.DataFrame([dict(_cls_row('r1', 'bc1', 'NA'), UMI='ACGT',
+                                  jxn_string='chr1_+_10_20', jxnHash='abc')])
+        rows.to_csv(src, sep='\t', index=False)
+        transcript_filter.write_ml_input(str(src), str(dst), 'reads')
+        out = _read_tsv(dst)
+        expected = rows.drop(columns=list(transcript_filter.NOT_ML_FEATURES))
+        pd.testing.assert_frame_equal(out, expected)
+
+
+class TestRunMLFilter:
+    def _run_ml(self, tmp_path, qc_dir, design, *extra):
+        return _run(tmp_path, qc_dir, design, '--method', 'ml', *extra)
+
+    def test_sqanti3_reads_the_reduced_input_which_is_then_removed(
+            self, qc_run, fake_sqanti3_ml):
+        tmp_path, qc_dir, design = qc_run
+        self._run_ml(tmp_path, qc_dir, design)
+        (cmd, ml_input), = fake_sqanti3_ml
+        assert 'CB' not in ml_input.columns
+        assert ml_input['FL'].tolist() == ['8', '7', '2']
+        assert not os.path.exists(cmd[cmd.index('--sqanti_class') + 1])
+
+    def test_classification_is_the_input_plus_sqanti3_ml_columns_and_verdict(
+            self, qc_run, fake_sqanti3_ml):
+        tmp_path, qc_dir, design = qc_run
+        self._run_ml(tmp_path, qc_dir, design)
+        out = tmp_path / "filter" / "rep1"
+        original = _read_tsv(qc_dir / "rep1" / "s1_classification.txt")
+        labelled = _read_tsv(out / "s1_ML_classification.txt")
+        added = [*transcript_filter.ML_COLUMNS, 'filter_result']
+        assert list(labelled.columns) == list(original.columns) + added
+        pd.testing.assert_frame_equal(labelled.drop(columns=added), original)
+        assert labelled.loc[2, list(transcript_filter.ML_COLUMNS)].tolist() == list(
+            ML_VERDICTS['PB.3.1'])
+        assert dict(zip(labelled['isoform'], labelled['filter_result'])) == {
+            'PB.1.1': 'Isoform', 'PB.2.1': 'Artifact', 'PB.3.1': 'Artifact'}
+        assert sorted(p.name for p in out.glob('*classification*')) == [
+            's1_ML_classification.txt']
+
+    def test_readers_find_the_ml_classification(self, qc_run, fake_sqanti3_ml):
+        tmp_path, qc_dir, design = qc_run
+        self._run_ml(tmp_path, qc_dir, design)
+        prefix = str(tmp_path / "filter" / "rep1" / "s1")
+        assert filter_io.classification_path(prefix) == prefix + "_ML_classification.txt"
+        summary = pd.read_csv(f"{prefix}_SQANTI_cell_summary.txt.gz", sep='\t')
+        assert dict(zip(summary['CB'], summary['Transcripts_in_cell'])) == {'bc1': 5, 'bc2': 3}
+
+    def test_sqanti3_rows_out_of_order_are_refused(self, qc_run, monkeypatch):
+        tmp_path, qc_dir, design = qc_run
+
+        def run(cmd, check=False, **kw):
+            out_dir, prefix = cmd[cmd.index('-d') + 1], cmd[cmd.index('-o') + 1]
+            out = _read_tsv(cmd[cmd.index('--sqanti_class') + 1]).iloc[::-1]
+            for i, column in enumerate(transcript_filter.ML_COLUMNS):
+                out[column] = [ML_VERDICTS[iso][i] for iso in out['isoform']]
+            out.to_csv(os.path.join(out_dir, f"{prefix}_ML_classification.txt"),
+                       sep='\t', index=False)
+            open(os.path.join(out_dir, f"{prefix}_pass_isoforms.txt"), 'w').close()
+            return subprocess.CompletedProcess(cmd, 0)
+
+        monkeypatch.setattr(transcript_filter.subprocess, 'run', run)
+        with pytest.raises(ValueError, match='same order'):
+            self._run_ml(tmp_path, qc_dir, design)
+
+    def test_the_input_copy_is_removed_when_sqanti3_fails(self, qc_run, monkeypatch):
+        tmp_path, qc_dir, design = qc_run
+
+        def fail(cmd, check=False, **kw):
+            raise subprocess.CalledProcessError(1, cmd)
+
+        monkeypatch.setattr(transcript_filter.subprocess, 'run', fail)
+        with pytest.raises(ValueError, match='sample s1'):
+            self._run_ml(tmp_path, qc_dir, design)
+        assert list((tmp_path / "filter" / "rep1").glob('*.tmp')) == []
+
+    def test_an_ml_run_refuses_a_directory_holding_a_rules_run(
+            self, qc_run, fake_sqanti3):
+        tmp_path, qc_dir, design = qc_run
+        _run(tmp_path, qc_dir, design)
+        calls = len(fake_sqanti3)
+        with pytest.raises(ValueError, match='written by --method rules'):
+            self._run_ml(tmp_path, qc_dir, design)
+        assert len(fake_sqanti3) == calls
+
+    def test_a_rules_run_refuses_a_directory_holding_an_ml_run(
+            self, qc_run, fake_sqanti3_ml):
+        tmp_path, qc_dir, design = qc_run
+        self._run_ml(tmp_path, qc_dir, design)
+        with pytest.raises(ValueError, match='written by --method ml'):
+            _run(tmp_path, qc_dir, design)
+
+    def test_training_lists_are_refused_for_several_samples(self, qc_run, fake_sqanti3_ml):
+        tmp_path, qc_dir, design = qc_run
+        _write_sample(qc_dir / "rep2")
+        (tmp_path / "design.csv").write_text("sampleID,file_acc\ns1,rep1\ns1,rep2\n")
+        tp = tmp_path / "tp.txt"
+        tp.write_text("PB.1.1\n")
+        with pytest.raises(ValueError, match='one sample'):
+            self._run_ml(tmp_path, qc_dir, design, '--TP', str(tp), '--TN', str(tp))
+        assert not fake_sqanti3_ml
+        self._run_ml(tmp_path, qc_dir, design)
+        assert len(fake_sqanti3_ml) == 2
+
+    def test_training_lists_reach_sqanti3_for_one_sample(self, qc_run, fake_sqanti3_ml):
+        tmp_path, qc_dir, design = qc_run
+        tp = tmp_path / "tp.txt"
+        tp.write_text("PB.1.1\n")
+        self._run_ml(tmp_path, qc_dir, design, '--TP', str(tp), '--TN', str(tp))
+        (cmd, _), = fake_sqanti3_ml
+        assert cmd[cmd.index('-p') + 1] == str(tp)
+
+    def test_the_log_names_the_ml_filter(self, qc_run, fake_sqanti3_ml):
+        tmp_path, qc_dir, design = qc_run
+        messages = []
+        _run(tmp_path, qc_dir, design, '--method', 'ml', log=messages.append)
+        assert any('1/3 transcript models passed the SQANTI3 ML filter' in m
+                   for m in messages)
+
+
 class TestEntryPoint:
     def test_main_dispatches_to_the_transcript_filter(self, qc_run, fake_sqanti3,
                                                       monkeypatch):
@@ -505,3 +740,15 @@ class TestEntryPoint:
         filter_pipeline.main()
         assert len(fake_sqanti3) == 1
         assert (tmp_path / "filter" / "rep1" / "s1_RulesFilter_classification.txt").exists()
+
+    def test_main_gives_j_its_ml_meaning(self, qc_run, fake_sqanti3_ml, monkeypatch):
+        import filter_pipeline
+        tmp_path, qc_dir, design = qc_run
+        monkeypatch.setattr(sys, 'argv', [
+            'sqanti_sc_filter.py', 'transcripts', '-de', design, '-q', str(qc_dir),
+            '-d', str(tmp_path / "filter"), '--method', 'ml', '-j', '0.9'])
+        filter_pipeline.main()
+        (cmd, _), = fake_sqanti3_ml
+        assert cmd[2] == 'ml'
+        assert cmd[cmd.index('-j') + 1] == '0.9'
+        assert (tmp_path / "filter" / "rep1" / "s1_ML_classification.txt").exists()

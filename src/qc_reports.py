@@ -50,7 +50,11 @@ def generate_report(args, df):
                         sample_prefix(args.qc_dir, file_acc, sampleID))
                     flags.extend(["--input_cell_summary", f'"{input_summary}"'])
                     tx_reasons = f"{outputPathPrefix}_filtering_reasons.txt"
-                    if os.path.isfile(tx_reasons):
+                    if args.method == 'ml':
+                        # SQANTI3 writes the classifier's test results and variable
+                        # importance unprefixed, next to the sample's outputs.
+                        flags.extend(["--ml_dir", f'"{os.path.dirname(outputPathPrefix)}"'])
+                    elif os.path.isfile(tx_reasons):
                         flags.extend(["--transcript_filter_reasons", f'"{tx_reasons}"'])
 
                 # Check for clustering results

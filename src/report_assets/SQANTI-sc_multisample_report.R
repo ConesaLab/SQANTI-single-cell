@@ -1904,7 +1904,7 @@ main <- function() {
           df$w <- 1  # reads mode: one row per read is already expression-level
         }
         df <- df[is.finite(df$length) & df$length > 0 & is.finite(df$w) & df$w > 0, , drop = FALSE]
-        sample_id <- sub("_(RulesFilter_)?classification\\.txt(\\.gz)?$", "", basename(f))
+        sample_id <- sub("_(RulesFilter_|ML_)?classification\\.txt(\\.gz)?$", "", basename(f))
         df$sampleID <- sample_id
         df
       })

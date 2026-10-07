@@ -7,9 +7,16 @@ import pandas as pd
 
 import filter_io
 from cell_filter import detect_measured_evidence, detect_mode
-from filter_io import RESULT_ARTIFACT, RESULT_COLUMN
+from filter_io import (CHUNKSIZE, LABELLED_CLASSIFICATIONS, READ_KW, RESULT_ARTIFACT,
+                       RESULT_COLUMN)
 from cell_metrics import calculate_metrics_per_cell
 from paths import sqantiqcPath
+
+# What SQANTI3's ML filter adds to its classification, in its order, before the verdict.
+ML_COLUMNS = ('POS_MLprob', 'NEG_MLprob', 'ML_classifier', 'intra_priming')
+# Columns SQANTI-sc adds that describe cells or key a junction chain, not a model's
+# quality. A text column that reaches the random forest is used as its rank.
+NOT_ML_FEATURES = ('CB', 'UMI', 'jxn_string', 'jxnHash')
 
 
 def detect_run_mode(args, df):
@@ -36,13 +43,46 @@ def build_sqanti3_filter_command(args, class_file, out_dir, sampleID):
     # SQANTI3's own report is skipped, as the QC run skips SQANTI3 QC's: the reports are
     # SQANTI-sc's. -e is never passed: mono-exonic models are judged by the rules like any
     # other, and a rule on the exons column expresses the same thing when wanted.
-    cmd = [sys.executable, os.path.join(sqantiqcPath, 'sqanti3_filter.py'), 'rules',
+    cmd = [sys.executable, os.path.join(sqantiqcPath, 'sqanti3_filter.py'), args.method,
            '--sqanti_class', os.path.abspath(class_file),
            '-d', os.path.abspath(out_dir), '-o', str(sampleID),
            '-l', args.log_level, '--skip_report']
-    if args.rules:
-        cmd += ['-j', os.path.abspath(args.rules)]
+    if args.method == 'rules':
+        if args.rules:
+            cmd += ['-j', os.path.abspath(args.rules)]
+        return cmd
+
+    for flag, value in (('-j', args.threshold), ('-t', args.percent_training),
+                        ('-z', args.max_class_size), ('-i', args.intrapriming)):
+        if value is not None:
+            cmd += [flag, str(value)]
+    for flag, path in (('-p', args.TP), ('-n', args.TN), ('-r', args.remove_columns)):
+        if path:
+            cmd += [flag, os.path.abspath(path)]
+    if args.force_fsm_in:
+        cmd.append('-f')
+    if args.intermediate_files:
+        cmd.append('--intermediate_files')
     return cmd
+
+
+def _fl_totals(fl):
+    counts = pd.to_numeric(fl.astype(str).str.split(',').explode(), errors='coerce')
+    totals = counts.groupby(level=0).sum(min_count=1)
+    return totals.map(lambda v: 'NA' if pd.isna(v) else f"{v:.15g}")
+
+
+def write_ml_input(src, dst, mode, chunksize=CHUNKSIZE):
+    """The classification as SQANTI3's ML filter reads it. In isoforms mode FL becomes the
+    model's total over its cells, as SQANTI3 adds up per-sample FL columns."""
+    header = True
+    with open(dst, 'w') as out_fh:
+        for chunk in pd.read_csv(src, chunksize=chunksize, **READ_KW):
+            chunk = chunk.drop(columns=[c for c in NOT_ML_FEATURES if c in chunk.columns])
+            if mode == 'isoforms' and 'FL' in chunk.columns:
+                chunk['FL'] = _fl_totals(chunk['FL'])
+            chunk.to_csv(out_fh, sep='\t', index=False, header=header)
+            header = False
 
 
 def run_sqanti3_filter(args, class_file, out_dir, sampleID):
@@ -79,8 +119,33 @@ def check_not_already_filtered(args, df):
             )
 
 
+def check_out_dir_method(args, df):
+    """Readers pick up whichever labelled classification they find, and the report the
+    rules filter's reasons file, so one directory holds one method's output."""
+    for _, row in df.iterrows():
+        prefix = filter_io.sample_prefix(args.out_dir, row['file_acc'], row['sampleID'])
+        for method, suffix in LABELLED_CLASSIFICATIONS.items():
+            if method != args.method and os.path.isfile(prefix + suffix):
+                raise ValueError(
+                    f"ERROR: {prefix + suffix} was written by --method {method}. Write "
+                    f"--method {args.method} to a different --out_dir."
+                )
+
+
+def check_training_lists(args, df):
+    """Model IDs are numbered per sample, so one TP/TN list cannot serve several samples."""
+    if args.method == 'ml' and (args.TP or args.TN) and len(df) > 1:
+        raise ValueError(
+            "ERROR: --TP and --TN list the models of one sample, and model IDs are not "
+            "shared between samples. Run each sample with a one-row design, or leave them "
+            "out so SQANTI3 builds the lists from each sample."
+        )
+
+
 def run_transcript_filter(args, df, log=print):
     check_not_already_filtered(args, df)
+    check_out_dir_method(args, df)
+    check_training_lists(args, df)
     mode, evidence = detect_run_mode(args, df)
 
     for _, row in df.iterrows():
@@ -91,14 +156,31 @@ def run_transcript_filter(args, df, log=print):
         os.makedirs(out_dir, exist_ok=True)
         out_prefix = os.path.join(out_dir, str(sampleID))
 
-        run_sqanti3_filter(args, in_class, out_dir, sampleID)
+        labelled = out_prefix + LABELLED_CLASSIFICATIONS[args.method]
+        if args.method == 'ml':
+            ml_input = f"{out_prefix}_ML_input.tmp"
+            write_ml_input(in_class, ml_input, mode)
+            try:
+                run_sqanti3_filter(args, ml_input, out_dir, sampleID)
+            finally:
+                os.remove(ml_input)
+        else:
+            run_sqanti3_filter(args, in_class, out_dir, sampleID)
         passing = filter_io.read_id_list(f"{out_prefix}_pass_isoforms.txt")
 
-        # Replaces SQANTI3's own copy, which it writes back through pandas: 'NA' becomes
-        # empty, TRUE becomes True and -1 becomes -1.0, and cell_metrics.py compares
-        # those flags as exact strings. Same rows, columns and verdicts, original values.
-        rows_in, rows_out = filter_io.write_labelled_classification(
-            in_class, f"{out_prefix}_RulesFilter_classification.txt", passing)
+        # Replaces SQANTI3's own copy: the rules filter writes it back through pandas ('NA'
+        # becomes empty, TRUE True, -1 -1.0, and cell_metrics.py compares those flags as
+        # exact strings), the ML filter from the reduced input above. Same rows and
+        # verdicts, original values.
+        if args.method == 'ml':
+            sqanti3_copy = f"{labelled}.sqanti3"
+            os.replace(labelled, sqanti3_copy)
+            rows_in, rows_out = filter_io.write_labelled_classification(
+                in_class, labelled, passing, columns_from=sqanti3_copy, columns=ML_COLUMNS)
+            os.remove(sqanti3_copy)
+        else:
+            rows_in, rows_out = filter_io.write_labelled_classification(
+                in_class, labelled, passing)
         if os.path.isfile(f"{in_prefix}_junctions.txt"):
             filter_io.subset_by_isoform(
                 f"{in_prefix}_junctions.txt", f"{out_prefix}_junctions.txt", passing)
@@ -108,7 +190,7 @@ def run_transcript_filter(args, df, log=print):
             f"{in_prefix}_corrected.fasta", f"{out_prefix}_corrected.fasta", passing)
         extra = filter_io.subset_optional_model_files(in_prefix, out_prefix, passing)
         log(f"**** {sampleID}: {rows_out}/{rows_in} transcript models passed the "
-            f"SQANTI3 rules filter")
+            f"SQANTI3 {'ML' if args.method == 'ml' else 'rules'} filter")
         if extra:
             log(f"**** {sampleID}: also cut to the passing models: {', '.join(extra)}")
 

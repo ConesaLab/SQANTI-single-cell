@@ -42,6 +42,7 @@ clustering_path <- NULL
 cell_filter_reasons_path <- NULL
 input_cell_summary_path <- NULL
 transcript_filter_reasons_path <- NULL
+ml_dir <- NULL
 ref_gtf_path <- NULL
 
 # Check for optional arguments
@@ -103,6 +104,15 @@ if (length(args) > 5) {
         next
       } else {
         stop("--transcript_filter_reasons requires a path argument")
+      }
+    }
+    if (arg == "--ml_dir") {
+      if ((i + 1) <= length(args)) {
+        ml_dir <- args[i + 1]
+        i <- i + 2
+        next
+      } else {
+        stop("--ml_dir requires a path argument")
       }
     }
     if (arg == "--clustering") {
@@ -3681,8 +3691,17 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       for (p in list(gg_tf_lost_depth, gg_tf_removed_by_cluster, gg_tf_umap_removed)) {
         if (!is.null(p)) print(apply_pdf_theme(p))
       }
-      if (!is.null(tf_rule_counts)) filter_table_page(tf_rule_counts, paste("Rules that removed", tf_unit))
-      if (!is.null(gg_tf_removed_by_rule)) print(apply_pdf_theme(gg_tf_removed_by_rule))
+      if (!is.null(tf_rule_counts)) filter_table_page(tf_rule_counts, tf_reasons_title)
+      if (tf_rules_single) {
+        render_pdf_plot_centered("gg_tf_removed_by_rule", width_frac = 0.5)
+      } else if (!is.null(gg_tf_removed_by_rule)) {
+        print(apply_pdf_theme(gg_tf_removed_by_rule))
+      }
+      for (p in list(gg_tf_ml_category_pct, gg_tf_ml_category_count)) {
+        if (!is.null(p)) print(apply_pdf_theme(p))
+      }
+      if (!is.null(tf_ml_performance)) filter_table_page(tf_ml_performance, "Random forest, test set")
+      if (!is.null(gg_tf_ml_importance)) print(apply_pdf_theme(gg_tf_ml_importance))
       filter_table_page(tf_category_counts, "Removed by structural category")
       for (p in list(gg_tf_categories, gg_tf_goodq, gg_tf_badq, gg_tf_cells_per_model)) {
         if (!is.null(p)) print(apply_pdf_theme(p))
@@ -3730,6 +3749,20 @@ summarise_removed_models <- function(cls) {
                         stringsAsFactors = FALSE)
   }
 
+  # SQANTI3's ML filter removes a model as a classifier negative, as intra-primed, or
+  # both; its filter report names the three the same way.
+  ml_reasons <- NULL
+  if ("ML_classifier" %in% colnames(cls)) {
+    ml_negative <- art$ML_classifier %in% "Negative"
+    intra_primed <- art$intra_priming %in% "TRUE"
+    ml_reasons <- data.frame(
+      isoform = art$isoform,
+      rule = ifelse(ml_negative & intra_primed, "Both",
+                    ifelse(ml_negative, "Machine learning", "Intra-priming")),
+      category = art$structural_category,
+      stringsAsFactors = FALSE)
+  }
+
   cells_per_model <- NULL
   if ("cells_detected" %in% colnames(cls)) {
     cells_per_model <- data.frame(
@@ -3745,7 +3778,10 @@ summarise_removed_models <- function(cls) {
               length(unique(cls$associated_gene[!removed]))),
     by_category = by_category,
     pairs = pairs,
-    cells_per_model = cells_per_model
+    cells_per_model = cells_per_model,
+    ml_reasons = ml_reasons,
+    ml_trained = "ML_classifier" %in% colnames(cls) &&
+      any(cls$ML_classifier %in% c("Positive", "Negative"))
   )
 }
 
@@ -4107,12 +4143,22 @@ gg_tf_lost_depth <- NULL
 gg_tf_removed_by_cluster <- NULL
 gg_tf_umap_removed <- NULL
 gg_tf_removed_by_rule <- NULL
+tf_rules_single <- FALSE
 gg_tf_categories <- NULL
 gg_tf_goodq <- NULL
 gg_tf_badq <- NULL
 gg_tf_cells_per_model <- NULL
+tf_ml_performance <- NULL
+gg_tf_ml_importance <- NULL
+gg_tf_ml_category_pct <- NULL
+gg_tf_ml_category_count <- NULL
+tf_ml_importance_height <- 6
 # What the filter judges and removes: collapsed models in isoforms mode, reads otherwise.
 tf_unit <- if (mode == "isoforms") "isoforms" else entity_label_plural_lower
+tf_by_ml <- !is.null(ml_dir)
+tf_reason_label <- if (tf_by_ml) "Reason" else "Rule"
+tf_reasons_title <- if (tf_by_ml) "Reasons for removal" else
+  paste("Rules that removed", tf_unit)
 
 tf_theme <- theme_classic(base_size = 11) +
   theme(
@@ -4215,7 +4261,9 @@ if (!is.null(tf_removed_models)) {
   }
 
   # A model failing several alternative rule-sets lists every rule it failed, so it is
-  # counted under each and the shares can sum to more than the total removed.
+  # counted under each and the shares can sum to more than the total removed. The ML
+  # filter's reasons are exclusive.
+  rule_map <- NULL
   if (!is.null(transcript_filter_reasons_path)) {
     reasons <- data.table::fread(transcript_filter_reasons_path, header = TRUE, sep = "\t",
                                  stringsAsFactors = FALSE, data.table = FALSE)
@@ -4225,7 +4273,11 @@ if (!is.null(tf_removed_models)) {
       rule = sub("^([^:]+): .*?([<>] .*)$", "\\1 \\2", unlist(parts)),
       stringsAsFactors = FALSE))
     rule_map <- rule_map[nzchar(rule_map$rule), , drop = FALSE]
+  } else if (!is.null(tf_removed_models$ml_reasons)) {
+    rule_map <- tf_removed_models$ml_reasons
+  }
 
+  if (!is.null(rule_map)) {
     if (nrow(rule_map) > 0) {
       pairs <- data.table::as.data.table(tf_removed_models$pairs)
       by_rule <- pairs[data.table::as.data.table(rule_map), on = "isoform",
@@ -4235,7 +4287,7 @@ if (!is.null(tf_removed_models)) {
       rules <- rule_totals$rule
       models_per_rule <- table(rule_map$rule)[rules]
 
-      tf_rule_counts <- data.frame(Rule = rules, stringsAsFactors = FALSE)
+      tf_rule_counts <- setNames(data.frame(rules, stringsAsFactors = FALSE), tf_reason_label)
       if (mode == "isoforms") {
         tf_rule_counts$`Isoforms removed` <- as.integer(models_per_rule)
         tf_rule_counts$`Isoforms removed (%)` <-
@@ -4253,9 +4305,50 @@ if (!is.null(tf_removed_models)) {
         data.frame(Variable = r, Value = 100 * v / tf_cells$before, stringsAsFactors = FALSE)
       }))
       d$Variable <- factor(d$Variable, levels = rules)
+      # One violin is drawn as the report's other single violins: narrow, label level.
+      tf_rules_single <- length(rules) == 1
       gg_tf_removed_by_rule <- tf_single_violins(
-        d, paste(entity_label_plural, "removed per cell, by rule"),
-        setNames(rep(fill_color_orange, length(rules)), rules))
+        d, paste(entity_label_plural, "removed per cell, by", tolower(tf_reason_label)),
+        setNames(rep(fill_color_orange, length(rules)), rules),
+        x_tickangle = if (tf_rules_single) 0 else 45)
+    }
+  }
+
+  # Only when this run trained: SQANTI3 writes these files under fixed names and leaves
+  # an earlier run's in place when it skips training.
+  if (tf_by_ml && tf_removed_models$ml_trained) {
+    imp_file <- file.path(ml_dir, "classifier_variable-importance_table.txt")
+    if (file.exists(imp_file)) {
+      imp <- read.delim(imp_file, header = FALSE, col.names = c("variable", "importance"),
+                        stringsAsFactors = FALSE)
+      imp$variable <- factor(imp$variable, levels = imp$variable[order(imp$importance)])
+      tf_ml_importance_height <- max(5, 1.5 + 0.3 * nrow(imp))
+      gg_tf_ml_importance <- ggplot(imp, aes(x = variable, y = importance)) +
+        geom_col(fill = fill_color_orange, colour = fill_color_orange, alpha = 0.7,
+                 width = 0.7) +
+        coord_flip() +
+        labs(title = "Variable importance in the random forest", x = NULL,
+             y = "Importance, mean decrease in Gini") +
+        tf_theme
+    }
+
+    stats_file <- file.path(ml_dir, "testSet_stats.txt")
+    summary_file <- file.path(ml_dir, "testSet_summary.txt")
+    cm_file <- file.path(ml_dir, "testSet_confusionMatrix.txt")
+    if (all(file.exists(c(stats_file, summary_file, cm_file)))) {
+      stats <- read.delim(stats_file, header = FALSE, col.names = c("metric", "value"),
+                          stringsAsFactors = FALSE)
+      roc <- read.table(summary_file, header = FALSE, col.names = c("metric", "value"),
+                        stringsAsFactors = FALSE)
+      cm <- read.delim(cm_file, stringsAsFactors = FALSE)
+      stat_of <- function(df, m) as.numeric(df$value[match(m, df$metric)])
+      tf_ml_performance <- data.frame(
+        Measure = c("AUC", "Accuracy", "Sensitivity", "Specificity",
+                    paste(tools::toTitleCase(tf_unit), "in the test set")),
+        Value = c(round(c(stat_of(roc, "ROC"), stat_of(stats, "Accuracy"),
+                          stat_of(stats, "Sensitivity"), stat_of(stats, "Specificity")), 3),
+                  sum(cm$Freq)),
+        stringsAsFactors = FALSE)
     }
   }
 
@@ -4285,6 +4378,38 @@ if (!is.null(tf_removed_models)) {
   tf_category_counts[[paste(entity_label_plural, "removed")]] <- round(bc$count_removed, 2)
   tf_category_counts[[paste0(entity_label_plural, " removed (%)")]] <-
     round(100 * bc$count_removed / pmax(bc$count_before, 1), 2)
+
+  # Which categories each ML reason hit, as SQANTI3's own filter report shows it. Counted
+  # in the unit the filter judges, so a share is of the category's isoforms (or reads).
+  ml_r <- tf_removed_models$ml_reasons
+  if (!is.null(ml_r) && nrow(ml_r) > 0) {
+    reason_fill <- c("Machine learning" = "#00B0A5", "Intra-priming" = "#E1744E",
+                     "Both" = "#FAC24A")
+    cat_label <- function(x) ifelse(x %in% names(tf_category_labels), tf_category_labels[x], x)
+    by_reason <- as.data.frame(table(category = factor(ml_r$category, levels = bc$category),
+                                     Reason = factor(ml_r$rule, levels = names(reason_fill))),
+                               stringsAsFactors = FALSE)
+    by_reason <- by_reason[by_reason$Freq > 0, , drop = FALSE]
+    by_reason$pct <- 100 * by_reason$Freq / bc$models_before[match(by_reason$category, bc$category)]
+    by_reason$Category <- factor(cat_label(by_reason$category), levels = cat_label(bc$category))
+    by_reason$Reason <- factor(by_reason$Reason,
+                               levels = intersect(names(reason_fill), by_reason$Reason))
+    unit_title <- tools::toTitleCase(tf_unit)
+    reason_bars <- function(y, y_label) {
+      ggplot(by_reason, aes(x = Category, y = .data[[y]], fill = Reason)) +
+        geom_col(width = 0.7) +
+        scale_fill_manual(values = reason_fill, breaks = levels(by_reason$Reason)) +
+        labs(title = paste(unit_title, "removed by reason and structural category"),
+             x = NULL, y = y_label) +
+        tf_theme +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+              legend.text = element_text(size = 14),
+              legend.title = element_text(size = 16, face = "bold"))
+    }
+    gg_tf_ml_category_pct <- reason_bars("pct", paste0(unit_title, ", %"))
+    gg_tf_ml_category_count <- reason_bars("Freq", paste0(unit_title, ", count")) +
+      scale_y_continuous(labels = scales::comma)
+  }
 
   # Same cells on both sides, so a shift is the filter changing those cells rather than
   # the loss of the cells it emptied.

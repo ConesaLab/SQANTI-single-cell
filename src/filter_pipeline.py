@@ -2,7 +2,7 @@ import sys
 
 import filter_io
 from cell_filter import run_cell_filter
-from filter_args import build_filter_parser
+from filter_args import build_filter_parser, transcript_method
 from transcript_filter import run_transcript_filter
 
 
@@ -28,7 +28,7 @@ def _run_downstream(args, df):
 
 
 def main():
-    args = build_filter_parser().parse_args()
+    args = build_filter_parser(method=transcript_method(sys.argv[1:])).parse_args()
     if args.subcommand is None:
         build_filter_parser().print_help()
         sys.exit(1)
