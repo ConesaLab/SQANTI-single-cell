@@ -39,6 +39,7 @@ from qc_io import fill_design_table
 from sqanti3_qc_runner import run_sqanti3_qc
 from classification_enrichment import annotate_with_ujc_hash, annotate_with_cell_metadata, annotate_with_sample_support
 from qc_reports import generate_report, generate_multisample_report
+from filter_io import LABELLED_CLASSIFICATIONS
 from qc_args import build_parser, warn_ignored_options
 from qc_pipeline import main as pipeline_main
 from cell_metrics import calculate_metrics_per_cell
@@ -652,10 +653,10 @@ def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
     # filters' outputs -- this is a QC run, not a filtered one.
     labelled = f"{prefix}_CellFilter_cell_summary.txt.gz"
     reasons = f"{prefix}_cell_filtering_reasons.txt"
-    labelled_class = f"{prefix}_RulesFilter_classification.txt"
+    labelled_classes = [prefix + suffix for suffix in LABELLED_CLASSIFICATIONS.values()]
 
     def _isfile(path):
-        return path not in (clustering_file, labelled, reasons, labelled_class)
+        return path not in (clustering_file, labelled, reasons, *labelled_classes)
     mock_isfile.side_effect = _isfile
 
     generate_report(mock_args, df)

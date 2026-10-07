@@ -257,6 +257,8 @@ show_tf_umap <- show_tf && !is.null(gg_tf_umap_removed)
 show_tf_goodq <- show_tf && !is.null(gg_tf_goodq)
 show_tf_badq <- show_tf && !is.null(gg_tf_badq)
 show_tf_models <- show_tf && !is.null(gg_tf_cells_per_model)
+show_tf_ml <- show_tf && (!is.null(tf_ml_performance) || !is.null(gg_tf_ml_importance))
+show_tf_ml_category <- show_tf && !is.null(gg_tf_ml_category_pct)
 ```
 
 ```{r tf-header, results='asis', eval=show_tf}
@@ -315,17 +317,60 @@ print(gg_tf_umap_removed)
 ```
 
 ```{r tf-rules-header, results='asis', eval=show_tf && !is.null(tf_rule_counts)}
-cat(paste0("## Rules that removed ", tf_unit, "\n\n"))
-cat("Each removed", sub("s$", "", tf_unit), "is counted once per rule it failed, so these",
-    "counts may sum to more than the total removed.\n")
+cat(paste0("## ", tf_reasons_title, "\n\n"))
+if (!tf_by_ml) {
+  cat("Each removed", sub("s$", "", tf_unit), "is counted once per rule it failed, so these",
+      "counts may sum to more than the total removed.\n")
+}
 ```
 
 ```{r tf-rules, eval=show_tf && !is.null(tf_rule_counts)}
 render_sqanti_table(tf_rule_counts)
 ```
 
-```{r tf-rules-plot, fig.height=8, fig.width=12, eval=show_tf && !is.null(gg_tf_removed_by_rule)}
+```{r tf-rules-plot-narrow-start, results='asis', eval=show_tf && tf_rules_single}
+cat('<div class="narrow-plot">\n')
+```
+
+```{r tf-rules-plot-narrow, fig.height=7, fig.width=5, match_12in=TRUE, eval=show_tf && tf_rules_single}
 print(gg_tf_removed_by_rule)
+```
+
+```{r tf-rules-plot-narrow-end, results='asis', eval=show_tf && tf_rules_single}
+cat("</div>\n")
+```
+
+```{r tf-rules-plot, fig.height=8, fig.width=12, eval=show_tf && !tf_rules_single && !is.null(gg_tf_removed_by_rule)}
+print(gg_tf_removed_by_rule)
+```
+
+```{r tf-ml-category-header, results='asis', eval=show_tf_ml_category}
+cat("## Reasons for removal by structural category {.tabset .tabset-fade}\n\n")
+cat("### % of category\n\n")
+```
+
+```{r tf-ml-category-pct, fig.height=8, fig.width=12, eval=show_tf_ml_category}
+print(gg_tf_ml_category_pct)
+```
+
+```{r tf-ml-category-count-tab, results='asis', eval=show_tf_ml_category}
+cat("\n### Count\n\n")
+```
+
+```{r tf-ml-category-count, fig.height=8, fig.width=12, eval=show_tf_ml_category}
+print(gg_tf_ml_category_count)
+```
+
+```{r tf-ml-header, results='asis', eval=show_tf_ml}
+cat("## Random forest classifier\n\n")
+```
+
+```{r tf-ml-performance, eval=show_tf && !is.null(tf_ml_performance)}
+render_sqanti_table(tf_ml_performance)
+```
+
+```{r tf-ml-importance, fig.height=tf_ml_importance_height, fig.width=12, eval=show_tf && !is.null(gg_tf_ml_importance)}
+print(gg_tf_ml_importance)
 ```
 
 ```{r tf-categories-header, results='asis', eval=show_tf}

@@ -16,10 +16,57 @@ def add_cell_filter_args(group):
     return group
 
 
-def add_transcript_filter_args(group):
-    group.add_argument('-j', '--rules', default=None,
-                       help='SQANTI3 rules filter JSON, keyed by structural category. '
-                            'Default: SQANTI3\'s own filter_default.json.')
+TRANSCRIPT_METHODS = ('rules', 'ml')
+
+
+def transcript_method(argv):
+    """-j and the method options depend on --method, as they depend on the subcommand in
+    SQANTI3, so the method is read before the parser is built. An unknown value is left
+    for the real parser to reject."""
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument('--method')
+    method = pre.parse_known_args(argv)[0].method
+    return method if method in TRANSCRIPT_METHODS else 'rules'
+
+
+def add_transcript_filter_args(group, method='rules'):
+    group.add_argument('--method', choices=TRANSCRIPT_METHODS, default='rules',
+                       help="SQANTI3 filter to run: 'rules' or 'ml' (machine learning). "
+                            "The options below, -j included, are those of the chosen "
+                            "method; 'transcripts --method ml -h' lists the ML ones. "
+                            "Default: rules.")
+    if method == 'rules':
+        group.add_argument('-j', '--rules', default=None,
+                           help='SQANTI3 rules filter JSON, keyed by structural category. '
+                                'Default: SQANTI3\'s own filter_default.json.')
+        return group
+
+    # Unset values are not passed, so SQANTI3's own defaults apply.
+    group.add_argument('-j', '--threshold', type=float, default=None,
+                       help='Probability threshold to classify a model as an isoform. '
+                            'Default: SQANTI3\'s.')
+    group.add_argument('-t', '--percent_training', type=float, default=None,
+                       help='Proportion of the training set used to train; the rest tests '
+                            'the classifier. Default: SQANTI3\'s.')
+    group.add_argument('-p', '--TP',
+                       help='File of true-positive model IDs, one per line, no header. '
+                            'Without --TP and --TN SQANTI3 builds both lists from the data.')
+    group.add_argument('-n', '--TN',
+                       help='File of true-negative model IDs, one per line, no header.')
+    group.add_argument('-f', '--force_fsm_in', action='store_true', default=False,
+                       help='Keep every FSM model whatever the classifier says.')
+    group.add_argument('--intermediate_files', action='store_true', default=False,
+                       help='Also write SQANTI3\'s ML input table.')
+    group.add_argument('-r', '--remove_columns',
+                       help='File of classification columns, one per line, no header, to '
+                            'leave out of training. Cell barcodes, UMIs and junction '
+                            'chains are always left out.')
+    group.add_argument('-z', '--max_class_size', type=int, default=None,
+                       help='Largest number of models in each of the TP and TN lists. '
+                            'Default: SQANTI3\'s.')
+    group.add_argument('-i', '--intrapriming', type=float, default=None,
+                       help='Adenine percentage at the genomic 3\' end that flags a model '
+                            'as intra-priming. Default: SQANTI3\'s.')
     return group
 
 
@@ -44,7 +91,7 @@ def add_downstream_args(parser):
         parser.add_argument_group("Clustering and UMAP options (re-run on the filtered data)"))
 
 
-def build_filter_parser(version_str: str = '1.2.0'):
+def build_filter_parser(version_str: str = '1.2.0', method: str = 'rules'):
     ap = argparse.ArgumentParser(
         description="SQANTI-sc filter: quality filtering of cell barcodes and transcript "
                     "models from an existing SQANTI-sc QC run"
@@ -75,8 +122,9 @@ def build_filter_parser(version_str: str = '1.2.0'):
 
     transcripts = sub.add_parser(
         'transcripts', parents=[common],
-        help='Filter transcript models with the SQANTI3 rules filter.')
-    add_transcript_filter_args(transcripts.add_argument_group("Transcript filter options"))
+        help='Filter transcript models with the SQANTI3 rules or ML filter.')
+    add_transcript_filter_args(transcripts.add_argument_group("Transcript filter options"),
+                               method)
     add_cell_metrics_args(transcripts.add_argument_group(
         "Cell summary options (pass the values the QC run used)"))
     add_downstream_args(transcripts)

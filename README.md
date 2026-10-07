@@ -613,7 +613,7 @@ Rows with no cell barcode (`unassigned`, `NA`, `-`, `*`, empty) are dropped befo
 
 ## Transcript filter (`sqanti_sc_filter.py transcripts`)
 
-`sqanti_sc_filter.py transcripts` runs the [SQANTI3 rules filter](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-filter) on each sample's classification, the way the QC run calls SQANTI3 QC. In reads mode each row is a read, so the rules judge reads; in isoforms mode they judge transcript models.
+`sqanti_sc_filter.py transcripts` runs a [SQANTI3 filter](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-filter) on each sample's classification, the way the QC run calls SQANTI3 QC: the rules filter by default, or the machine-learning filter with `--method ml`. In reads mode each row is a read, so the filter judges reads; in isoforms mode it judges transcript models.
 
 ```bash
 python sqanti_sc_filter.py transcripts \
@@ -638,14 +638,36 @@ Put the rule in every alternative rule-set of a category: a rule-set without it 
 
 The two cluster columns are measured only when the input was clustered (`--run_clustering` in the QC run or the cell filter). Otherwise they are `NA`, and SQANTI3 fails a rule on `NA`, so a rule on them discards every model of that category with the reason `NA value in max_cluster_cells` — as `min_cov` does without short reads. A QC run made before these columns existed has none of them; run the cell filter with `--run_clustering` to add them.
 
+### Machine learning (`--method ml`)
+
+`--method ml` runs SQANTI3's ML filter. A random forest learns from a list of true isoforms and a list of artifacts, then judges every multi-exon model; an intra-priming check on the 3' end runs alongside it. See the SQANTI3 documentation for the method.
+
+```bash
+python sqanti_sc_filter.py transcripts --method ml \
+    --design design.csv \
+    --qc_dir ./filter/cells \
+    --out_dir ./filter/transcripts_ml
+```
+
+The options are SQANTI3's, under SQANTI3's flags, so `-j` is the probability threshold here rather than a rules file. `-t`, `-p`/`-n`, `-f`, `-r`, `-z`, `-i` and `--intermediate_files` mean what they mean in SQANTI3, and SQANTI3's own defaults apply to any left unset. `transcripts --method ml -h` lists them. `-e` is not exposed, as for the rules.
+
+SQANTI3 reads a copy of the classification made for it, deleted once it finishes:
+
+* In isoforms mode `FL` holds one count per cell, so the copy carries the model's total, the way SQANTI3 adds up the `FL` columns of several samples. How many cells the model is in reaches the forest separately, as `cells_detected`, and on a clustered run as `max_cluster_cells` and `max_cluster_pct`.
+* The cell barcodes and UMIs, and in reads mode the junction-chain columns `jxn_string` and `jxnHash`, are left out. They describe cells, not models, and the forest would otherwise use their text as a number.
+
+SQANTI3 builds the two training lists from each sample's own classification: reference-match FSM models as true isoforms, non-canonical NNC models as artifacts. It needs at least 250 models in each. With fewer it skips the classifier and still finishes normally, so only intra-primed models are removed; the report then shows intra-priming as the only reason. `--TP` and `--TN` supply the lists yourself, for a design with a single sample: model IDs are numbered per sample, so they are refused when the design has more than one.
+
 ### Output
 
 The output has the same `<out_dir>/<file_acc>/<sampleID>_*` shape as a QC run. Each filter labels the table whose rows it judges and cuts the other files to match: the cell filter labels the cell summary, and the transcript filter labels the classification.
 
 | File | Contents |
 |---|---|
-| `<sampleID>_RulesFilter_classification.txt` | **Every** model, plus SQANTI3's `filter_result` column (`Isoform`/`Artifact`) |
-| `<sampleID>_filtering_reasons.txt` | Discarded models and why (SQANTI3's) |
+| `<sampleID>_RulesFilter_classification.txt` | Rules: **every** model, plus SQANTI3's `filter_result` column (`Isoform`/`Artifact`) |
+| `<sampleID>_ML_classification.txt` | ML: **every** model, plus SQANTI3's `POS_MLprob`, `NEG_MLprob`, `ML_classifier`, `intra_priming` and `filter_result` columns |
+| `<sampleID>_filtering_reasons.txt` | Rules: discarded models and why (SQANTI3's) |
+| `<sampleID>_TP_list.txt`, `<sampleID>_TN_list.txt`, `<sampleID>_randomforest.RData`, `testSet_*`, `classifier_variable-importance_table.txt` | ML: SQANTI3's training lists (when it built them), the classifier and its test-set results |
 | `<sampleID>_pass_isoforms.txt` | Passing model IDs, one per line (SQANTI3's) |
 | `<sampleID>_params.txt` | SQANTI3's record of the run |
 | `<sampleID>_junctions.txt` | Only the junctions of the passing models |
@@ -653,7 +675,7 @@ The output has the same `<out_dir>/<file_acc>/<sampleID>_*` shape as a QC run. E
 | `<sampleID>_corrected.fasta` | The sequences of those same models |
 | `<sampleID>_SQANTI_cell_summary.txt.gz` | Recomputed from the passing models |
 
-**The classification is labelled, never subset**, as in SQANTI3, and there is no second copy holding only the passing models. Every reader of the classification — the cell summary, clustering, both reports and the `.h5ad` export — skips the `Artifact` rows when it sees the verdict column. The rows are exactly as the QC run wrote them: SQANTI3 writes its own copy of this file back through pandas, which rewrites `NA` as an empty field, `TRUE` as `True` and `-1` as `-1.0`, so the wrapper replaces it with the original rows plus SQANTI3's verdict.
+**The classification is labelled, never subset**, as in SQANTI3, and there is no second copy holding only the passing models. Every reader of the classification — the cell summary, clustering, both reports and the `.h5ad` export — skips the `Artifact` rows when it sees the verdict column. The rows are exactly as the QC run wrote them. SQANTI3's rules filter writes its own copy of this file back through pandas, which rewrites `NA` as an empty field, `TRUE` as `True` and `-1` as `-1.0`, and its ML filter writes the reduced copy it read; the wrapper replaces either with the original rows plus SQANTI3's added columns. A rules run and an ML run cannot share an `--out_dir`, since the readers take whichever labelled classification they find.
 
 The junctions, GTF and FASTA contain only the passing models, the way SQANTI3's own filtered GTF and FASTA do. They keep their QC names and their original lines. So do the optional per-model files when the QC run produced them, as for the cell filter: the proteins and their CDS coordinates, the SAM and the tappAS GFF3.
 
@@ -663,7 +685,7 @@ A classification that already carries `filter_result` is refused as input: filte
 
 ### Reports
 
-`--report`, `--refGTF`, `--multisample_report` and the clustering options work as for the cell filter: clustering is refitted on the filtered data, and the per-sample and multisample reports are rendered from it. Refitting recomputes the cell-context columns of the passing models; the `Artifact` rows keep the values they were judged on. The reports therefore describe every cell as it is once its artifactual models are removed. SQANTI3's own filter report is not produced, just as the QC run does not produce SQANTI3's QC report.
+`--report`, `--refGTF`, `--multisample_report` and the clustering options work as for the cell filter: clustering is refitted on the filtered data, and the per-sample and multisample reports are rendered from it. Refitting recomputes the cell-context columns of the passing models; the `Artifact` rows keep the values they were judged on. The reports therefore describe every cell as it is once its artifactual models are removed. After the ML filter the report shows why models were removed (machine learning, intra-priming or both), per cell and per structural category, and, when the classifier was trained, its test-set performance and the importance of each variable. SQANTI3's own filter report is not produced, just as the QC run does not produce SQANTI3's QC report.
 
 
 <a name="understanding-the-output-of-sqanti-sc"></a>
