@@ -222,23 +222,27 @@ def calculate_metrics_per_cell(args, df):
             return pd.Series(np.bincount(cc, minlength=Cn).astype(float), index=cells_index)
 
         def weighted_median():
-            wint = data.astype(np.int64)
-            sel = np.isfinite(length[row]) & (wint > 0)
+            # FL can be fractional (EM quantifiers, a rescued count split between tied
+            # targets). With integer weights this is the median of the expanded values.
+            sel = np.isfinite(length[row]) & (data > 0)
             if not sel.any():
                 return pd.Series(np.zeros(Cn), index=cells_index)
             c = col[sel]
             L = length[row][sel].astype(np.float64)
-            w = wint[sel]
+            w = data[sel].astype(np.float64)
             order = np.lexsort((L, c))
             c = c[order]; L = L[order]; w = w[order]
             Gcum = np.cumsum(w)
-            tot = np.bincount(c, weights=w, minlength=Cn).astype(np.int64)
-            Wbefore = np.cumsum(tot) - tot
+            tot = np.bincount(c, weights=w, minlength=Cn)
+            end = np.cumsum(tot)
             present = tot > 0
-            p1 = (tot - 1) // 2
-            p2 = tot // 2
-            i1 = np.clip(np.searchsorted(Gcum, Wbefore + p1 + 1, side='left'), 0, len(L) - 1)
-            i2 = np.clip(np.searchsorted(Gcum, Wbefore + p2 + 1, side='left'), 0, len(L) - 1)
+            half = end - tot / 2.0
+            tol = 1e-9 * np.maximum(1.0, end)
+            last = len(L) - 1
+            i1 = np.clip(np.searchsorted(Gcum, half - tol, side='left'), 0, last)
+            # The half-way point falls exactly between two values: average them.
+            i2 = np.clip(i1 + (np.abs(Gcum[i1] - half) <= tol), 0, last)
+            i2 = np.where(c[i2] == c[i1], i2, i1)
             med = (L[i1] + L[i2]) / 2.0
             out = np.zeros(Cn)
             out[present] = med[present]

@@ -38,12 +38,14 @@ LABELLED_CLASSIFICATIONS = {
     'rules': '_RulesFilter_classification.txt',
     'ml': '_ML_classification.txt',
 }
+# SQANTI3 rescue's name. Kept models and reintroduced references only, so no verdict column.
+RESCUED_CLASSIFICATION = '_rescued_classification.txt'
 
 
 def classification_path(outputPathPrefix):
     """The transcript filter labels the classification rather than subsetting it, as
     SQANTI3 does, so a filtered run has the labelled file and no plain one."""
-    for suffix in LABELLED_CLASSIFICATIONS.values():
+    for suffix in (*LABELLED_CLASSIFICATIONS.values(), RESCUED_CLASSIFICATION):
         if os.path.isfile(outputPathPrefix + suffix):
             return outputPathPrefix + suffix
     return f"{outputPathPrefix}_classification.txt"

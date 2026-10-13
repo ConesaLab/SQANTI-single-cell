@@ -4,6 +4,7 @@ import filter_io
 from cell_filter import run_cell_filter
 from filter_args import build_filter_parser, transcript_method
 from transcript_filter import run_transcript_filter
+from transcript_rescue import run_transcript_rescue
 
 
 def _run_downstream(args, df):
@@ -37,6 +38,10 @@ def main():
         if args.subcommand == 'cells':
             df = filter_io.read_sample_table(args.inDESIGN, args.qc_dir)
             mode, evidence = run_cell_filter(args, df)
+        elif args.subcommand == 'rescue':
+            df = filter_io.read_sample_table(args.inDESIGN, args.qc_dir,
+                                             labelled_summary_ok=True)
+            mode, evidence = run_transcript_rescue(args, df)
         else:
             df = filter_io.read_sample_table(args.inDESIGN, args.qc_dir,
                                              labelled_summary_ok=True)
