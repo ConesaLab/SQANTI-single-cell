@@ -70,66 +70,15 @@ def add_transcript_filter_args(group, method='rules'):
     return group
 
 
-RESCUE_MODES = ('automatic', 'full')
-
-
-def add_rescue_args(group):
-    group.add_argument('--pre_filter_dir', required=True,
-                       help="The directory the transcript filter read (its -q). Full rescue "
-                            "aligns the removed models, whose sequences only that directory "
-                            "still has.")
-    group.add_argument('--refFasta', required=True,
-                       help='Reference genome (FASTA) the QC run used. --refGTF is required '
-                            'too.')
-    group.add_argument('--mode', dest='rescue_mode', choices=RESCUE_MODES, default='automatic',
-                       help="SQANTI3 rescue mode. 'automatic' puts back the reference "
-                            "transcripts whose every FSM was removed; 'full' also aligns the "
-                            "removed ISM, NIC and NNC models to the kept models and reference "
-                            "transcripts of their genes. Default: automatic.")
-    group.add_argument('-k', '--refClassif',
-                       help='Classification of a SQANTI3 QC run on --refGTF with the QC run\'s '
-                            'orthogonal data, used instead of running one. Its '
-                            '_junctions.txt, _corrected.gtf and _corrected.fasta must sit '
-                            'beside it.')
-    group.add_argument('-j', '--rules', default=None,
-                       help='Rules JSON full rescue checks reference targets with: the one the '
-                            'transcript filter used, or any for ML filter output, whose '
-                            'reference targets are checked by rules too. Default: SQANTI3\'s '
-                            'filter_default.json.')
-    return group
-
-
-def add_reference_qc_args(group):
-    """The QC options that shape a classification, with the QC parser's defaults: the
-    reference QC's rows join the sample's classification."""
-    group.add_argument('--CAGE_peak', help="FANTOM5 CAGE Peak (BED).")
-    group.add_argument('--polyA_motif_list', help="Ranked list of polyA motifs (text).")
-    group.add_argument('--polyA_peak', help="PolyA Peak (BED).")
-    group.add_argument('--phyloP_bed', help="PhyloP conservation scores (BED).")
-    group.add_argument('--include_ORF', action="store_true", default=False,
-                       help="Include ORF prediction.")
-    group.add_argument('-s', '--sites', default="ATAC,GCAG,GTAG",
-                       help='Canonical splice sites. Default: ATAC,GCAG,GTAG.')
-    group.add_argument('-w', '--window', default=20, type=int,
-                       help='Window size for Adenine content screen. Default: 20.')
-    group.add_argument('--ratio_TSS_metric', default='max',
-                       choices=['max', 'mean', 'median', '3quartile'],
-                       help='Metric for ratio_TSS column. Default: max.')
-    group.add_argument('--min_ref_len', type=int, default=0,
-                       help="Min reference transcript length. Default: 0.")
-    group.add_argument('-n', '--chunks', default=10, type=int,
-                       help='Chunks to split the reference QC into. Default: 10.')
-    return group
-
-
-def add_downstream_args(parser):
+def add_downstream_args(parser, ref_gtf=True):
     apd = parser.add_argument_group("Report options")
     apd.add_argument('--report', choices=["pdf", "html", "both", "skip"], default="skip",
                      help="Re-render the per-sample report on filtered data. Default: skip.")
     # The only report input that is not already in the QC outputs: the report reads the
     # annotation itself to compare reference and sample transcript lengths. The optional
     # evidence flags have no counterpart here because SQANTI3 QC is not re-run.
-    apd.add_argument('--refGTF', help='Reference annotation (GTF), for the report.')
+    if ref_gtf:
+        apd.add_argument('--refGTF', help='Reference annotation (GTF), for the report.')
     apd.add_argument('--multisample_report', action='store_true', default=False,
                      help='Generate a multisample report from the filtered cell summaries.')
     apd.add_argument('--multisample_report_prefix', default='SQANTI_sc_multisample_report',
@@ -180,16 +129,5 @@ def build_filter_parser(version_str: str = '1.2.0', method: str = 'rules'):
     add_cell_metrics_args(transcripts.add_argument_group(
         "Cell summary options (pass the values the QC run used)"))
     add_downstream_args(transcripts)
-
-    rescue = sub.add_parser(
-        'rescue', parents=[common],
-        help="Put back what the transcript filter removed, as SQANTI3 rescue does, moving "
-             "each removed model's reads to its target cell by cell.")
-    add_rescue_args(rescue.add_argument_group("Rescue options"))
-    add_reference_qc_args(rescue.add_argument_group(
-        "Reference QC options, unless -k is given (pass the values the QC run used)"))
-    add_cell_metrics_args(rescue.add_argument_group(
-        "Cell summary options (pass the values the QC run used)"))
-    add_downstream_args(rescue)
 
     return ap

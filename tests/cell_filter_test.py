@@ -787,8 +787,9 @@ class TestDownstreamOrdering:
             lambda a, d: calls.append('multisample')
 
         df = pd.DataFrame({'sampleID': ['s1'], 'file_acc': ['rep1']})
-        filter_pipeline._run_downstream(
-            self._args(run_clustering=True, report='html', multisample_report=True), df)
+        filter_pipeline.run_downstream(
+            self._args(run_clustering=True, report='html', multisample_report=True), df,
+            'isoforms', {})
         assert calls == ['clustering', 'report', 'multisample']
 
     def test_clustering_is_skipped_unless_asked(self, monkeypatch):
@@ -801,7 +802,7 @@ class TestDownstreamOrdering:
         sys.modules['qc_reports'].generate_report = lambda a, d: calls.append('report')
 
         df = pd.DataFrame({'sampleID': ['s1'], 'file_acc': ['rep1']})
-        filter_pipeline._run_downstream(self._args(report='html'), df)
+        filter_pipeline.run_downstream(self._args(report='html'), df, 'isoforms', {})
         assert calls == ['report']
 
 

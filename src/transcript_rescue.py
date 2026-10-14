@@ -24,6 +24,7 @@ RESCUE_INPUT_COLUMNS = ('isoform', 'structural_category', 'associated_gene',
                         'associated_transcript', 'exons', RESULT_COLUMN)
 RESCUE_TABLE = '_rescue_table.tsv'
 INCLUSION_LIST = '_rescue_inclusion_list.tsv'
+RESIDUAL = '_rescue_residual.tsv'
 TABLE_COLUMNS = ('artifact', 'assigned_transcript', 'rescue_mode', 'origin', 'reintroduced')
 REFERENCE_PREFIX = 'reference'
 REFERENCE_SIBLINGS = ('_junctions.txt', '_corrected.gtf', '_corrected.fasta')
@@ -42,8 +43,9 @@ def detect_strategy(prefix):
         if os.path.isfile(prefix + suffix):
             return method
     raise ValueError(
-        f"ERROR: {prefix} has no transcript filter output. rescue reads the output "
-        "directory of 'transcripts', which labels each model kept or removed."
+        f"ERROR: {prefix} has no transcript filter output. Rescue reads the output "
+        "directory of sqanti_sc_filter.py transcripts, which labels each model kept or "
+        "removed."
     )
 
 
@@ -72,9 +74,6 @@ def check_inputs(args, df, mode):
             "ERROR: rescue works on isoforms-mode runs. In reads mode each row is one read, "
             "so a removed read has no count to move."
         )
-    if not args.refGTF or not args.refFasta:
-        raise ValueError("ERROR: rescue needs --refGTF and --refFasta, the annotation and "
-                         "genome the QC run used.")
     if args.refClassif:
         if not args.refClassif.endswith('_classification.txt'):
             raise ValueError("ERROR: -k must be a SQANTI3 QC *_classification.txt.")
@@ -206,14 +205,16 @@ def reference_classifications(args, df, log):
     return prefixes
 
 
-def lost_references(class_file, chunksize=CHUNKSIZE):
+def lost_references(class_file, mono_exonic=None, chunksize=CHUNKSIZE):
     """References with an FSM and no kept FSM: what automatic rescue puts back. SQANTI3
-    counts mono-exonic FSMs here too unless told not to, and it is never told."""
+    counts mono-exonic FSMs too, unless -e none."""
     seen, kept = set(), set()
     for chunk in pd.read_csv(class_file, chunksize=chunksize, **READ_KW,
-                             usecols=['structural_category', 'associated_transcript',
+                             usecols=['structural_category', 'associated_transcript', 'exons',
                                       RESULT_COLUMN]):
         fsm = chunk[chunk['structural_category'] == FSM]
+        if mono_exonic == 'none':
+            fsm = fsm[pd.to_numeric(fsm['exons'], errors='coerce') > 1]
         seen.update(fsm['associated_transcript'])
         kept.update(fsm.loc[fsm[RESULT_COLUMN] != RESULT_ARTIFACT, 'associated_transcript'])
     return seen - kept
@@ -230,7 +231,6 @@ def write_rescue_input(src, dst, strategy, chunksize=CHUNKSIZE):
 
 def build_rescue_command(args, strategy, rescue_input, prefix, fasta, reference,
                          work_dir, sampleID):
-    # -e is never passed, as the transcript filter never passes it.
     cmd = [sys.executable, os.path.join(sqantiqcPath, 'sqanti3_rescue.py'),
            '--filter_class', os.path.abspath(rescue_input),
            '-rg', os.path.abspath(args.refGTF), '-rf', os.path.abspath(args.refFasta),
@@ -241,6 +241,8 @@ def build_rescue_command(args, strategy, rescue_input, prefix, fasta, reference,
            '-o', str(sampleID), '-d', os.path.abspath(work_dir), '-l', args.log_level]
     if strategy == 'rules' and args.rules:
         cmd += ['-j', os.path.abspath(args.rules)]
+    if args.rescue_mono_exonic:
+        cmd += ['-e', args.rescue_mono_exonic]
     return cmd
 
 
@@ -290,20 +292,27 @@ def add_reads(cb, fl, added):
     return ','.join(cells), ','.join(counts)
 
 
+def residual_name(gene):
+    """SQANTI3's requantification row for the reads of removed models without a target."""
+    return 'general_residual' if str(gene).startswith('novel') else f'{gene}_residual'
+
+
 def plan_moves(class_file, table, chunksize=CHUNKSIZE):
-    """{target: {cell: reads}} from the rescue table. A removed model's reads stay in their
-    cells; tied targets share them in proportion to their reads across the sample, evenly
-    when none has any (a reference transcript has none), as SQANTI3's requantification
-    splits a count -- but without rounding to whole reads."""
+    """{target: {cell: reads}} from the rescue table, and {residual row: {cell: reads}}. A
+    removed model's reads stay in their cells; tied targets share them in proportion to
+    their reads across the sample, evenly when none has any (a reference transcript has
+    none), as SQANTI3's requantification splits a count -- but without rounding to whole
+    reads. A removed model without a target gives its reads to its gene's residual row."""
     targets_of = table.groupby('artifact', sort=False)['assigned_transcript'].apply(list).to_dict()
     target_ids = set(table['assigned_transcript'])
     mode_of = table.groupby('artifact', sort=False)['rescue_mode'].first().to_dict()
     artifact_cells, sample_total = {}, defaultdict(float)
+    residual = defaultdict(lambda: defaultdict(float))
     stats = defaultdict(float)
     for chunk in pd.read_csv(class_file, chunksize=chunksize, **READ_KW,
-                             usecols=['isoform', 'CB', 'FL', RESULT_COLUMN]):
-        for iso, cb, fl, verdict in zip(chunk['isoform'], chunk['CB'], chunk['FL'],
-                                        chunk[RESULT_COLUMN]):
+                             usecols=['isoform', 'associated_gene', 'CB', 'FL', RESULT_COLUMN]):
+        for iso, gene, cb, fl, verdict in zip(chunk['isoform'], chunk['associated_gene'],
+                                              chunk['CB'], chunk['FL'], chunk[RESULT_COLUMN]):
             removed = verdict == RESULT_ARTIFACT
             if not (removed or iso in target_ids):
                 continue
@@ -313,6 +322,10 @@ def plan_moves(class_file, table, chunksize=CHUNKSIZE):
                 stats['removed_reads'] += values.sum()
                 if iso in targets_of:
                     artifact_cells[iso] = (cells, values)
+                else:
+                    row = residual[residual_name(gene)]
+                    for cell, value in zip(cells, values):
+                        row[cell] += value
             elif iso in target_ids:
                 sample_total[iso] = values.sum()
     added = defaultdict(lambda: defaultdict(float))
@@ -328,11 +341,20 @@ def plan_moves(class_file, table, chunksize=CHUNKSIZE):
         stats[f'{kind}_models'] += 1
         stats[f'{kind}_reads'] += values.sum()
         stats['tied_models'] += len(targets) > 1
-    stats['dropped_models'] = (stats['removed_models'] - stats['automatic_models']
-                               - stats['mapping_models'])
-    stats['dropped_reads'] = (stats['removed_reads'] - stats['automatic_reads']
-                              - stats['mapping_reads'])
-    return {t: dict(cells) for t, cells in added.items()}, dict(stats)
+    stats['residual_models'] = (stats['removed_models'] - stats['automatic_models']
+                                - stats['mapping_models'])
+    stats['residual_reads'] = (stats['removed_reads'] - stats['automatic_reads']
+                               - stats['mapping_reads'])
+    return ({t: dict(cells) for t, cells in added.items()},
+            {r: dict(cells) for r, cells in residual.items()}, dict(stats))
+
+
+def write_residual(path, residual):
+    with open(path, 'w') as fh:
+        fh.write('isoform\tCB\tFL\n')
+        for name in sorted(residual):
+            cb, fl = add_reads('', '', residual[name])
+            fh.write(f'{name}\t{cb}\t{fl}\n')
 
 
 def _columns(path):
@@ -447,7 +469,8 @@ def rescue_sample(args, row, reference, log):
     work_prefix = os.path.join(work_dir, str(sampleID))
     os.makedirs(work_dir, exist_ok=True)
 
-    if args.rescue_mode == 'automatic' and not lost_references(in_class):
+    if args.rescue_mode == 'automatic' and not lost_references(in_class,
+                                                               args.rescue_mono_exonic):
         # SQANTI3's automatic rescue raises when it finds nothing to rescue.
         log(f"**** {sampleID}: no reference transcript lost all its FSMs; nothing to rescue")
         _empty_records(work_prefix)
@@ -470,7 +493,8 @@ def rescue_sample(args, row, reference, log):
                             na_filter=False)['isoform']
     references = set(inclusion) | set(table.loc[table['origin'] == 'reference',
                                                 'assigned_transcript'])
-    added, stats = plan_moves(in_class, table)
+    added, residual, stats = plan_moves(in_class, table)
+    write_residual(out_prefix + RESIDUAL, residual)
     out_class = out_prefix + RESCUED_CLASSIFICATION
     appended, new_cb = write_rescued_classification(
         in_class, out_class, added, reference + '_classification.txt', references)
@@ -490,11 +514,12 @@ def rescue_sample(args, row, reference, log):
         f"{int(stats.get('automatic_models', 0))} gave their reads to a reference by "
         f"automatic rescue, {int(stats.get('mapping_models', 0))} to a target by mapping "
         f"({int(stats.get('tied_models', 0))} split between tied targets), and "
-        f"{int(stats.get('dropped_models', 0))} had no target")
+        f"{int(stats.get('residual_models', 0))} had no target")
     removed_reads = stats.get('removed_reads', 0.0)
     if removed_reads:
-        log(f"**** {sampleID}: reads moved {_fmt(removed_reads - stats['dropped_reads'])} "
-            f"of {_fmt(removed_reads)} removed ({_fmt(stats['dropped_reads'])} dropped)")
+        log(f"**** {sampleID}: reads moved {_fmt(removed_reads - stats['residual_reads'])} "
+            f"of {_fmt(removed_reads)} removed; {_fmt(stats['residual_reads'])} without a "
+            f"target are in {os.path.basename(out_prefix + RESIDUAL)}")
     return stats
 
 

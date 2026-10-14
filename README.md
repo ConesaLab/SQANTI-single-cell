@@ -26,6 +26,7 @@ Table of Contents:
 - [Cell clustering](#clustering)
 - [Cell filter](#cell-filter)
 - [Transcript filter](#transcript-filter)
+- [Rescue](#rescue)
 - [Understanding the output of SQANTI-sc](#understanding-the-output-of-sqanti-sc)
     - [1. SQANTI3-based Outputs](#1-sqanti3-based-outputs)
     - [2. SQANTI-reads-based Outputs](#2-sqanti-reads-based-outputs)
@@ -526,7 +527,7 @@ qc/rep1/s1_classification.txt                  qc/rep1/clustering/umap_results.c
 filter/cells/rep1/s1_classification.txt        filter/cells/rep1/clustering/umap_results.csv
 ```
 
-Threshold trials are therefore just different directories (`--out_dir filter/cells_depth1000`), and they can be compared side by side. The [transcript filter](#transcript-filter) writes to `filter/transcripts/` the same way.
+Threshold trials are therefore just different directories (`--out_dir filter/cells_depth1000`), and they can be compared side by side. The [transcript filter](#transcript-filter) writes to `filter/transcripts/` the same way, and so does [rescue](#rescue).
 
 Always written, mirroring the SQANTI3 filter's contract:
 
@@ -686,6 +687,77 @@ A classification that already carries `filter_result` is refused as input: filte
 ### Reports
 
 `--report`, `--refGTF`, `--multisample_report` and the clustering options work as for the cell filter: clustering is refitted on the filtered data, and the per-sample and multisample reports are rendered from it. Refitting recomputes the cell-context columns of the passing models; the `Artifact` rows keep the values they were judged on. The reports therefore describe every cell as it is once its artifactual models are removed. After the ML filter the report shows why models were removed (machine learning, intra-priming or both), per cell and per structural category, and, when the classifier was trained, its test-set performance and the importance of each variable. SQANTI3's own filter report is not produced, just as the QC run does not produce SQANTI3's QC report.
+
+
+<a name="rescue"></a>
+
+## Rescue (`sqanti_sc_rescue.py`)
+
+`sqanti_sc_rescue.py` runs [SQANTI3 rescue](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-rescue) on the output of the transcript filter. Like `sqanti3_rescue.py` in SQANTI3, it is its own entry point, next to the QC run (`sqanti_sc.py`) and the filters (`sqanti_sc_filter.py`). Some of the models the filter removes are artifacts of a real transcript: a full-splice match with an intra-primed end, or a fragment of a known isoform. Rescue finds that transcript and gives it the removed model's reads. Isoforms mode only: in reads mode each row is one read, so a removed row has no count to move.
+
+```bash
+python sqanti_sc_rescue.py \
+    --design design.csv \
+    --qc_dir ./filter/transcripts \
+    --pre_filter_dir ./filter/cells \
+    --refGTF annotation.gtf --refFasta genome.fa \
+    --out_dir ./rescue
+```
+
+`--qc_dir` is the transcript filter's output. `--pre_filter_dir` is the directory the transcript filter read (its own `--qc_dir`): only there do the removed models still have their sequences. `--refGTF` and `--refFasta` are the annotation and genome the QC run used.
+
+### Modes
+
+* **`--mode automatic`** (default) puts back a reference transcript when the filter removed every full-splice match (FSM) to it. That reference's removed FSM and ISM models give it their reads.
+* **`--mode full`** also aligns the removed NIC and NNC models, and the ISMs of a reference transcript that has no FSM at all, to the kept models and reference transcripts of their genes. A reference transcript is a target only if it passes the filter itself (`-j`, or SQANTI3's `filter_default.json`). The best alignment wins, and a kept model beats a reference with the same score. Equal scores keep every tied target.
+
+A removed FSM or ISM whose reference transcript still has a kept model is not considered in either mode, as in SQANTI3.
+
+`-e`/`--rescue_mono_exonic` is SQANTI3's choice of which removed mono-exonic models can be rescued: `all` (SQANTI3's default), `fsm` (mono-exonic FSMs only, by automatic rescue) or `none`. Those it excludes give their reads to the residual rows.
+
+Full rescue on ML filter output checks the reference transcripts with the rules rather than the random forest: the forest was trained on count and cell columns that a reference transcript does not have. Targets are then chosen by alignment alone, and the log says so.
+
+### The reference QC
+
+A reintroduced reference transcript needs a row in the classification. In SQANTI-sc a model's reads live in its row (`CB`/`FL`), not in a separate counts table, so without a row the reads would vanish from every per-cell metric. `rescue` builds the rows by running SQANTI3 QC on `--refGTF` itself, with the QC run's orthogonal data, so the reference rows carry the same evidence the sample's models were judged on. The reference QC options (`--CAGE_peak`, `--polyA_motif_list`, `--polyA_peak`, `--phyloP_bed`, `--include_ORF` and the rest; see `sqanti_sc_rescue.py -h`) have the QC run's defaults: pass the values the QC run used. Short reads come from the design, and one reference QC runs per distinct short-read set. The result goes to `<out_dir>/reference_qc/`.
+
+This step is a QC run on the whole annotation, so reuse it. `-k <out_dir>/reference_qc/1/reference_classification.txt` skips it in a later rescue. Any SQANTI3 QC run on the same annotation works, as long as its `_junctions.txt`, `_corrected.gtf` and `_corrected.fasta` sit beside the classification.
+
+### How reads move
+
+A read never changes cell. A removed model's reads go to its target in the cells where the model had them.
+
+When a removed model has several tied targets, its reads are split between them in proportion to each target's reads across the sample, and evenly when none has any (a reference transcript has none). This is the split SQANTI3's requantification makes, without its rounding. SQANTI3 rounds each share down to a whole count and gives the remainder to the first-listed target. Where the removed model has one read in a cell, that target takes the read whatever the shares. Here the shares stay fractional, so every cell keeps its total. SQANTI3's `--requant` itself is not used: it holds one dense count column per sample, which cannot scale to one per cell.
+
+A removed model with no target gives its reads to a residual row for its gene, as SQANTI3's requantification does: `<gene>_residual`, or `general_residual` for a novel gene. The residual rows are written to their own file, per cell, and are not models: they stay out of the classification and every per-cell metric, so a gene's reads can still be totalled without inventing an isoform for them. The log reports per sample how many removed models gave their reads to a reference, how many to a target by alignment, how many were split between tied targets, and how many reads went to the residual rows.
+
+### Output
+
+| File | Contents |
+|---|---|
+| `<sampleID>_rescued_classification.txt` | The kept models, with the reads moved to them, then the reintroduced references (SQANTI3's file name). No removed model and no `filter_result` column |
+| `<sampleID>_rescue_table.tsv` | SQANTI3's: each removed model that has a target, the target, and how it was found |
+| `<sampleID>_rescue_inclusion_list.tsv` | SQANTI3's: the reintroduced reference transcripts |
+| `<sampleID>_rescue_residual.tsv` | The reads of removed models without a target, one row per gene (`isoform`, `CB`, `FL`, as in the classification) |
+| `<sampleID>_junctions.txt` | The kept models' junctions, then the references'. Barcodes follow the moved reads |
+| `<sampleID>_corrected.gtf`, `<sampleID>_corrected.fasta` | The kept models, then the references from the reference QC |
+| `<sampleID>_SQANTI_cell_summary.txt.gz` | Recomputed from the rescued classification |
+| `logs/rescue/` | SQANTI3 rescue's logs |
+
+The proteins and their CDS coordinates (`--include_ORF`) are carried over the same way. The SAM and the tappAS GFF3 are not, since the references have no entry in either.
+
+Rescue changes what the kept cells hold, so the cell summary is recomputed, as after the transcript filter. A cell the transcript filter emptied can hold reads again, and the log says how many do. `--out_dir` must be new or empty, because SQANTI3 rescue silently reuses an alignment it finds there from an earlier run. When no reference transcript lost all its FSMs, automatic rescue has nothing to put back: the log says so, and the output holds the kept models unchanged.
+
+The final cell filter is the cell filter run again on the rescue output:
+
+```bash
+python sqanti_sc_filter.py cells \
+    --design design.csv \
+    --qc_dir ./rescue \
+    --out_dir ./filter/final
+```
+
+`--report`, `--multisample_report` and the clustering options work as for the filters, on the rescued data.
 
 
 <a name="understanding-the-output-of-sqanti-sc"></a>

@@ -13,6 +13,7 @@ if sys.platform == 'win32':
 # --------------------------------
 
 import subprocess
+from collections import defaultdict
 
 import pandas as pd
 import pytest
@@ -21,9 +22,10 @@ sqanti_sc_src_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..
 if sqanti_sc_src_path not in sys.path:
     sys.path.insert(0, sqanti_sc_src_path)
 
-import filter_args
 import filter_io
 import qc_args
+import rescue_args
+import rescue_pipeline
 import transcript_rescue
 
 
@@ -42,7 +44,7 @@ def _row(isoform, cb, fl, verdict, category='novel_in_catalog', gene='G1', ref='
 # Y1, Y2 and ENST9 are kept. F1 and I1 lose reference ENST1 every FSM it had. X1 maps to
 # Y1 alone, X2 ties Y1 (4 reads in the sample) with Y2 (12), X3 ties two references with
 # no reads, X5 maps to reference ENST9, which a kept model already carries under that
-# name. X4 maps to nothing.
+# name. X4 maps to nothing, nor does X6, from a novel gene.
 CLASSIFICATION = [
     _row('Y1', 'c1,c2', '3,1', 'Isoform'),
     _row('Y2', 'c3', '12', 'Isoform'),
@@ -55,6 +57,7 @@ CLASSIFICATION = [
     _row('X3', 'c5', '1', 'Artifact', gene='G3'),
     _row('X4', 'c1', '5', 'Artifact'),
     _row('X5', 'c1', '2', 'Artifact', gene='G9'),
+    _row('X6', 'c2', '2', 'Artifact', gene='novelGene_7'),
 ]
 RESCUE_TABLE = [
     ('F1', 'ENST1', 'automatic', 'reference', 'yes'),
@@ -158,10 +161,10 @@ def fake_sqanti3(monkeypatch):
 
 
 def _args(tf, pre, out_dir, *extra):
-    argv = ['rescue', '-de', 'design.csv', '-q', str(tf), '-d', str(out_dir),
+    argv = ['-de', 'design.csv', '-q', str(tf), '-d', str(out_dir),
             '--pre_filter_dir', str(pre), '--refGTF', 'ann.gtf', '--refFasta', 'genome.fa',
             *extra]
-    return filter_args.build_filter_parser().parse_args(argv)
+    return rescue_args.build_rescue_parser().parse_args(argv)
 
 
 def _rescue(tmp_path, tf, pre, design, *extra, log=None):
@@ -207,14 +210,30 @@ class TestReadsMoveCellByCell:
         assert 'filter_result' not in cls.columns
         assert 'psauron_score' not in cls.columns
 
-    def test_reads_are_conserved_except_the_untargeted(self, runs, fake_sqanti3):
+    def test_the_untargeted_reads_go_to_their_genes_residual_row(self, runs, fake_sqanti3):
         tmp_path, tf, pre, design = runs
         out, messages = _rescue(tmp_path, tf, pre, design, '--mode', 'full')
-        cls = _read(out + '_rescued_classification.txt')
-        total = sum(sum(_cells(r).values()) for _, r in cls.iterrows())
-        assert total == pytest.approx(17 + 15)  # kept 17, removed 20 of which X4's 5 dropped
-        assert any('1 had no target' in m for m in messages)
-        assert any('reads moved 15 of 20 removed (5 dropped)' in m for m in messages)
+        residual = _read(out + '_rescue_residual.tsv')
+        assert list(residual.columns) == ['CB', 'FL']
+        assert {r: _cells(row) for r, row in residual.iterrows()} == {
+            'G1_residual': {'c1': 5}, 'general_residual': {'c2': 2}}
+        assert any('2 had no target' in m for m in messages)
+        assert any('reads moved 15 of 22 removed; 7 without a target are in '
+                   's1_rescue_residual.tsv' in m for m in messages)
+
+    def test_every_cell_keeps_its_reads_across_the_classification_and_residual(
+            self, runs, fake_sqanti3):
+        tmp_path, tf, pre, design = runs
+        out, _ = _rescue(tmp_path, tf, pre, design, '--mode', 'full')
+        before, after = defaultdict(float), defaultdict(float)
+        for row in CLASSIFICATION:
+            for cell, value in _cells(row).items():
+                before[cell] += value
+        for path in ('_rescued_classification.txt', '_rescue_residual.tsv'):
+            for _, row in _read(out + path).iterrows():
+                for cell, value in _cells(row).items():
+                    after[cell] += value
+        assert after == pytest.approx(before)
 
     def test_a_reference_already_kept_under_its_own_name_gains_the_reads_in_place(
             self, runs, fake_sqanti3):
@@ -343,6 +362,29 @@ class TestSqanti3Calls:
         cmd = [c for c in fake_sqanti3 if c['script'] == 'sqanti3_rescue.py'][0]['cmd']
         assert cmd[cmd.index('--corrected_isoforms_fasta') + 1] == os.path.abspath(str(fasta))
 
+    def test_mono_exonic_choice_is_passed_only_when_given(self, runs, fake_sqanti3):
+        tmp_path, tf, pre, design = runs
+        _rescue(tmp_path, tf, pre, design, '--mode', 'full', '-e', 'fsm')
+        cmd = [c for c in fake_sqanti3 if c['script'] == 'sqanti3_rescue.py'][0]['cmd']
+        assert cmd[cmd.index('-e') + 1] == 'fsm'
+
+    @pytest.mark.parametrize('extra, calls_sqanti3', [((), True), (('-e', 'fsm'), True),
+                                                      (('-e', 'none'), False)])
+    def test_a_reference_lost_only_by_a_mono_exonic_fsm(self, tmp_path, fake_sqanti3, extra,
+                                                        calls_sqanti3):
+        rows = [dict(r, exons='1') if r['isoform'] == 'F1' else r for r in CLASSIFICATION]
+        tf = tmp_path / 'tf'
+        _write_filter_output(tf / 'rep1', rows)
+        pre = tmp_path / 'pre' / 'rep1'
+        pre.mkdir(parents=True)
+        (pre / 's1_corrected.fasta').write_text('>F1\nACGT\n')
+        design = tmp_path / 'design.csv'
+        design.write_text('sampleID,file_acc\ns1,rep1\n')
+        _, messages = _rescue(tmp_path, tf, pre.parent, str(design), *extra)
+        called = any(c['script'] == 'sqanti3_rescue.py' for c in fake_sqanti3)
+        assert called == calls_sqanti3
+        assert any('nothing to rescue' in m for m in messages) == (not calls_sqanti3)
+
     def test_k_replaces_the_reference_qc(self, runs, fake_sqanti3):
         tmp_path, tf, pre, design = runs
         base = _write_reference_qc(str(tmp_path / 'myref'), 'gencode')
@@ -363,6 +405,10 @@ class TestSqanti3Calls:
         assert any('nothing to rescue' in m for m in messages)
         assert set(_read(out + '_rescued_classification.txt').index) == {'Y1', 'Y2', 'ENST9'}
         assert len(pd.read_csv(out + '_rescue_table.tsv', sep='\t')) == 0
+        residual = _read(out + '_rescue_residual.tsv')
+        removed = [r for r in rows if r['filter_result'] == 'Artifact']
+        assert sum(sum(_cells(r).values()) for _, r in residual.iterrows()) == \
+            sum(sum(_cells(r).values()) for r in removed)
 
 
 class TestRefusals:
@@ -380,7 +426,7 @@ class TestRefusals:
         tmp_path, tf, pre, design = runs
         prefix = str(tf / 'rep1' / 's1')
         os.replace(prefix + '_RulesFilter_classification.txt', prefix + '_classification.txt')
-        with pytest.raises(ValueError, match="output directory of 'transcripts'"):
+        with pytest.raises(ValueError, match="sqanti_sc_filter.py transcripts"):
             self._check(runs)
 
     def test_missing_pre_filter_fasta(self, runs):
@@ -401,14 +447,6 @@ class TestRefusals:
         with pytest.raises(ValueError, match='_junctions.txt'):
             self._check(runs, '-k', str(lone))
 
-    def test_ref_gtf_required(self, runs):
-        tmp_path, tf, pre, design = runs
-        argv = ['rescue', '-de', design, '-q', str(tf), '--pre_filter_dir', str(pre),
-                '--refFasta', 'g.fa']
-        args = filter_args.build_filter_parser().parse_args(argv)
-        df = filter_io.read_sample_table(design, str(tf), labelled_summary_ok=True)
-        with pytest.raises(ValueError, match='--refGTF'):
-            transcript_rescue.check_inputs(args, df, 'isoforms')
 
 
 class TestParser:
@@ -424,3 +462,37 @@ class TestParser:
         args = _args('tf', 'pre', 'out')
         assert args.rescue_mode == 'automatic'
         assert not hasattr(args, 'mode')
+
+    @pytest.mark.parametrize('missing', ['--pre_filter_dir', '--refGTF', '--refFasta'])
+    def test_what_rescue_cannot_run_without_is_required(self, missing):
+        argv = ['-de', 'd', '-q', 'tf', '--pre_filter_dir', 'pre', '--refGTF', 'a',
+                '--refFasta', 'g']
+        i = argv.index(missing)
+        with pytest.raises(SystemExit):
+            rescue_args.build_rescue_parser().parse_args(argv[:i] + argv[i + 2:])
+
+
+class TestEntryPoint:
+    def _main(self, monkeypatch, tf, pre, design, out_dir):
+        monkeypatch.setattr(sys, 'argv', [
+            'sqanti_sc_rescue.py', '-de', design, '-q', str(tf), '-d', str(out_dir),
+            '--pre_filter_dir', str(pre), '--refGTF', 'ann.gtf', '--refFasta', 'genome.fa',
+            '--mode', 'full'])
+        rescue_pipeline.main()
+
+    def test_runs_the_rescue(self, runs, fake_sqanti3, monkeypatch):
+        tmp_path, tf, pre, design = runs
+        self._main(monkeypatch, tf, pre, design, tmp_path / 'rescue')
+        assert (tmp_path / 'rescue' / 'rep1' / 's1_rescued_classification.txt').is_file()
+        assert [c['script'] for c in fake_sqanti3] == ['sqanti3_qc.py', 'sqanti3_rescue.py']
+
+    def test_a_refusal_exits_with_its_message(self, runs, fake_sqanti3, monkeypatch,
+                                              capsys):
+        tmp_path, tf, pre, design = runs
+        (tmp_path / 'rescue' / 'rep1').mkdir(parents=True)
+        (tmp_path / 'rescue' / 'rep1' / 'old.txt').write_text('')
+        with pytest.raises(SystemExit) as exc:
+            self._main(monkeypatch, tf, pre, design, tmp_path / 'rescue')
+        assert exc.value.code == 1
+        assert 'not empty' in capsys.readouterr().err
+        assert fake_sqanti3 == []
