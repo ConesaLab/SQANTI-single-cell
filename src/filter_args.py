@@ -5,6 +5,8 @@ from qc_args import add_cell_metrics_args, add_clustering_args
 
 DEFAULT_CELL_RULES = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), 'filter_assets', 'cell_filter_default.json')
+CELL_RULES_TEMPLATE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), 'filter_assets', 'cell_filter_template.json')
 
 
 def add_cell_filter_args(group):
@@ -12,7 +14,9 @@ def add_cell_filter_args(group):
     why the arguments live in a factory rather than inline in the parser."""
     group.add_argument('-j', '--rules', default=DEFAULT_CELL_RULES,
                        help='JSON of per-metric cell rules. Default: the bundled '
-                            'cell_filter_default.json.')
+                            'cell_filter_default.json. The bundled '
+                            'cell_filter_template.json lists every cell-summary column '
+                            'with an empty value; fill in the ones to use.')
     return group
 
 
