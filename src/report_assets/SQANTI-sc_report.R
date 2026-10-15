@@ -3673,7 +3673,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     if (!is.null(cell_filter_counts)) {
       section_page("Cell Filtering")
-      filter_table_page(cell_filter_counts, "Before and after the cell filter")
+      filter_table_page(cell_filter_counts, "Cell filter: input and filtered")
       if (!is.null(cell_filter_rule_counts)) filter_table_page(cell_filter_rule_counts, "Rules applied")
       if (!is.null(gg_cell_filter_reasons)) print(apply_pdf_theme(gg_cell_filter_reasons))
       if (!is.null(cell_filter_sketch)) filter_table_page(cell_filter_sketch, "Kept vs discarded")
@@ -3685,7 +3685,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     if (!is.null(tf_counts)) {
       section_page("Transcript Filtering")
-      filter_table_page(tf_counts, "Before and after the transcript filter")
+      filter_table_page(tf_counts, "Transcript filter: input and filtered")
       render_pdf_plot_centered("gg_tf_removed_per_cell", width_frac = 0.5)
       if (!is.null(gg_tf_depth)) render_pdf_plot_centered("gg_tf_depth", width_frac = 0.6)
       for (p in list(gg_tf_lost_depth, gg_tf_removed_by_cluster, gg_tf_umap_removed)) {
@@ -4132,8 +4132,8 @@ if (!is.null(cell_filter_labelled)) {
 }
 
 # ---- Transcript filter section -------------------------------------------------
-# Built only when the transcript filter renders the report. "Before" is the summary of
-# the run it filtered, "after" the one recomputed from the kept models.
+# Built only when the transcript filter renders the report. "Input" is the summary of
+# the run it filtered, "Filtered" the one recomputed from the kept models.
 tf_counts <- NULL
 tf_rule_counts <- NULL
 tf_category_counts <- NULL
@@ -4200,15 +4200,15 @@ if (!is.null(tf_removed_models)) {
   tf_counts <- data.frame(
     Measure = c(if (mode == "isoforms") "Isoforms", entity_label_plural,
                 "Genes", "Cells"),
-    Before = c(if (mode == "isoforms") tf_removed_models$models[1],
-               tf_removed_models$counts[1], tf_removed_models$genes[1], nrow(tf_cells)),
-    After = c(if (mode == "isoforms") tf_removed_models$models[2],
-              tf_removed_models$counts[2], tf_removed_models$genes[2], sum(!tf_lost)),
+    Input = c(if (mode == "isoforms") tf_removed_models$models[1],
+              tf_removed_models$counts[1], tf_removed_models$genes[1], nrow(tf_cells)),
+    Filtered = c(if (mode == "isoforms") tf_removed_models$models[2],
+                 tf_removed_models$counts[2], tf_removed_models$genes[2], sum(!tf_lost)),
     stringsAsFactors = FALSE
   )
-  tf_counts$Removed <- tf_counts$Before - tf_counts$After
-  tf_counts$`Removed (%)` <- round(100 * tf_counts$Removed / pmax(tf_counts$Before, 1), 2)
-  tf_counts[, c("Before", "After", "Removed")] <- round(tf_counts[, c("Before", "After", "Removed")], 2)
+  tf_counts$Removed <- tf_counts$Input - tf_counts$Filtered
+  tf_counts$`Removed (%)` <- round(100 * tf_counts$Removed / pmax(tf_counts$Input, 1), 2)
+  tf_counts[, c("Input", "Filtered", "Removed")] <- round(tf_counts[, c("Input", "Filtered", "Removed")], 2)
 
   # Lost cells are included here at 100%: losing everything is the extreme of the same
   # distribution, not a separate event.
@@ -4226,9 +4226,9 @@ if (!is.null(tf_removed_models)) {
       scale_x_log10(labels = scales::comma, limits = lims) +
       scale_y_log10(labels = scales::comma, limits = lims) +
       coord_fixed() +
-      labs(title = paste(entity_label_plural, "per cell, before vs after"),
-           x = paste0(entity_label_plural, " before, count"),
-           y = paste0(entity_label_plural, " after, count")) +
+      labs(title = paste(entity_label_plural, "per cell, input vs filtered"),
+           x = paste0(entity_label_plural, " per cell, input"),
+           y = paste0(entity_label_plural, " per cell, filtered")) +
       tf_theme
   }
 
@@ -4239,7 +4239,7 @@ if (!is.null(tf_removed_models)) {
                                   levels = c("Kept", lost_label)),
                  Value = tf_cells$before),
       setNames(c(0.7, 0.35), c("Kept", lost_label)), "Cells",
-      paste(entity_label_plural, "per cell before filtering"),
+      paste(entity_label_plural, "per cell in the input"),
       paste0(entity_label_plural, ", count"))
   }
 
@@ -4366,14 +4366,14 @@ if (!is.null(tf_removed_models)) {
     stringsAsFactors = FALSE
   )
   if (mode == "isoforms") {
-    tf_category_counts$`Isoforms before` <- bc$models_before
-    tf_category_counts$`Isoforms after` <- bc$models_before - bc$models_removed
+    tf_category_counts$`Isoforms, input` <- bc$models_before
+    tf_category_counts$`Isoforms, filtered` <- bc$models_before - bc$models_removed
     tf_category_counts$`Isoforms removed` <- bc$models_removed
     tf_category_counts$`Isoforms removed (%)` <-
       round(100 * bc$models_removed / pmax(bc$models_before, 1), 2)
   }
-  tf_category_counts[[paste(entity_label_plural, "before")]] <- round(bc$count_before, 2)
-  tf_category_counts[[paste(entity_label_plural, "after")]] <-
+  tf_category_counts[[paste0(entity_label_plural, ", input")]] <- round(bc$count_before, 2)
+  tf_category_counts[[paste0(entity_label_plural, ", filtered")]] <-
     round(bc$count_before - bc$count_removed, 2)
   tf_category_counts[[paste(entity_label_plural, "removed")]] <- round(bc$count_removed, 2)
   tf_category_counts[[paste0(entity_label_plural, " removed (%)")]] <-
@@ -4419,18 +4419,18 @@ if (!is.null(tf_removed_models)) {
     intersect(colnames(tf_before), colnames(SQANTI_cell_summary)))
   tf_pairs <- rbind(tf_before[match(surv, tf_before$CB), pair_cols, drop = FALSE],
                     SQANTI_cell_summary[match(surv, SQANTI_cell_summary$CB), pair_cols, drop = FALSE])
-  tf_stage <- factor(rep(c("Before", "After"), each = length(surv)),
-                     levels = c("Before", "After"))
-  tf_stage_alpha <- c(Before = 0.35, After = 0.7)
+  tf_stage <- factor(rep(c("Input", "Filtered"), each = length(surv)),
+                     levels = c("Input", "Filtered"))
+  tf_stage_alpha <- c(Input = 0.7, Filtered = 0.35)
   gg_tf_categories <- filter_pair_plot(
     tf_pairs, tf_stage, category_features_map,
-    "Structural categories per cell, before vs after", tf_stage_alpha, "Filtering")
+    "Structural categories per cell, input vs filtered", tf_stage_alpha, "Filtering")
   gg_tf_goodq <- filter_pair_plot(
     tf_pairs, tf_stage, all_goodq_features_map,
-    "Good-quality attributes per cell, before vs after", tf_stage_alpha, "Filtering")
+    "Good-quality attributes per cell, input vs filtered", tf_stage_alpha, "Filtering")
   gg_tf_badq <- filter_pair_plot(
     tf_pairs, tf_stage, all_bad_features_map,
-    "Bad-quality attributes per cell, before vs after", tf_stage_alpha, "Filtering")
+    "Bad-quality attributes per cell, input vs filtered", tf_stage_alpha, "Filtering")
 
   cpm <- tf_removed_models$cells_per_model
   if (!is.null(cpm)) {
