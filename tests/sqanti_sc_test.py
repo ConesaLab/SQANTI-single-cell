@@ -39,7 +39,7 @@ from qc_io import fill_design_table
 from sqanti3_qc_runner import run_sqanti3_qc
 from classification_enrichment import annotate_with_ujc_hash, annotate_with_cell_metadata, annotate_with_sample_support
 from qc_reports import generate_report, generate_multisample_report
-from filter_io import LABELLED_CLASSIFICATIONS
+from filter_io import LABELLED_CLASSIFICATIONS, RESCUED_CLASSIFICATION
 from qc_args import build_parser, warn_ignored_options
 from qc_pipeline import main as pipeline_main
 from cell_metrics import calculate_metrics_per_cell
@@ -653,7 +653,8 @@ def test_generate_report(mock_isfile, mock_run, mock_args, capsys):
     # filters' outputs -- this is a QC run, not a filtered one.
     labelled = f"{prefix}_CellFilter_cell_summary.txt.gz"
     reasons = f"{prefix}_cell_filtering_reasons.txt"
-    labelled_classes = [prefix + suffix for suffix in LABELLED_CLASSIFICATIONS.values()]
+    labelled_classes = [prefix + suffix for suffix in
+                        (*LABELLED_CLASSIFICATIONS.values(), RESCUED_CLASSIFICATION)]
 
     def _isfile(path):
         return path not in (clustering_file, labelled, reasons, *labelled_classes)
@@ -1185,6 +1186,20 @@ class TestFLWeightingIsoformsMode:
         assert cb1["Transcripts_in_cell"] == 15, (
             f"Expected Transcripts_in_cell=15 (sum of FL counts), got {cb1['Transcripts_in_cell']}"
         )
+
+    def test_median_length_weights_fractional_fl(self, mock_args, tmpdir):
+        """
+        FL below 1 (an EM fraction, or a rescued count split between tied targets) still
+        weights the median length. Truncated to an integer, both models would weigh 0.
+          CB1: 500 bp x 0.25, 1000 bp x 0.75 -> half-way point inside 1000 -> 1000
+          CB2: 500 bp x 0.5,  1000 bp x 0.5  -> half-way point between them -> 750
+        """
+        short = self._cls_row("iso1", "CB1,CB2", "0.25,0.5", "full-splice_match")
+        long_ = self._cls_row("iso2", "CB1,CB2", "0.75,0.5", "full-splice_match")
+        short["length"], long_["length"] = 500, 1000
+        summary = self._run(mock_args, tmpdir, [short, long_]).set_index("CB")
+        assert summary.loc["CB1", "Median_length_per_cell"] == 1000
+        assert summary.loc["CB2", "Median_length_per_cell"] == 750
 
     # ------------------------------------------------------------------
     # Test 2 — structural category % is FL-weighted

@@ -70,14 +70,15 @@ def add_transcript_filter_args(group, method='rules'):
     return group
 
 
-def add_downstream_args(parser):
+def add_downstream_args(parser, ref_gtf=True):
     apd = parser.add_argument_group("Report options")
     apd.add_argument('--report', choices=["pdf", "html", "both", "skip"], default="skip",
                      help="Re-render the per-sample report on filtered data. Default: skip.")
     # The only report input that is not already in the QC outputs: the report reads the
     # annotation itself to compare reference and sample transcript lengths. The optional
     # evidence flags have no counterpart here because SQANTI3 QC is not re-run.
-    apd.add_argument('--refGTF', help='Reference annotation (GTF), for the report.')
+    if ref_gtf:
+        apd.add_argument('--refGTF', help='Reference annotation (GTF), for the report.')
     apd.add_argument('--multisample_report', action='store_true', default=False,
                      help='Generate a multisample report from the filtered cell summaries.')
     apd.add_argument('--multisample_report_prefix', default='SQANTI_sc_multisample_report',

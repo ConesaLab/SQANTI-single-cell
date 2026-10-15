@@ -101,3 +101,25 @@ def fill_design_table(args):
     return df
 
 
+def coverage_argument(coverage, verbose=False):
+    """The design's coverage value as SQANTI3's --coverage takes it: a STAR junction file
+    as is, a file of file names as their comma-separated list."""
+    if not os.path.isfile(coverage):
+        return coverage
+    if coverage.endswith(".out") or coverage.endswith(".tab") or coverage.endswith("SJ.out.tab"):
+        return coverage
+    try:
+        with open(coverage, 'r') as f:
+            lines = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+    except Exception as e:
+        if verbose:
+            print(f"[WARNING] Failed to parse coverage file as FOFN: {e}. Treating as single file.", file=sys.stderr)
+        return coverage
+    # A STAR junction record has 9 columns; anything else is a list of files.
+    if not lines or len(lines[0].split()) == 9:
+        return coverage
+    if verbose:
+        print(f"[INFO] Parsed coverage FOFN '{coverage}' into {len(lines)} files.", file=sys.stdout)
+    return ",".join(lines)
+
+

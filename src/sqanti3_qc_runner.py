@@ -3,6 +3,7 @@ import sys
 import glob
 import pandas as pd
 from paths import sqantiqcPath
+from qc_io import coverage_argument
 from src.commands import run_command
 from src.module_logging import qc_logger, update_logger
 
@@ -72,34 +73,7 @@ def run_sqanti3_qc(args, df):
 
         # Handle per-sample orthogonal data
         if coverage:
-            # Handle coverage FOFN (File of File Names) support
-            if os.path.isfile(coverage):
-                # Heuristic: Check if file looks like a STAR junction file (based on extension or content)
-                is_star_file = False
-                if coverage.endswith(".out") or coverage.endswith(".tab") or coverage.endswith("SJ.out.tab"):
-                    is_star_file = True
-                
-                if not is_star_file:
-                    try:
-                        with open(coverage, 'r') as f:
-                            lines = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-                        
-                        if lines:
-                            # Verify if first line looks like a STAR junction record (9 columns)
-                            first_line_parts = lines[0].split()
-                            if len(first_line_parts) == 9:
-                                is_star_file = True
-                            else:
-                                # It is likely a FOFN
-                                parsed_coverage = ",".join(lines)
-                                if args.verbose:
-                                    print(f"[INFO] Parsed coverage FOFN '{coverage}' into {len(lines)} files.", file=sys.stdout)
-                                coverage = parsed_coverage
-                    except Exception as e:
-                        if args.verbose:
-                            print(f"[WARNING] Failed to parse coverage file as FOFN: {e}. Treating as single file.", file=sys.stderr)
-
-            cmd_parts.extend(["--coverage", coverage])
+            cmd_parts.extend(["--coverage", coverage_argument(coverage, args.verbose)])
         
         if SR_bam:
             cmd_parts.extend(["--SR_bam", SR_bam])

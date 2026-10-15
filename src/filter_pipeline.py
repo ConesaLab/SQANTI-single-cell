@@ -6,11 +6,18 @@ from filter_args import build_filter_parser, transcript_method
 from transcript_filter import run_transcript_filter
 
 
-def _run_downstream(args, df):
+def run_downstream(args, df, mode, evidence):
     """Re-run clustering and the reports on the filtered data. The filter's out_dir has
     the same <dir>/<file_acc>/<sampleID>_* layout as a QC run, so the existing functions
     need the original design and no path rewriting. Imported lazily so the filter stays
     usable without scanpy or R installed."""
+    if mode is None or not (args.report != 'skip' or args.multisample_report
+                            or args.run_clustering):
+        return
+    args.mode = mode
+    for flag, was_measured in evidence.items():
+        setattr(args, flag, was_measured)
+
     # Before the reports, not after: SQANTI-sc_report.R locates umap_results.csv by
     # looking next to its own output, so the file has to exist by the time it runs.
     if args.run_clustering:
@@ -45,12 +52,7 @@ def main():
         print(exc, file=sys.stderr)
         sys.exit(1)
 
-    if mode is not None and (args.report != 'skip' or args.multisample_report
-                             or args.run_clustering):
-        args.mode = mode
-        for flag, was_measured in evidence.items():
-            setattr(args, flag, was_measured)
-        _run_downstream(args, df)
+    run_downstream(args, df, mode, evidence)
 
 
 if __name__ == "__main__":
