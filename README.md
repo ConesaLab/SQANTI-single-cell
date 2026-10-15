@@ -25,7 +25,7 @@ Table of Contents:
     - [Short Reads Validation](#short-reads-validation)
 - [Cell clustering](#clustering)
 - [Cell filter](#cell-filter)
-- [Transcript filter](#transcript-filter)
+- [Isoform filter](#isoform-filter)
 - [Rescue](#rescue)
 - [Understanding the output of SQANTI-sc](#understanding-the-output-of-sqanti-sc)
     - [1. SQANTI3-based Outputs](#1-sqanti3-based-outputs)
@@ -527,7 +527,7 @@ qc/rep1/s1_classification.txt                  qc/rep1/clustering/umap_results.c
 filter/cells/rep1/s1_classification.txt        filter/cells/rep1/clustering/umap_results.csv
 ```
 
-Threshold trials are therefore just different directories (`--out_dir filter/cells_depth1000`), and they can be compared side by side. The [transcript filter](#transcript-filter) writes to `filter/transcripts/` the same way, and so does [rescue](#rescue).
+Threshold trials are therefore just different directories (`--out_dir filter/cells_depth1000`), and they can be compared side by side. The [isoform filter](#isoform-filter) writes to `filter/isoforms/` the same way, and so does [rescue](#rescue).
 
 Always written, mirroring the SQANTI3 filter's contract:
 
@@ -618,20 +618,20 @@ This is a deliberate difference from SQANTI3, which treats `NA` as a failure. Th
 Rows with no cell barcode (`unassigned`, `NA`, `-`, `*`, empty) are dropped before any statistic and the count is reported — an `unassigned` row aggregates every read that was never assigned to a cell, so it would otherwise dominate any depth-based statistic.
 
 
-<a name="transcript-filter"></a>
+<a name="isoform-filter"></a>
 
-## Transcript filter (`sqanti_sc_filter.py transcripts`)
+## Isoform filter (`sqanti_sc_filter.py isoforms`)
 
-`sqanti_sc_filter.py transcripts` runs a [SQANTI3 filter](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-filter) on each sample's classification, the way the QC run calls SQANTI3 QC: the rules filter by default, or the machine-learning filter with `--method ml`. In reads mode each row is a read, so the filter judges reads; in isoforms mode it judges transcript models.
+`sqanti_sc_filter.py isoforms` runs a [SQANTI3 filter](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-filter) on each sample's classification, the way the QC run calls SQANTI3 QC: the rules filter by default, or the machine-learning filter with `--method ml`. In reads mode each row is a read, so the filter judges reads; in isoforms mode it judges transcript models.
 
 ```bash
-python sqanti_sc_filter.py transcripts \
+python sqanti_sc_filter.py isoforms \
     --design design.csv \
     --qc_dir ./filter/cells \
-    --out_dir ./filter/transcripts
+    --out_dir ./filter/isoforms
 ```
 
-`--qc_dir` can be the QC run itself or the output of the cell filter. The intended order is cells first, then transcripts, but either works: both directories have the same layout, and the transcript filter accepts the cell filter's labelled summary as its input.
+`--qc_dir` can be the QC run itself or the output of the cell filter. The intended order is cells first, then isoforms, but either works: both directories have the same layout, and the isoform filter accepts the cell filter's labelled summary as its input.
 
 ### Rules
 
@@ -641,7 +641,7 @@ Mono-exonic models are judged by the rules like any other model; SQANTI3's `-e`,
 
 #### Rules on cell context
 
-In isoforms mode the classification carries three cell-context columns — `cells_detected`, `max_cluster_cells` and `max_cluster_pct` (see [the classification columns](#1-sqanti3-based-outputs)) — and a rule can use them like any other column. Reads-mode classifications do not have them, since each row there is a single read from a single cell, so SQANTI3 stops with "column not found" if a rule names them. This is how a model that is not seen again across the cells of one cluster can be discarded. `src/filter_assets/transcript_filter_cluster_example.json` is SQANTI3's default with `"max_cluster_cells": 3` added to both `rest` rule-sets: a novel model must reach at least 3 cells of one cluster, while full-splice matches are judged as before. The 3 is an example, not a calibrated value. Without `--rules` nothing changes.
+In isoforms mode the classification carries three cell-context columns — `cells_detected`, `max_cluster_cells` and `max_cluster_pct` (see [the classification columns](#1-sqanti3-based-outputs)) — and a rule can use them like any other column. Reads-mode classifications do not have them, since each row there is a single read from a single cell, so SQANTI3 stops with "column not found" if a rule names them. This is how a model that is not seen again across the cells of one cluster can be discarded. `src/filter_assets/isoform_filter_cluster_example.json` is SQANTI3's default with `"max_cluster_cells": 3` added to both `rest` rule-sets: a novel model must reach at least 3 cells of one cluster, while full-splice matches are judged as before. The 3 is an example, not a calibrated value. Without `--rules` nothing changes.
 
 Put the rule in every alternative rule-set of a category: a rule-set without it accepts models regardless.
 
@@ -652,13 +652,13 @@ The two cluster columns are measured only when the input was clustered (`--run_c
 `--method ml` runs SQANTI3's ML filter. A random forest learns from a list of true isoforms and a list of artifacts, then judges every multi-exon model; an intra-priming check on the 3' end runs alongside it. See the SQANTI3 documentation for the method.
 
 ```bash
-python sqanti_sc_filter.py transcripts --method ml \
+python sqanti_sc_filter.py isoforms --method ml \
     --design design.csv \
     --qc_dir ./filter/cells \
-    --out_dir ./filter/transcripts_ml
+    --out_dir ./filter/isoforms_ml
 ```
 
-The options are SQANTI3's, under SQANTI3's flags, so `-j` is the probability threshold here rather than a rules file. `-t`, `-p`/`-n`, `-f`, `-r`, `-z`, `-i` and `--intermediate_files` mean what they mean in SQANTI3, and SQANTI3's own defaults apply to any left unset. `transcripts --method ml -h` lists them. `-e` is not exposed, as for the rules.
+The options are SQANTI3's, under SQANTI3's flags, so `-j` is the probability threshold here rather than a rules file. `-t`, `-p`/`-n`, `-f`, `-r`, `-z`, `-i` and `--intermediate_files` mean what they mean in SQANTI3, and SQANTI3's own defaults apply to any left unset. `isoforms --method ml -h` lists them. `-e` is not exposed, as for the rules.
 
 SQANTI3 reads a copy of the classification made for it, deleted once it finishes:
 
@@ -669,7 +669,7 @@ SQANTI3 builds the two training lists from each sample's own classification: ref
 
 ### Output
 
-The output has the same `<out_dir>/<file_acc>/<sampleID>_*` shape as a QC run. Each filter labels the table whose rows it judges and cuts the other files to match: the cell filter labels the cell summary, and the transcript filter labels the classification.
+The output has the same `<out_dir>/<file_acc>/<sampleID>_*` shape as a QC run. Each filter labels the table whose rows it judges and cuts the other files to match: the cell filter labels the cell summary, and the isoform filter labels the classification.
 
 | File | Contents |
 |---|---|
@@ -690,7 +690,7 @@ The junctions, GTF and FASTA contain only the passing models, the way SQANTI3's 
 
 **The cell summary is recomputed, not carried over.** Removing models changes every cell's depth and composition, so the per-cell metrics are rebuilt from what survives. The summary thresholds `--min_cov`, `--ratio_TSS` and `--ref_cov_min_pct` default as in the QC run; pass the values the QC run used if you changed them. A cell whose every model was discarded is absent from the recomputed summary, and the count is reported.
 
-A classification that already carries `filter_result` is refused as input: filtering it again could keep models whose junctions, GTF and FASTA entries were already removed. The cell filter does accept a transcript filter's output, and keeps the verdict column in its own classification.
+A classification that already carries `filter_result` is refused as input: filtering it again could keep models whose junctions, GTF and FASTA entries were already removed. The cell filter does accept an isoform filter's output, and keeps the verdict column in its own classification.
 
 ### Reports
 
@@ -701,18 +701,18 @@ A classification that already carries `filter_result` is refused as input: filte
 
 ## Rescue (`sqanti_sc_rescue.py`)
 
-`sqanti_sc_rescue.py` runs [SQANTI3 rescue](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-rescue) on the output of the transcript filter. Like `sqanti3_rescue.py` in SQANTI3, it is its own entry point, next to the QC run (`sqanti_sc.py`) and the filters (`sqanti_sc_filter.py`). Some of the models the filter removes are artifacts of a real transcript: a full-splice match with an intra-primed end, or a fragment of a known isoform. Rescue finds that transcript and gives it the removed model's reads. Isoforms mode only: in reads mode each row is one read, so a removed row has no count to move.
+`sqanti_sc_rescue.py` runs [SQANTI3 rescue](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-rescue) on the output of the isoform filter. Like `sqanti3_rescue.py` in SQANTI3, it is its own entry point, next to the QC run (`sqanti_sc.py`) and the filters (`sqanti_sc_filter.py`). Some of the models the filter removes are artifacts of a real transcript: a full-splice match with an intra-primed end, or a fragment of a known isoform. Rescue finds that transcript and gives it the removed model's reads. Isoforms mode only: in reads mode each row is one read, so a removed row has no count to move.
 
 ```bash
 python sqanti_sc_rescue.py \
     --design design.csv \
-    --qc_dir ./filter/transcripts \
+    --qc_dir ./filter/isoforms \
     --pre_filter_dir ./filter/cells \
     --refGTF annotation.gtf --refFasta genome.fa \
     --out_dir ./rescue
 ```
 
-`--qc_dir` is the transcript filter's output. `--pre_filter_dir` is the directory the transcript filter read (its own `--qc_dir`): only there do the removed models still have their sequences. `--refGTF` and `--refFasta` are the annotation and genome the QC run used.
+`--qc_dir` is the isoform filter's output. `--pre_filter_dir` is the directory the isoform filter read (its own `--qc_dir`): only there do the removed models still have their sequences. `--refGTF` and `--refFasta` are the annotation and genome the QC run used.
 
 ### Modes
 
@@ -754,7 +754,7 @@ A removed model with no target gives its reads to a residual row for its gene, a
 
 The proteins and their CDS coordinates (`--include_ORF`) are carried over the same way. The SAM and the tappAS GFF3 are not, since the references have no entry in either.
 
-Rescue changes what the kept cells hold, so the cell summary is recomputed, as after the transcript filter. A cell the transcript filter emptied can hold reads again, and the log says how many do. `--out_dir` must be new or empty, because SQANTI3 rescue silently reuses an alignment it finds there from an earlier run. When no reference transcript lost all its FSMs, automatic rescue has nothing to put back: the log says so, and the output holds the kept models unchanged.
+Rescue changes what the kept cells hold, so the cell summary is recomputed, as after the isoform filter. A cell the isoform filter emptied can hold reads again, and the log says how many do. `--out_dir` must be new or empty, because SQANTI3 rescue silently reuses an alignment it finds there from an earlier run. When no reference transcript lost all its FSMs, automatic rescue has nothing to put back: the log says so, and the output holds the kept models unchanged.
 
 The final cell filter is the cell filter run again on the rescue output:
 

@@ -119,7 +119,7 @@ def _write_reference_qc(out_dir, prefix='reference'):
 
 @pytest.fixture
 def runs(tmp_path):
-    """A transcript filter's output (tf/), the QC run it read (pre/), and a design."""
+    """An isoform filter's output (tf/), the QC run it read (pre/), and a design."""
     tf = tmp_path / 'tf'
     _write_filter_output(tf / 'rep1')
     pre = tmp_path / 'pre' / 'rep1'
@@ -422,11 +422,11 @@ class TestRefusals:
         with pytest.raises(ValueError, match='isoforms-mode'):
             self._check(runs, mode='reads')
 
-    def test_not_a_transcript_filter_output(self, runs):
+    def test_not_a_isoform_filter_output(self, runs):
         tmp_path, tf, pre, design = runs
         prefix = str(tf / 'rep1' / 's1')
         os.replace(prefix + '_RulesFilter_classification.txt', prefix + '_classification.txt')
-        with pytest.raises(ValueError, match="sqanti_sc_filter.py transcripts"):
+        with pytest.raises(ValueError, match="sqanti_sc_filter.py isoforms"):
             self._check(runs)
 
     def test_missing_pre_filter_fasta(self, runs):

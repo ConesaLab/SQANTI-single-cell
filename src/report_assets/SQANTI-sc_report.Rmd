@@ -262,7 +262,7 @@ show_tf_ml_category <- show_tf && !is.null(gg_tf_ml_category_pct)
 ```
 
 ```{r tf-header, results='asis', eval=show_tf}
-cat("# Transcript Filtering\n\n")
+cat("# Isoform Filtering\n\n")
 ```
 
 ```{r tf-counts, eval=show_tf}

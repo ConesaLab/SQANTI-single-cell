@@ -25,7 +25,7 @@ if sqanti_sc_src_path not in sys.path:
 
 import filter_args
 import filter_io
-import transcript_filter
+import isoform_filter
 
 
 def _cls_row(isoform, cb, fl, category="full-splice_match", perc_a="0", min_cov="NA"):
@@ -111,20 +111,20 @@ def fake_sqanti3(monkeypatch):
                    sep='\t', index=False)
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(transcript_filter.subprocess, 'run', run)
+    monkeypatch.setattr(isoform_filter.subprocess, 'run', run)
     return calls
 
 
 def _args(qc_dir, out_dir, *extra):
-    argv = ['transcripts', '-de', 'design.csv', '-q', str(qc_dir), '-d', str(out_dir), *extra]
+    argv = ['isoforms', '-de', 'design.csv', '-q', str(qc_dir), '-d', str(out_dir), *extra]
     return filter_args.build_filter_parser(
-        method=filter_args.transcript_method(argv)).parse_args(argv)
+        method=filter_args.isoform_method(argv)).parse_args(argv)
 
 
 def _run(tmp_path, qc_dir, design, *extra, log=None):
     args = _args(qc_dir, tmp_path / "filter", *extra)
     df = filter_io.read_sample_table(design, str(qc_dir), labelled_summary_ok=True)
-    return transcript_filter.run_transcript_filter(
+    return isoform_filter.run_isoform_filter(
         args, df, log=log if log is not None else (lambda *a: None))
 
 
@@ -135,7 +135,7 @@ def _read_tsv(path):
 class TestSqanti3Command:
     def _cmd(self, *extra):
         args = _args('qc', 'out', *extra)
-        return transcript_filter.build_sqanti3_filter_command(
+        return isoform_filter.build_sqanti3_filter_command(
             args, 'qc/rep1/s1_classification.txt', 'out/rep1', 's1')
 
     def test_runs_the_rules_filter_on_the_sample_classification(self):
@@ -194,7 +194,7 @@ class TestRunTranscriptFilter:
         cls = _read_tsv(path)
         cls['filter_result'] = 'Isoform'
         cls.to_csv(path, sep='\t', index=False)
-        with pytest.raises(ValueError, match='already been through the transcript filter'):
+        with pytest.raises(ValueError, match='already been through the isoform filter'):
             _run(tmp_path, qc_dir, design)
         assert not fake_sqanti3
 
@@ -247,7 +247,7 @@ class TestRunTranscriptFilter:
         def fail(cmd, check=False, **kw):
             raise subprocess.CalledProcessError(1, cmd)
 
-        monkeypatch.setattr(transcript_filter.subprocess, 'run', fail)
+        monkeypatch.setattr(isoform_filter.subprocess, 'run', fail)
         with pytest.raises(ValueError, match='sample s1'):
             _run(tmp_path, qc_dir, design)
 
@@ -345,41 +345,54 @@ class TestLabelledClassificationReaders:
         qc_reports.generate_report(args, pd.DataFrame({'sampleID': ['s1'], 'file_acc': ['rep1']}))
         return calls[0]
 
-    def test_the_transcript_filter_hands_the_report_its_input_summary_and_reasons(
+    def test_the_isoform_filter_hands_the_report_its_input_summary_and_reasons(
             self, tmp_path, monkeypatch):
         prefix = self._labelled(tmp_path)
         open(f"{prefix}_filtering_reasons.txt", 'w').close()
         qc_dir = tmp_path / "qc"
-        cmd = self._report_cmd(tmp_path, monkeypatch, subcommand='transcripts',
+        cmd = self._report_cmd(tmp_path, monkeypatch, subcommand='isoforms',
                                method='rules', qc_dir=str(qc_dir))
         assert f'--input_cell_summary "{qc_dir}/rep1/s1_SQANTI_cell_summary.txt.gz"' in cmd
-        assert f'--transcript_filter_reasons "{prefix}_filtering_reasons.txt"' in cmd
+        assert f'--isoform_filter_reasons "{prefix}_filtering_reasons.txt"' in cmd
+
+    def test_the_parsed_subcommand_switches_the_report_section_on(self, tmp_path, monkeypatch):
+        """qc_reports gates the section on the subcommand's name. The Namespaces above are
+        built by hand, so only one from the real parser notices if the two drift apart."""
+        import qc_reports
+        prefix = self._labelled(tmp_path)
+        open(f"{prefix}_filtering_reasons.txt", 'w').close()
+        calls = []
+        monkeypatch.setattr(qc_reports.subprocess, 'run', lambda cmd, **kw: calls.append(cmd))
+        args = _args(tmp_path / "qc", tmp_path, '--report', 'html')
+        args.mode = 'isoforms'
+        qc_reports.generate_report(args, pd.DataFrame({'sampleID': ['s1'], 'file_acc': ['rep1']}))
+        assert f'--isoform_filter_reasons "{prefix}_filtering_reasons.txt"' in calls[0]
 
     def test_a_cell_filter_input_is_passed_as_its_labelled_summary(self, tmp_path, monkeypatch):
         self._labelled(tmp_path)
         qc_sample = tmp_path / "cells" / "rep1"
         qc_sample.mkdir(parents=True)
         (qc_sample / "s1_CellFilter_cell_summary.txt.gz").touch()
-        cmd = self._report_cmd(tmp_path, monkeypatch, subcommand='transcripts',
+        cmd = self._report_cmd(tmp_path, monkeypatch, subcommand='isoforms',
                                method='rules', qc_dir=str(tmp_path / "cells"))
         assert f'--input_cell_summary "{qc_sample}/s1_CellFilter_cell_summary.txt.gz"' in cmd
 
     @pytest.mark.parametrize('extra', [{}, {'subcommand': 'cells', 'qc_dir': 'qc'}])
-    def test_other_callers_get_no_transcript_filter_inputs(self, tmp_path, monkeypatch, extra):
+    def test_other_callers_get_no_isoform_filter_inputs(self, tmp_path, monkeypatch, extra):
         prefix = self._labelled(tmp_path)
         open(f"{prefix}_filtering_reasons.txt", 'w').close()
         cmd = self._report_cmd(tmp_path, monkeypatch, **extra)
         assert '--input_cell_summary' not in cmd
-        assert '--transcript_filter_reasons' not in cmd
+        assert '--isoform_filter_reasons' not in cmd
 
     def test_the_ml_filter_hands_the_report_its_directory_not_reasons(
             self, tmp_path, monkeypatch):
         prefix = self._labelled(tmp_path)
         open(f"{prefix}_filtering_reasons.txt", 'w').close()
-        cmd = self._report_cmd(tmp_path, monkeypatch, subcommand='transcripts',
+        cmd = self._report_cmd(tmp_path, monkeypatch, subcommand='isoforms',
                                method='ml', qc_dir=str(tmp_path / "qc"))
         assert f'--ml_dir "{tmp_path}/rep1"' in cmd
-        assert '--transcript_filter_reasons' not in cmd
+        assert '--isoform_filter_reasons' not in cmd
 
     def test_h5ad_export_skips_artifacts(self, tmp_path):
         from sc_export import _prepare_classification
@@ -404,7 +417,7 @@ class TestCellFilterAfterTranscripts:
         df = filter_io.read_sample_table(design, args.qc_dir)
         cell_filter.run_cell_filter(args, df, log=lambda *a: None)
         cls = _read_tsv(tmp_path / "cells" / "rep1" / "s1_RulesFilter_classification.txt")
-        # bc3 was lost to the transcript filter, so PB.3.1 has no cell left; PB.2.1 is
+        # bc3 was lost to the isoform filter, so PB.3.1 has no cell left; PB.2.1 is
         # an artifact of a kept cell and keeps its label.
         assert dict(zip(cls['isoform'], cls['filter_result'])) == {
             'PB.1.1': 'Isoform', 'PB.2.1': 'Artifact'}
@@ -450,7 +463,7 @@ class TestOptionalModelFiles:
         assert sorted(p.name for p in tmp_path.iterdir()) == [
             'in_corrected.sam', 'out_corrected.sam']
 
-    def test_the_transcript_filter_cuts_them_to_the_passing_models(self, qc_run, fake_sqanti3):
+    def test_the_isoform_filter_cuts_them_to_the_passing_models(self, qc_run, fake_sqanti3):
         tmp_path, qc_dir, design = qc_run
         _write_optional_files(qc_dir / "rep1" / "s1")
         _run(tmp_path, qc_dir, design)
@@ -478,7 +491,7 @@ class TestOptionalModelFiles:
 class TestTranscriptsParser:
     def test_defaults(self):
         ns = _args('qc', 'out')
-        assert ns.subcommand == 'transcripts'
+        assert ns.subcommand == 'isoforms'
         assert ns.rules is None
         assert ns.report == 'skip'
 
@@ -491,10 +504,10 @@ class TestTranscriptsParser:
                           if a.option_strings and a.option_strings[0] in (
                               '--min_cov', '--ratio_TSS', '--ref_cov_min_pct'))
 
-        transcripts = filter_args.build_filter_parser()._subparsers._group_actions[0] \
-            .choices['transcripts']
-        assert flags(build_parser()) == flags(transcripts)
-        assert len(flags(transcripts)) == 3
+        isoforms = filter_args.build_filter_parser()._subparsers._group_actions[0] \
+            .choices['isoforms']
+        assert flags(build_parser()) == flags(isoforms)
+        assert len(flags(isoforms)) == 3
 
     def test_takes_the_clustering_and_report_options(self):
         ns = _args('qc', 'out', '--run_clustering', '--resolution', '0.9',
@@ -527,7 +540,7 @@ def fake_sqanti3_ml(monkeypatch):
         with open(os.path.join(out_dir, f"{prefix}_pass_isoforms.txt"), 'w') as fh:
             fh.write(''.join(f"{iso}\n" for iso in PASSING))
         out = ml_input.copy()
-        for i, column in enumerate(transcript_filter.ML_COLUMNS):
+        for i, column in enumerate(isoform_filter.ML_COLUMNS):
             out[column] = [ML_VERDICTS[iso][i] for iso in out['isoform']]
         out['filter_result'] = ['Isoform' if i in PASSING else 'Artifact'
                                 for i in out['isoform']]
@@ -535,17 +548,17 @@ def fake_sqanti3_ml(monkeypatch):
                    sep='\t', index=False)
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(transcript_filter.subprocess, 'run', run)
+    monkeypatch.setattr(isoform_filter.subprocess, 'run', run)
     return calls
 
 
 class TestMethodOption:
     def test_the_method_is_read_before_the_parser_is_built(self):
-        assert filter_args.transcript_method(['transcripts', '--method', 'ml']) == 'ml'
-        assert filter_args.transcript_method(['transcripts']) == 'rules'
+        assert filter_args.isoform_method(['isoforms', '--method', 'ml']) == 'ml'
+        assert filter_args.isoform_method(['isoforms']) == 'rules'
 
     def test_an_unknown_method_is_rejected_by_the_parser(self):
-        assert filter_args.transcript_method(['transcripts', '--method', 'svm']) == 'rules'
+        assert filter_args.isoform_method(['isoforms', '--method', 'svm']) == 'rules'
         with pytest.raises(SystemExit):
             _args('qc', 'out', '--method', 'svm')
 
@@ -571,7 +584,7 @@ class TestMethodOption:
 class TestMLCommand:
     def _cmd(self, *extra):
         args = _args('qc', 'out', '--method', 'ml', *extra)
-        return transcript_filter.build_sqanti3_filter_command(
+        return isoform_filter.build_sqanti3_filter_command(
             args, 'out/rep1/s1_ML_input.tmp', 'out/rep1', 's1')
 
     def test_runs_the_ml_filter_with_the_report_skipped(self):
@@ -605,7 +618,7 @@ class TestMLInput:
         pd.DataFrame([_cls_row('PB.1.1', 'bc1,bc2', '5,3'), _cls_row('PB.2.1', 'bc2', '7'),
                       _cls_row('PB.3.1', 'bc1,bc3', '0.5,1.25'),
                       _cls_row('PB.4.1', 'bc1', 'NA')]).to_csv(src, sep='\t', index=False)
-        transcript_filter.write_ml_input(str(src), str(dst), 'isoforms')
+        isoform_filter.write_ml_input(str(src), str(dst), 'isoforms')
         assert _read_tsv(dst)['FL'].tolist() == ['8', '7', '1.75', 'NA']
 
     def test_cell_and_junction_chain_columns_are_left_out(self, tmp_path):
@@ -613,9 +626,9 @@ class TestMLInput:
         rows = pd.DataFrame([dict(_cls_row('r1', 'bc1', 'NA'), UMI='ACGT',
                                   jxn_string='chr1_+_10_20', jxnHash='abc')])
         rows.to_csv(src, sep='\t', index=False)
-        transcript_filter.write_ml_input(str(src), str(dst), 'reads')
+        isoform_filter.write_ml_input(str(src), str(dst), 'reads')
         out = _read_tsv(dst)
-        expected = rows.drop(columns=list(transcript_filter.NOT_ML_FEATURES))
+        expected = rows.drop(columns=list(isoform_filter.NOT_ML_FEATURES))
         pd.testing.assert_frame_equal(out, expected)
 
 
@@ -639,10 +652,10 @@ class TestRunMLFilter:
         out = tmp_path / "filter" / "rep1"
         original = _read_tsv(qc_dir / "rep1" / "s1_classification.txt")
         labelled = _read_tsv(out / "s1_ML_classification.txt")
-        added = [*transcript_filter.ML_COLUMNS, 'filter_result']
+        added = [*isoform_filter.ML_COLUMNS, 'filter_result']
         assert list(labelled.columns) == list(original.columns) + added
         pd.testing.assert_frame_equal(labelled.drop(columns=added), original)
-        assert labelled.loc[2, list(transcript_filter.ML_COLUMNS)].tolist() == list(
+        assert labelled.loc[2, list(isoform_filter.ML_COLUMNS)].tolist() == list(
             ML_VERDICTS['PB.3.1'])
         assert dict(zip(labelled['isoform'], labelled['filter_result'])) == {
             'PB.1.1': 'Isoform', 'PB.2.1': 'Artifact', 'PB.3.1': 'Artifact'}
@@ -663,14 +676,14 @@ class TestRunMLFilter:
         def run(cmd, check=False, **kw):
             out_dir, prefix = cmd[cmd.index('-d') + 1], cmd[cmd.index('-o') + 1]
             out = _read_tsv(cmd[cmd.index('--sqanti_class') + 1]).iloc[::-1]
-            for i, column in enumerate(transcript_filter.ML_COLUMNS):
+            for i, column in enumerate(isoform_filter.ML_COLUMNS):
                 out[column] = [ML_VERDICTS[iso][i] for iso in out['isoform']]
             out.to_csv(os.path.join(out_dir, f"{prefix}_ML_classification.txt"),
                        sep='\t', index=False)
             open(os.path.join(out_dir, f"{prefix}_pass_isoforms.txt"), 'w').close()
             return subprocess.CompletedProcess(cmd, 0)
 
-        monkeypatch.setattr(transcript_filter.subprocess, 'run', run)
+        monkeypatch.setattr(isoform_filter.subprocess, 'run', run)
         with pytest.raises(ValueError, match='same order'):
             self._run_ml(tmp_path, qc_dir, design)
 
@@ -680,7 +693,7 @@ class TestRunMLFilter:
         def fail(cmd, check=False, **kw):
             raise subprocess.CalledProcessError(1, cmd)
 
-        monkeypatch.setattr(transcript_filter.subprocess, 'run', fail)
+        monkeypatch.setattr(isoform_filter.subprocess, 'run', fail)
         with pytest.raises(ValueError, match='sample s1'):
             self._run_ml(tmp_path, qc_dir, design)
         assert list((tmp_path / "filter" / "rep1").glob('*.tmp')) == []
@@ -730,12 +743,12 @@ class TestRunMLFilter:
 
 
 class TestEntryPoint:
-    def test_main_dispatches_to_the_transcript_filter(self, qc_run, fake_sqanti3,
+    def test_main_dispatches_to_the_isoform_filter(self, qc_run, fake_sqanti3,
                                                       monkeypatch):
         import filter_pipeline
         tmp_path, qc_dir, design = qc_run
         monkeypatch.setattr(sys, 'argv', [
-            'sqanti_sc_filter.py', 'transcripts', '-de', design, '-q', str(qc_dir),
+            'sqanti_sc_filter.py', 'isoforms', '-de', design, '-q', str(qc_dir),
             '-d', str(tmp_path / "filter")])
         filter_pipeline.main()
         assert len(fake_sqanti3) == 1
@@ -745,7 +758,7 @@ class TestEntryPoint:
         import filter_pipeline
         tmp_path, qc_dir, design = qc_run
         monkeypatch.setattr(sys, 'argv', [
-            'sqanti_sc_filter.py', 'transcripts', '-de', design, '-q', str(qc_dir),
+            'sqanti_sc_filter.py', 'isoforms', '-de', design, '-q', str(qc_dir),
             '-d', str(tmp_path / "filter"), '--method', 'ml', '-j', '0.9'])
         filter_pipeline.main()
         (cmd, _), = fake_sqanti3_ml

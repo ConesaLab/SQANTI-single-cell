@@ -2,8 +2,8 @@ import sys
 
 import filter_io
 from cell_filter import run_cell_filter
-from filter_args import build_filter_parser, transcript_method
-from transcript_filter import run_transcript_filter
+from filter_args import build_filter_parser, isoform_method
+from isoform_filter import run_isoform_filter
 
 
 def run_downstream(args, df, mode, evidence):
@@ -35,7 +35,7 @@ def run_downstream(args, df, mode, evidence):
 
 
 def main():
-    args = build_filter_parser(method=transcript_method(sys.argv[1:])).parse_args()
+    args = build_filter_parser(method=isoform_method(sys.argv[1:])).parse_args()
     if args.subcommand is None:
         build_filter_parser().print_help()
         sys.exit(1)
@@ -47,7 +47,7 @@ def main():
         else:
             df = filter_io.read_sample_table(args.inDESIGN, args.qc_dir,
                                              labelled_summary_ok=True)
-            mode, evidence = run_transcript_filter(args, df)
+            mode, evidence = run_isoform_filter(args, df)
     except ValueError as exc:
         print(exc, file=sys.stderr)
         sys.exit(1)

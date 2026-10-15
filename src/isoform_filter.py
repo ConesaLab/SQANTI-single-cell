@@ -112,7 +112,7 @@ def check_not_already_filtered(args, df):
             filter_io.sample_prefix(args.qc_dir, row['file_acc'], row['sampleID']))
         if RESULT_COLUMN in filter_io.classification_header(in_class):
             raise ValueError(
-                f"ERROR: {in_class} has already been through the transcript filter. "
+                f"ERROR: {in_class} has already been through the isoform filter. "
                 "Filtering it again could keep models whose junctions, GTF and FASTA "
                 "entries were already removed; run on the QC run or a cell filter's "
                 "output instead."
@@ -142,7 +142,7 @@ def check_training_lists(args, df):
         )
 
 
-def run_transcript_filter(args, df, log=print):
+def run_isoform_filter(args, df, log=print):
     check_not_already_filtered(args, df)
     check_out_dir_method(args, df)
     check_training_lists(args, df)

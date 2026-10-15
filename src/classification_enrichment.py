@@ -333,7 +333,7 @@ def annotate_with_cell_metadata(args, df):
                     class_df[col] = class_df[col].map({True: 'TRUE', False: 'FALSE'})
 
                 class_df = class_df.fillna('NA')
-                # Isoforms mode only: the transcript filter is meant for collapsed models,
+                # Isoforms mode only: the isoform filter is meant for collapsed models,
                 # and a reads-mode row is one read from one cell.
                 if args.mode == 'isoforms':
                     class_df = cell_context.annotate_frame(class_df)
