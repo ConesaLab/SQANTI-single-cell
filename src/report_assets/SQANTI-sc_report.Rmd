@@ -374,7 +374,7 @@ print(gg_tf_ml_importance)
 ```
 
 ```{r tf-categories-header, results='asis', eval=show_tf}
-cat("## Structural categories, before vs after\n\n")
+cat("## Structural categories, input vs filtered\n\n")
 ```
 
 ```{r tf-categories-table, eval=show_tf}
@@ -386,7 +386,7 @@ print(gg_tf_categories)
 ```
 
 ```{r tf-quality-header, results='asis', eval=show_tf_goodq || show_tf_badq}
-cat("## Quality attributes, before vs after {.tabset .tabset-fade}\n\n")
+cat("## Quality attributes, input vs filtered {.tabset .tabset-fade}\n\n")
 ```
 
 ```{r tf-goodq-tab, results='asis', eval=show_tf_goodq}
