@@ -1,4 +1,5 @@
 import json
+import math
 import os
 
 import numpy as np
@@ -93,17 +94,50 @@ def load_rules(path, mode):
             "one-element list."
         )
     for rs in rulesets:
-        if not isinstance(rs, dict) or not rs:
+        if not isinstance(rs, dict):
             raise ValueError(
-                f"ERROR: every entry of \"all\" in {path} must be a non-empty object "
-                f"of column -> threshold; got {rs!r}."
+                f"ERROR: every entry of \"all\" in {path} must be an object of "
+                f"column -> threshold; got {rs!r}."
             )
+    # An empty value means "no rule", so one template can list every column of both modes.
+    # Stripped before the depth rename, where a later empty key would win; a set left
+    # empty is dropped, since it would pass every cell and, ORed, disable the filter.
+    rulesets = [{k: v for k, v in rs.items() if not _is_empty(v)} for rs in rulesets]
+    rulesets = [rs for rs in rulesets if rs]
+    if not rulesets:
+        raise ValueError(
+            f"ERROR: no rule in {path} has a value. Give at least one column a number "
+            "(minimum) or a [min, max] pair; empty entries are ignored."
+        )
+    for rs in rulesets:
+        for column, rule in rs.items():
+            _check_rule(column, rule)
     # The depth column is named per mode. A token keeps one shipped default working
     # in both without silently ignoring a rule that names the other mode's column.
     # Rebuilt in place rather than popped so the JSON's order survives into the
     # reason strings.
     return [{(depth_column(mode) if k == DEPTH_TOKEN else k): v for k, v in rs.items()}
             for rs in rulesets]
+
+
+def _is_empty(rule):
+    return rule is None or rule == "" or rule == []
+
+
+def _check_rule(column, rule):
+    describe_rule(column, rule)
+    # json accepts NaN and Infinity, and every cell fails ">= nan".
+    if not all(math.isfinite(v) for v in (rule if isinstance(rule, list) else [rule])):
+        raise ValueError(
+            f"ERROR: rule for column '{column}' is not a finite number: {rule!r}.")
+
+
+def describe_rulesets(rulesets):
+    """The rules as applied, one line: sets ORed, rules inside a set ANDed."""
+    sets = [" AND ".join(describe_rule(c, r) for c, r in rs.items()) for rs in rulesets]
+    if len(sets) == 1:
+        return sets[0]
+    return " OR ".join(f"({s})" for s in sets)
 
 
 def rule_columns(rulesets):
@@ -321,6 +355,7 @@ def run_cell_filter(args, df, log=print):
         for flag, was_measured in detect_measured_evidence(summary).items():
             evidence[flag] = evidence[flag] or was_measured
         rules = load_rules(args.rules, mode)
+        log(f"**** {sampleID}: cell rules: {describe_rulesets(rules)}")
 
         labelled, reasons = decide_cells(summary, rules, mode, sampleID, log=log)
 
@@ -329,6 +364,7 @@ def run_cell_filter(args, df, log=print):
             'Mode': mode,
             'QCDir': os.path.abspath(args.qc_dir),
             'RulesFile': os.path.abspath(args.rules),
+            'Rules': describe_rulesets(rules),
             'BarcodesIn': len(labelled),
             'BarcodesPassing': int((labelled[RESULT_COLUMN] == RESULT_CELL).sum()),
         }

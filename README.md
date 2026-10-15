@@ -536,7 +536,7 @@ Always written, mirroring the SQANTI3 filter's contract:
 | `<sampleID>_CellFilter_cell_summary.txt.gz` | **Every** judged barcode, all its metrics, plus exactly one added column: `filter_result` (`Cell`/`Artifact`). This is the cell-summary equivalent of SQANTI3's `_RulesFilter_classification.txt`, which likewise adds only its verdict column. |
 | `<sampleID>_pass_cells.txt` | Passing barcodes, one per line — usable directly as a Scanpy/Seurat subset |
 | `<sampleID>_cell_filtering_reasons.txt` | Discarded barcodes and why: `CB` and `filter_reason`. Artifacts only, as in SQANTI3 |
-| `<sampleID>_cell_filter_params.txt` | Every threshold used, plus the run statistics |
+| `<sampleID>_cell_filter_params.txt` | The rules file and the rules as applied (`Rules`, on one line), plus the run statistics |
 | `<sampleID>_classification.txt` | Filtered: only retained cells. In isoforms mode `cells_detected` is recounted over them, and `max_cluster_cells`/`max_cluster_pct` are `NA` unless `--run_clustering` refits the clusters |
 | `<sampleID>_junctions.txt` | Filtered, with the per-row barcode list rewritten |
 | `<sampleID>_corrected.gtf` | Filtered: only the surviving transcript models |
@@ -567,6 +567,14 @@ Criteria live in a JSON file (`--rules`, default `src/filter_assets/cell_filter_
 ```
 
 `depth` resolves to `Reads_in_cell` in reads mode and `Transcripts_in_cell` in isoforms mode, so one file works for both.
+
+#### Every column: the template
+
+`src/filter_assets/cell_filter_template.json` lists every column of the cell summary, for both modes, each with an empty value. Copy it, give values to the columns you want to filter on, and pass the copy with `--rules`. The default's three columns come first.
+
+An empty value — `null`, `""` or `[]` — means "no rule", as if the column were left out. So columns of the other mode, or of SQANTI3 inputs your QC run did not use, can stay in the file. A column missing from your cell summary is an error only when it has a value. A rule-set with every entry empty is ignored, and a file with no value at all is refused.
+
+Values must be finite numbers. JSON readers accept `NaN` and `Infinity`, but these are refused here, since no cell passes a minimum of `NaN`. The rules as applied are printed in the log and written to `<sampleID>_cell_filter_params.txt`.
 
 #### Alternatives: the value is a list
 

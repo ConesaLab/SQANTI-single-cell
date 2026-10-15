@@ -974,12 +974,15 @@ class TestRulesFile:
         with pytest.raises(ValueError, match="non-empty list of rule-sets"):
             cell_filter.load_rules(str(path), 'isoforms')
 
-    def test_an_empty_rule_set_is_rejected(self, tmp_path):
-        """An empty object passes everything, so it would silently disable the filter."""
+    def test_an_empty_rule_set_is_dropped_not_ORed_in(self, tmp_path):
+        """An empty set passes every cell, so ORed in it would disable the filter."""
         path = tmp_path / "r.json"
         path.write_text('{"all": [{"depth": 500}, {}]}')
-        with pytest.raises(ValueError, match="non-empty object"):
-            cell_filter.load_rules(str(path), 'isoforms')
+        rulesets = cell_filter.load_rules(str(path), 'isoforms')
+        assert rulesets == [{'Transcripts_in_cell': 500}]
+        s = _summary_frame({'CB': ['a', 'b'], 'Transcripts_in_cell': [5, 5000]})
+        out = _verdict(s, rulesets)
+        assert out['filter_result'].tolist() == [RESULT_ARTIFACT, RESULT_CELL]
 
     def test_the_depth_token_resolves_in_every_rule_set(self, tmp_path):
         path = tmp_path / "r.json"
@@ -987,3 +990,162 @@ class TestRulesFile:
         rulesets = cell_filter.load_rules(str(path), 'reads')
         assert all('Reads_in_cell' in rs for rs in rulesets)
         assert not any(cell_filter.DEPTH_TOKEN in rs for rs in rulesets)
+
+
+def _rules_file(tmp_path, text):
+    path = tmp_path / "r.json"
+    path.write_text(text)
+    return str(path)
+
+
+class TestEmptyEntries:
+    """An empty value (null, "" or []) means "no rule", as if the key were absent, so
+    one file can list every column of both modes and the user fills in a few."""
+
+    def test_null_empty_string_and_empty_list_are_skipped(self, tmp_path):
+        path = _rules_file(tmp_path, '{"all": [{"depth": 500, "Annotated_genes": null, '
+                                     '"MT_perc": "", "FSM_prop": []}]}')
+        assert cell_filter.load_rules(path, 'reads') == [{'Reads_in_cell': 500}]
+
+    def test_a_set_left_empty_is_dropped(self, tmp_path):
+        path = _rules_file(tmp_path, '{"all": [{"depth": 500}, '
+                                     '{"depth": null, "MT_perc": []}]}')
+        assert cell_filter.load_rules(path, 'isoforms') == [{'Transcripts_in_cell': 500}]
+
+    def test_a_file_with_no_value_is_refused(self, tmp_path):
+        path = _rules_file(tmp_path, '{"all": [{"depth": null}, {"MT_perc": ""}]}')
+        with pytest.raises(ValueError, match="no rule .* has a value"):
+            cell_filter.load_rules(path, 'isoforms')
+
+    def test_an_empty_depth_token_does_not_override_the_depth_column(self, tmp_path):
+        path = _rules_file(tmp_path, '{"all": [{"Transcripts_in_cell": 500, "depth": null}]}')
+        assert cell_filter.load_rules(path, 'isoforms') == [{'Transcripts_in_cell': 500}]
+
+    def test_an_empty_column_of_the_other_mode_is_accepted(self, tmp_path):
+        path = _rules_file(tmp_path, '{"all": [{"depth": 10, "UMIs_in_cell": null}]}')
+        rules = cell_filter.load_rules(path, 'isoforms')
+        s = _summary_frame({'CB': ['a', 'b'], 'Transcripts_in_cell': [5, 50]})
+        out = _verdict(s, rules)
+        assert out['filter_result'].tolist() == [RESULT_ARTIFACT, RESULT_CELL]
+
+    def test_a_filled_unknown_column_is_still_refused(self, tmp_path):
+        path = _rules_file(tmp_path, '{"all": [{"depth": 10, "No_Such_Column": 1}]}')
+        rules = cell_filter.load_rules(path, 'isoforms')
+        s = _summary_frame({'CB': ['a'], 'Transcripts_in_cell': [5]})
+        with pytest.raises(ValueError, match="not present in the cell summary"):
+            _verdict(s, rules)
+
+    @pytest.mark.parametrize('value', ['NaN', 'Infinity', '-Infinity', '[0, NaN]', '1e999'])
+    def test_a_non_finite_value_is_refused(self, tmp_path, value):
+        path = _rules_file(tmp_path, '{"all": [{"depth": %s}]}' % value)
+        with pytest.raises(ValueError, match="not a finite number"):
+            cell_filter.load_rules(path, 'isoforms')
+
+    def test_a_bad_value_is_refused_when_the_file_is_read(self, tmp_path):
+        path = _rules_file(tmp_path, '{"all": [{"depth": "500"}]}')
+        with pytest.raises(ValueError, match="must be a number"):
+            cell_filter.load_rules(path, 'isoforms')
+
+    def test_the_rules_as_applied_are_one_readable_line(self):
+        rulesets = [{'Reads_in_cell': 500, 'MT_perc': [0, 10]}, {'Annotated_genes': 200}]
+        assert cell_filter.describe_rulesets(rulesets[:1]) == (
+            'Reads_in_cell >= 500 AND MT_perc in [0, 10]')
+        assert cell_filter.describe_rulesets(rulesets) == (
+            '(Reads_in_cell >= 500 AND MT_perc in [0, 10]) OR (Annotated_genes >= 200)')
+
+    def test_the_params_file_records_the_rules_as_applied(self, qc_run):
+        tmp_path, qc_dir, design = qc_run
+        path = _rules_file(tmp_path, '{"all": [{"depth": 500, "Annotated_genes": null, '
+                                     '"MT_perc": [0, 10]}]}')
+        df = filter_io.read_sample_table(design, str(qc_dir))
+        cell_filter.run_cell_filter(_FilterArgs(qc_dir, tmp_path / "f", rules=path), df,
+                                    log=lambda *a: None)
+        params = dict(line.split('\t', 1) for line in
+                      (tmp_path / "f" / "rep1" / "s1_cell_filter_params.txt")
+                      .read_text().strip().split('\n'))
+        assert params['Rules'] == 'Transcripts_in_cell >= 500 AND MT_perc in [0, 10]'
+
+
+class TestRulesTemplate:
+    """The shipped template lists every cell-summary column of both modes, empty. Its
+    keys are checked against what calculate_metrics_per_cell writes, with every optional
+    input on, so a column added to or renamed in cell_metrics.py fails here."""
+
+    NOT_RULES = {'CB', 'ref_cov_min_pct'}
+
+    def _summary_columns(self, tmp_path, mode):
+        cats = ['full-splice_match', 'incomplete-splice_match', 'novel_in_catalog',
+                'novel_not_in_catalog', 'genic', 'antisense', 'fusion', 'intergenic',
+                'genic_intron']
+        cls, junc = [], []
+        for i, cat in enumerate(cats):
+            cb = 'bc1' if i % 2 else 'bc2'
+            cls.append({
+                'isoform': f'm{i}', 'CB': 'bc1,bc2' if mode == 'isoforms' else cb,
+                'FL': '3,2' if mode == 'isoforms' else '1', 'UMI': f'u{i}',
+                'jxn_string': f'j{i}', 'structural_category': cat,
+                'associated_gene': 'novelGene_1' if i == 3 else 'geneA',
+                'associated_transcript': 'txA', 'exons': 2, 'length': 500, 'ref_length': 600,
+                'chrom': 'chr1', 'subcategory': 'reference_match', 'all_canonical': 'canonical',
+                'RTS_stage': 'False', 'predicted_NMD': 'False', 'within_CAGE_peak': 'True',
+                'polyA_motif_found': 'True', 'perc_A_downstream_TTS': '10',
+                'diff_to_gene_TSS': '0', 'coding': 'coding', 'min_cov': '3', 'ratio_TSS': '3'})
+            junc.append({
+                'isoform': f'm{i}', 'CB': cb, 'junction_category': 'known',
+                'canonical': 'canonical', 'RTS_junction': 'False', 'chrom': 'chr1',
+                'strand': '+', 'genomic_start_coord': str(1000 + i),
+                'genomic_end_coord': str(2000 + i)})
+        out_dir = tmp_path / mode
+        (out_dir / 'f1').mkdir(parents=True)
+        prefix = out_dir / 'f1' / 's1'
+        pd.DataFrame(cls).to_csv(f"{prefix}_classification.txt", sep='\t', index=False)
+        pd.DataFrame(junc).to_csv(f"{prefix}_junctions.txt", sep='\t', index=False)
+        args = _Args(mode, str(out_dir))
+        args.include_ORF = True
+        calculate_metrics_per_cell(args, pd.DataFrame({'sampleID': ['s1'], 'file_acc': ['f1']}))
+        return list(pd.read_csv(f"{prefix}_SQANTI_cell_summary.txt.gz", sep='\t').columns)
+
+    def _template_keys(self):
+        import json
+        with open(filter_args.CELL_RULES_TEMPLATE) as fh:
+            raw = json.load(fh)
+        assert len(raw['all']) == 1
+        return list(raw['all'][0])
+
+    def test_the_template_lists_every_column_of_both_modes(self, tmp_path):
+        expected = {cell_filter.DEPTH_TOKEN}
+        for mode in ('isoforms', 'reads'):
+            expected |= set(self._summary_columns(tmp_path, mode))
+        expected -= self.NOT_RULES | {cell_filter.depth_column(m) for m in ('isoforms', 'reads')}
+        keys = self._template_keys()
+        assert len(keys) == len(set(keys)), "duplicate keys in the template"
+        missing, extra = sorted(expected - set(keys)), sorted(set(keys) - expected)
+        assert not missing and not extra, f"missing: {missing}; not in any summary: {extra}"
+
+    def test_every_template_value_is_empty(self):
+        import json
+        with open(filter_args.CELL_RULES_TEMPLATE) as fh:
+            values = json.load(fh)['all'][0].values()
+        assert all(v is None for v in values)
+
+    def test_the_defaults_columns_come_first(self):
+        import json
+        with open(filter_args.DEFAULT_CELL_RULES) as fh:
+            default_keys = list(json.load(fh)['all'][0])
+        assert self._template_keys()[:len(default_keys)] == default_keys
+
+    def test_the_template_unchanged_is_refused(self):
+        with pytest.raises(ValueError, match="no rule .* has a value"):
+            cell_filter.load_rules(filter_args.CELL_RULES_TEMPLATE, 'isoforms')
+
+    def test_a_template_with_one_value_filled_runs(self, tmp_path):
+        import json
+        with open(filter_args.CELL_RULES_TEMPLATE) as fh:
+            raw = json.load(fh)
+        raw['all'][0]['depth'] = 10
+        path = _rules_file(tmp_path, json.dumps(raw))
+        rules = cell_filter.load_rules(path, 'reads')
+        assert rules == [{'Reads_in_cell': 10}]
+        s = _summary_frame({'CB': ['a', 'b'], 'Reads_in_cell': [5, 50]})
+        out = _verdict(s, rules, mode='reads')
+        assert out['filter_result'].tolist() == [RESULT_ARTIFACT, RESULT_CELL]
