@@ -1183,8 +1183,8 @@ class TestFLWeightingIsoformsMode:
         ]
         summary = self._run(mock_args, tmpdir, cls_rows)
         cb1 = summary[summary["CB"] == "CB1"].iloc[0]
-        assert cb1["Transcripts_in_cell"] == 15, (
-            f"Expected Transcripts_in_cell=15 (sum of FL counts), got {cb1['Transcripts_in_cell']}"
+        assert cb1["Counts_in_cell"] == 15, (
+            f"Expected Counts_in_cell=15 (sum of FL counts), got {cb1['Counts_in_cell']}"
         )
 
     def test_median_length_weights_fractional_fl(self, mock_args, tmpdir):
@@ -1209,7 +1209,7 @@ class TestFLWeightingIsoformsMode:
         """
         CB1 has:
           iso1 (FSM, FL=1)  → 1 FSM transcript
-          iso2 (NIC, FL=9)  → 9 NIC transcripts
+          iso2 (NIC, FL=9)  → 9 NIC counts
 
         FL-weighted result  : FSM_prop = 10 %, NIC_prop = 90 %
         Naive row-count     : FSM_prop = 50 %, NIC_prop = 50 %  (wrong)
@@ -1447,11 +1447,11 @@ class TestFLWeightingIsoformsMode:
         cb1 = summary[summary["CB"] == "CB1"].iloc[0]
         cb2 = summary[summary["CB"] == "CB2"].iloc[0]
 
-        assert cb1["Transcripts_in_cell"] == 3, (
-            f"CB1 Transcripts_in_cell should be 3 (FL for CB1), got {cb1['Transcripts_in_cell']}"
+        assert cb1["Counts_in_cell"] == 3, (
+            f"CB1 Counts_in_cell should be 3 (FL for CB1), got {cb1['Counts_in_cell']}"
         )
-        assert cb2["Transcripts_in_cell"] == 9, (
-            f"CB2 Transcripts_in_cell should be 9 (FL=7 + FL=2), got {cb2['Transcripts_in_cell']}"
+        assert cb2["Counts_in_cell"] == 9, (
+            f"CB2 Counts_in_cell should be 9 (FL=7 + FL=2), got {cb2['Counts_in_cell']}"
         )
         assert abs(cb1["FSM_prop"] - 100.0) < 0.01
         assert abs(cb2["FSM_prop"] - 100.0) < 0.01
@@ -1463,7 +1463,7 @@ class TestFLWeightingIsoformsMode:
 
     def test_annotated_novel_reads_are_fl_weighted(self, mock_args, tmpdir):
         """
-        Annotated_genes_transcripts / Novel_genes_transcripts are per-cell FL sums split by
+        Annotated_genes_counts / Novel_genes_counts are per-cell FL sums split by
         whether associated_gene starts with 'novel'.
           CB1: geneA FL=3 (annotated) + novelGene FL=1 (novel)
           CB2: geneA FL=10 + geneA FL=4 (annotated) + novelGene FL=6 (novel)
@@ -1477,10 +1477,10 @@ class TestFLWeightingIsoformsMode:
         cb1 = summary[summary["CB"] == "CB1"].iloc[0]
         cb2 = summary[summary["CB"] == "CB2"].iloc[0]
 
-        assert cb1["Annotated_genes_transcripts"] == 3
-        assert cb1["Novel_genes_transcripts"] == 1
-        assert cb2["Annotated_genes_transcripts"] == 14   # 10 + 4
-        assert cb2["Novel_genes_transcripts"] == 6
+        assert cb1["Annotated_genes_counts"] == 3
+        assert cb1["Novel_genes_counts"] == 1
+        assert cb2["Annotated_genes_counts"] == 14   # 10 + 4
+        assert cb2["Novel_genes_counts"] == 6
 
     # ------------------------------------------------------------------
     # Test 5c — gene abundance bins store gene COUNTS in the 11 gapless
@@ -1488,9 +1488,9 @@ class TestFLWeightingIsoformsMode:
     # ------------------------------------------------------------------
 
     # All 11 abundance-bin column names, in order, for isoforms mode. In isoforms mode
-    # the *_gene_reads_bin_* columns are renamed *_gene_transcripts_bin_* on output.
-    ANNO_TX_BINS = [f"anno_gene_transcripts_bin_{i}" for i in range(1, 11)] + [
-        "anno_gene_transcripts_bin_10plus"
+    # the *_gene_reads_bin_* columns are renamed *_gene_counts_bin_* on output.
+    ANNO_TX_BINS = [f"anno_gene_counts_bin_{i}" for i in range(1, 11)] + [
+        "anno_gene_counts_bin_10plus"
     ]
     ANNO_ISO_BINS = [f"anno_gene_isoforms_bin_{i}" for i in range(1, 11)] + [
         "anno_gene_isoforms_bin_10plus"
@@ -1516,17 +1516,17 @@ class TestFLWeightingIsoformsMode:
         cb2 = summary[summary["CB"] == "CB2"].iloc[0]
 
         # CB1 annotated: geneA = 3+2 = 5 -> lands in (4,5] and nowhere else
-        assert cb1["anno_gene_transcripts_bin_5"] == 1
+        assert cb1["anno_gene_counts_bin_5"] == 1
         assert sum(cb1[b] for b in self.ANNO_TX_BINS) == 1, "CB1 has exactly 1 annotated gene"
 
         # CB2 annotated: geneA = 10 -> (9,10] ; geneB = 4 -> (3,4]
-        assert cb2["anno_gene_transcripts_bin_10"] == 1
-        assert cb2["anno_gene_transcripts_bin_4"] == 1
-        assert cb2["anno_gene_transcripts_bin_10plus"] == 0, "10 is <=10, must not spill into >10"
+        assert cb2["anno_gene_counts_bin_10"] == 1
+        assert cb2["anno_gene_counts_bin_4"] == 1
+        assert cb2["anno_gene_counts_bin_10plus"] == 0, "10 is <=10, must not spill into >10"
         assert sum(cb2[b] for b in self.ANNO_TX_BINS) == 2, "CB2 has exactly 2 annotated genes"
 
         # Novel-gene bin columns are not produced at all.
-        assert not [c for c in summary.columns if c.startswith("novel_gene_transcripts_bin_")]
+        assert not [c for c in summary.columns if c.startswith("novel_gene_counts_bin_")]
 
     # ------------------------------------------------------------------
     # Test 5d — bins are GAPLESS: float/EM abundances never fall through
@@ -1553,10 +1553,10 @@ class TestFLWeightingIsoformsMode:
 
         # Each fractional abundance lands in its half-open bin -- these are exactly
         # the values the old binning dropped.
-        assert cb1["anno_gene_transcripts_bin_2"] == 1, "1.5 must land in (1,2]"
-        assert cb1["anno_gene_transcripts_bin_6"] == 1, "5.5 must land in (5,6]"
-        assert cb1["anno_gene_transcripts_bin_10"] == 1, "9.5 must land in (9,10]"
-        assert cb1["anno_gene_transcripts_bin_10plus"] == 1, "10.5 must land in >10"
+        assert cb1["anno_gene_counts_bin_2"] == 1, "1.5 must land in (1,2]"
+        assert cb1["anno_gene_counts_bin_6"] == 1, "5.5 must land in (5,6]"
+        assert cb1["anno_gene_counts_bin_10"] == 1, "9.5 must land in (9,10]"
+        assert cb1["anno_gene_counts_bin_10plus"] == 1, "10.5 must land in >10"
 
         # Nothing dropped: all 4 genes accounted for across the 11 bins.
         assert sum(cb1[b] for b in self.ANNO_TX_BINS) == 4
@@ -1585,7 +1585,7 @@ class TestFLWeightingIsoformsMode:
         cb1 = summary[summary["CB"] == "CB1"].iloc[0]
 
         # Abundance: both genes sum to 2 -> both in bin_2.
-        assert cb1["anno_gene_transcripts_bin_2"] == 2
+        assert cb1["anno_gene_counts_bin_2"] == 2
         assert sum(cb1[b] for b in self.ANNO_TX_BINS) == 2
 
         # Distinct models: geneA has 1, geneB has 2 -> the two families DIVERGE.
@@ -1594,14 +1594,14 @@ class TestFLWeightingIsoformsMode:
         assert sum(cb1[b] for b in self.ANNO_ISO_BINS) == 2
 
     # ------------------------------------------------------------------
-    # Test 5f — Isoforms_in_cell is DIVERSITY, Transcripts_in_cell is DEPTH
+    # Test 5f — Isoforms_in_cell is DIVERSITY, Counts_in_cell is DEPTH
     # ------------------------------------------------------------------
 
     def test_isoforms_in_cell_counts_models_not_fl(self, mock_args, tmpdir):
         """
         Isoforms_in_cell must count distinct collapsed models detected in the cell,
-        while Transcripts_in_cell stays the FL sum. The two are easy to conflate --
-        Transcripts_in_cell is literally total_reads renamed -- so pin the case where
+        while Counts_in_cell stays the FL sum. The two are easy to conflate --
+        Counts_in_cell is literally total_reads renamed -- so pin the case where
         they diverge while depth is held equal:
 
           CB1: ONE model with FL=3        -> depth 3, 1 distinct isoform
@@ -1617,8 +1617,8 @@ class TestFLWeightingIsoformsMode:
         cb2 = summary[summary["CB"] == "CB2"].iloc[0]
 
         # Depth is identical in both cells...
-        assert cb1["Transcripts_in_cell"] == 3
-        assert cb2["Transcripts_in_cell"] == 3
+        assert cb1["Counts_in_cell"] == 3
+        assert cb2["Counts_in_cell"] == 3
 
         # ...but diversity is not. Counting rows or summing FL would give the same
         # number for both cells; only a distinct-model count separates them.
@@ -1630,7 +1630,7 @@ class TestFLWeightingIsoformsMode:
         )
 
         # Diversity can never exceed depth, since every FL entry is >= 1.
-        assert (summary["Isoforms_in_cell"] <= summary["Transcripts_in_cell"]).all()
+        assert (summary["Isoforms_in_cell"] <= summary["Counts_in_cell"]).all()
 
     # ------------------------------------------------------------------
     # Test 6 — reads mode uses 1 count per row regardless of FL column

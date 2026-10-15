@@ -337,55 +337,55 @@ class TestRulesSemantics:
     rule matches nothing and would silently discard every cell."""
 
     def test_bare_number_is_a_minimum(self):
-        s = _summary_frame({'CB': ['a', 'b'], 'Transcripts_in_cell': [5, 50]})
-        out = _verdict(s, {'Transcripts_in_cell': 10})
+        s = _summary_frame({'CB': ['a', 'b'], 'Counts_in_cell': [5, 50]})
+        out = _verdict(s, {'Counts_in_cell': 10})
         assert out.loc['a', 'filter_result'] == RESULT_ARTIFACT
         assert out.loc['b', 'filter_result'] == RESULT_CELL
 
     def test_two_element_list_is_a_range(self):
         s = _summary_frame({'CB': ['a', 'b', 'c'], 'MT_perc': [0.0, 30.0, 80.0],
-                            'Transcripts_in_cell': [500, 500, 500]})
+                            'Counts_in_cell': [500, 500, 500]})
         out = _verdict(s, {'MT_perc': [0, 50]})
         assert out['filter_result'].tolist() == [RESULT_CELL, RESULT_CELL, RESULT_ARTIFACT]
 
     def test_a_string_rule_is_rejected_rather_than_matching_nothing(self):
-        s = _summary_frame({'CB': ['a', 'b'], 'Transcripts_in_cell': [5, 50]})
+        s = _summary_frame({'CB': ['a', 'b'], 'Counts_in_cell': [5, 50]})
         with pytest.raises(ValueError, match="must be a number"):
-            _verdict(s, {'Transcripts_in_cell': 'canonical'})
+            _verdict(s, {'Counts_in_cell': 'canonical'})
 
     def test_a_list_of_strings_is_rejected(self):
-        s = _summary_frame({'CB': ['a', 'b'], 'Transcripts_in_cell': [5, 50]})
+        s = _summary_frame({'CB': ['a', 'b'], 'Counts_in_cell': [5, 50]})
         with pytest.raises(ValueError, match="must be a number"):
-            _verdict(s, {'Transcripts_in_cell': ['TRUE', 'FALSE']})
+            _verdict(s, {'Counts_in_cell': ['TRUE', 'FALSE']})
 
     def test_a_boolean_rule_is_rejected(self):
-        s = _summary_frame({'CB': ['a'], 'Transcripts_in_cell': [5]})
+        s = _summary_frame({'CB': ['a'], 'Counts_in_cell': [5]})
         with pytest.raises(ValueError, match="unsupported rule"):
-            _verdict(s, {'Transcripts_in_cell': True})
+            _verdict(s, {'Counts_in_cell': True})
 
     def test_reason_names_the_rule_and_the_observed_value(self):
-        s = _summary_frame({'CB': ['a'], 'Transcripts_in_cell': [3]})
-        out = _verdict(s, {'Transcripts_in_cell': 10})
-        assert out.loc['a', 'filter_reason'] == 'Transcripts_in_cell: 3 < 10'
+        s = _summary_frame({'CB': ['a'], 'Counts_in_cell': [3]})
+        out = _verdict(s, {'Counts_in_cell': 10})
+        assert out.loc['a', 'filter_reason'] == 'Counts_in_cell: 3 < 10'
 
     def test_a_cell_failing_two_rules_reports_both(self):
-        s = _summary_frame({'CB': ['a'], 'Transcripts_in_cell': [3], 'Annotated_genes': [1]})
-        out = _verdict(s, {'Transcripts_in_cell': 10, 'Annotated_genes': 10})
+        s = _summary_frame({'CB': ['a'], 'Counts_in_cell': [3], 'Annotated_genes': [1]})
+        out = _verdict(s, {'Counts_in_cell': 10, 'Annotated_genes': 10})
         assert out.loc['a', 'filter_reason'].count(';') == 1
 
     def test_unknown_rule_column_is_a_clear_error(self):
-        s = _summary_frame({'CB': ['a'], 'Transcripts_in_cell': [5]})
+        s = _summary_frame({'CB': ['a'], 'Counts_in_cell': [5]})
         with pytest.raises(ValueError, match="not present in the cell summary"):
             _verdict(s, {'No_Such_Column': 1})
 
     def test_unsupported_rule_shape_is_a_clear_error(self):
-        s = _summary_frame({'CB': ['a'], 'Transcripts_in_cell': [5]})
+        s = _summary_frame({'CB': ['a'], 'Counts_in_cell': [5]})
         with pytest.raises(ValueError, match="unsupported rule"):
-            _verdict(s, {'Transcripts_in_cell': {'min': 1}})
+            _verdict(s, {'Counts_in_cell': {'min': 1}})
 
     def test_every_cell_failing_leaves_no_passing_barcode(self):
-        s = _summary_frame({'CB': ['a', 'b'], 'Transcripts_in_cell': [1, 2]})
-        out = _verdict(s, {'Transcripts_in_cell': 100})
+        s = _summary_frame({'CB': ['a', 'b'], 'Counts_in_cell': [1, 2]})
+        out = _verdict(s, {'Counts_in_cell': 100})
         assert (out['filter_result'] == RESULT_ARTIFACT).all()
 
 
@@ -397,7 +397,7 @@ class TestUnmeasuredValues:
     def test_an_NA_value_is_skipped_rather_than_failed(self):
         s = _summary_frame({
             'CB': ['no_FSM_reads'],
-            'Transcripts_in_cell': [5000],
+            'Counts_in_cell': [5000],
             'FSM_RTS_prop': [np.nan],
         })
         out = _verdict(s, {'FSM_RTS_prop': [0, 5]})
@@ -406,7 +406,7 @@ class TestUnmeasuredValues:
 
     def test_an_NA_value_does_not_discard_the_cell(self):
         s = _summary_frame({
-            'CB': ['a'], 'Transcripts_in_cell': [5000], 'FSM_RTS_prop': [np.nan],
+            'CB': ['a'], 'Counts_in_cell': [5000], 'FSM_RTS_prop': [np.nan],
         })
         out = _verdict(s, {'FSM_RTS_prop': [0, 5]})
         assert out.loc['a', 'filter_result'] == RESULT_CELL
@@ -414,21 +414,21 @@ class TestUnmeasuredValues:
 
     def test_a_cell_skipped_on_one_rule_is_still_judged_on_the_others(self):
         s = _summary_frame({
-            'CB': ['a'], 'Transcripts_in_cell': [3], 'FSM_RTS_prop': [np.nan],
+            'CB': ['a'], 'Counts_in_cell': [3], 'FSM_RTS_prop': [np.nan],
         })
-        out = _verdict(s, {'FSM_RTS_prop': [0, 5], 'Transcripts_in_cell': 500})
+        out = _verdict(s, {'FSM_RTS_prop': [0, 5], 'Counts_in_cell': 500})
         assert out.loc['a', 'filter_result'] == RESULT_ARTIFACT
         # discarded on depth alone; the NA criterion contributes no reason
-        assert out.loc['a', 'filter_reason'] == 'Transcripts_in_cell: 3 < 500'
+        assert out.loc['a', 'filter_reason'] == 'Counts_in_cell: 3 < 500'
 
     def test_a_measured_zero_is_still_judged(self):
-        s = _summary_frame({'CB': ['a'], 'Transcripts_in_cell': [5000],
+        s = _summary_frame({'CB': ['a'], 'Counts_in_cell': [5000],
                             'RTS_prop_in_cell': [0.0]})
         out = _verdict(s, {'RTS_prop_in_cell': [0, 5]})
         assert out.loc['a', 'filter_result'] == RESULT_CELL
 
     def test_a_real_value_outside_the_range_still_fails(self):
-        s = _summary_frame({'CB': ['a'], 'Transcripts_in_cell': [5000],
+        s = _summary_frame({'CB': ['a'], 'Counts_in_cell': [5000],
                             'RTS_prop_in_cell': [40.0]})
         out = _verdict(s, {'RTS_prop_in_cell': [0, 5]})
         assert out.loc['a', 'filter_result'] == RESULT_ARTIFACT
@@ -436,7 +436,7 @@ class TestUnmeasuredValues:
 
     def test_the_depth_column_follows_the_mode(self):
         assert cell_filter.depth_column('reads') == 'Reads_in_cell'
-        assert cell_filter.depth_column('isoforms') == 'Transcripts_in_cell'
+        assert cell_filter.depth_column('isoforms') == 'Counts_in_cell'
 
 
 class TestModeDetection:
@@ -444,7 +444,7 @@ class TestModeDetection:
     summary states its own mode and --mode does not exist."""
 
     def test_isoforms_summary_detects_isoforms(self):
-        s = _summary_frame({'CB': ['a'], 'Transcripts_in_cell': [5]})
+        s = _summary_frame({'CB': ['a'], 'Counts_in_cell': [5]})
         assert cell_filter.detect_mode(s, 's1') == 'isoforms'
 
     def test_reads_summary_detects_reads(self):
@@ -453,11 +453,11 @@ class TestModeDetection:
 
     def test_neither_column_is_a_clear_error_naming_both(self):
         s = _summary_frame({'CB': ['a'], 'MT_perc': [1.0]})
-        with pytest.raises(ValueError, match="Reads_in_cell.*Transcripts_in_cell"):
+        with pytest.raises(ValueError, match="Reads_in_cell.*Counts_in_cell"):
             cell_filter.detect_mode(s, 's1')
 
     def test_both_columns_is_a_clear_error(self):
-        s = _summary_frame({'CB': ['a'], 'Reads_in_cell': [5], 'Transcripts_in_cell': [5]})
+        s = _summary_frame({'CB': ['a'], 'Reads_in_cell': [5], 'Counts_in_cell': [5]})
         with pytest.raises(ValueError, match="both"):
             cell_filter.detect_mode(s, 's1')
 
@@ -470,7 +470,7 @@ class TestMeasuredEvidence:
     def _summary(self, **overrides):
         base = {
             'CB': ['a', 'b'],
-            'Transcripts_in_cell': [500, 500],
+            'Counts_in_cell': [500, 500],
             'CAGE_peak_support_prop': [np.nan, np.nan],
             'PolyA_motif_support_prop': [np.nan, np.nan],
             'FSM_coding_prop': [np.nan, np.nan],
@@ -496,7 +496,7 @@ class TestMeasuredEvidence:
         assert cell_filter.detect_measured_evidence(s)['include_ORF'] is True
 
     def test_an_absent_column_reads_as_not_measured(self):
-        s = _summary_frame({'CB': ['a'], 'Transcripts_in_cell': [500]})
+        s = _summary_frame({'CB': ['a'], 'Counts_in_cell': [500]})
         assert cell_filter.detect_measured_evidence(s) == {
             'CAGE_peak': False, 'polyA_motif_list': False, 'include_ORF': False}
 
@@ -508,23 +508,23 @@ class TestBarcodelessRows:
 
     def test_a_barcodeless_row_is_dropped_and_reported(self):
         messages = []
-        s = _summary_frame({'CB': ['unassigned', 'a'], 'Transcripts_in_cell': [999999, 5000]})
-        labelled, _ = decide_cells(s, [{'Transcripts_in_cell': 10}], mode='isoforms',
+        s = _summary_frame({'CB': ['unassigned', 'a'], 'Counts_in_cell': [999999, 5000]})
+        labelled, _ = decide_cells(s, [{'Counts_in_cell': 10}], mode='isoforms',
                                    sampleID='s1', log=messages.append)
         assert 'unassigned' not in set(labelled['CB'])
         assert any('no cell barcode' in m for m in messages)
 
     def test_every_placeholder_form_is_dropped(self):
         s = _summary_frame({'CB': ['unassigned', 'NA', '-', '*', 'a'],
-                            'Transcripts_in_cell': [10, 10, 10, 10, 5000]})
-        out = _verdict(s, {'Transcripts_in_cell': 10})
+                            'Counts_in_cell': [10, 10, 10, 10, 5000]})
+        out = _verdict(s, {'Counts_in_cell': 10})
         assert set(out.index) == {'a'}
 
     def test_a_barcodeless_row_does_not_reach_the_statistics(self):
         """It would be rank 1 on any depth curve, so it must not be judged or counted."""
         s = _summary_frame({'CB': ['NA', 'a', 'b'],
-                            'Transcripts_in_cell': [999999, 5000, 5000]})
-        out = _verdict(s, {'Transcripts_in_cell': 10})
+                            'Counts_in_cell': [999999, 5000, 5000]})
+        out = _verdict(s, {'Counts_in_cell': 10})
         assert len(out) == 2
 
 
@@ -537,7 +537,7 @@ class TestNeverMeasuredColumnWarning:
         messages = []
         s = _summary_frame({'CB': ['a', 'b'],
                             'CAGE_peak_support_prop': [np.nan, np.nan],
-                            'Transcripts_in_cell': [5000, 5000]})
+                            'Counts_in_cell': [5000, 5000]})
         decide_cells(s, [{'CAGE_peak_support_prop': 1}], mode='isoforms', sampleID='s1',
                      log=messages.append)
         assert any('NA for every cell' in m for m in messages)
@@ -546,7 +546,7 @@ class TestNeverMeasuredColumnWarning:
         messages = []
         s = _summary_frame({'CB': ['a', 'b'],
                             'CAGE_peak_support_prop': [10.0, 80.0],
-                            'Transcripts_in_cell': [5000, 5000]})
+                            'Counts_in_cell': [5000, 5000]})
         decide_cells(s, [{'CAGE_peak_support_prop': 1}], mode='isoforms', sampleID='s1',
                      log=messages.append)
         assert not any('NA for every cell' in m for m in messages)
@@ -555,7 +555,7 @@ class TestNeverMeasuredColumnWarning:
         messages = []
         s = _summary_frame({'CB': ['a', 'b'],
                             'CAGE_peak_support_prop': [0.0, 0.0],
-                            'Transcripts_in_cell': [5000, 5000]})
+                            'Counts_in_cell': [5000, 5000]})
         decide_cells(s, [{'CAGE_peak_support_prop': 1}], mode='isoforms', sampleID='s1',
                      log=messages.append)
         assert not any('NA for every cell' in m for m in messages)
@@ -590,13 +590,13 @@ def qc_run(tmp_path):
     }).to_csv(f"{prefix}_junctions.txt", sep='\t', index=False)
     pd.DataFrame({
         'CB': ['bc_good', 'bc_shallow'],
-        'Transcripts_in_cell': [5000, 5],
+        'Counts_in_cell': [5000, 5],
         'Annotated_genes': [1200, 2],
         'MT_perc': [3.0, 0.0],
         'RTS_prop_in_cell': [0.5, 0.0],
         'Intrapriming_prop_in_cell': [1.0, 0.0],
         'Non_canonical_prop_in_cell': [2.0, 0.0],
-        'total_transcripts_no_monoexon': [4000, 4],
+        'total_counts_no_monoexon': [4000, 4],
     }).to_csv(f"{prefix}_SQANTI_cell_summary.txt.gz", sep='\t', index=False,
               compression='gzip')
     with open(f"{prefix}_corrected.gtf", 'w') as fh:
@@ -862,13 +862,13 @@ class TestAlternativeRuleSets:
     def _cells(self):
         return _summary_frame({
             'CB': ['deep', 'shallow_but_rich', 'shallow_and_poor'],
-            'Transcripts_in_cell': [900, 300, 300],
+            'Counts_in_cell': [900, 300, 300],
             'Annotated_genes': [150, 400, 50],
         })
 
     ALTERNATIVES = [
-        {'Transcripts_in_cell': 500},
-        {'Transcripts_in_cell': 200, 'Annotated_genes': 200},
+        {'Counts_in_cell': 500},
+        {'Counts_in_cell': 200, 'Annotated_genes': 200},
     ]
 
     def test_passing_either_set_keeps_the_cell(self):
@@ -903,11 +903,11 @@ class TestAlternativeRuleSets:
     def test_a_discarded_cell_collects_reasons_from_every_set(self):
         out = _verdict(self._cells(), self.ALTERNATIVES)
         reason = out.loc['shallow_and_poor', 'filter_reason']
-        assert 'Transcripts_in_cell: 300 < 500' in reason
+        assert 'Counts_in_cell: 300 < 500' in reason
         assert 'Annotated_genes: 50 < 200' in reason
 
     def test_one_rule_set_behaves_exactly_as_before(self):
-        out = _verdict(self._cells(), [{'Transcripts_in_cell': 500}])
+        out = _verdict(self._cells(), [{'Counts_in_cell': 500}])
         assert out['filter_result'].tolist() == [
             RESULT_CELL, RESULT_ARTIFACT, RESULT_ARTIFACT]
 
@@ -918,9 +918,9 @@ class TestReasonFormat:
     because SQANTI3 stores a range as separate min and max rules."""
 
     def test_a_minimum_reports_the_value_below_it(self):
-        s = _summary_frame({'CB': ['a'], 'Transcripts_in_cell': [3]})
-        out = _verdict(s, {'Transcripts_in_cell': 10})
-        assert out.loc['a', 'filter_reason'] == 'Transcripts_in_cell: 3 < 10'
+        s = _summary_frame({'CB': ['a'], 'Counts_in_cell': [3]})
+        out = _verdict(s, {'Counts_in_cell': 10})
+        assert out.loc['a', 'filter_reason'] == 'Counts_in_cell: 3 < 10'
 
     def test_a_range_reports_the_upper_bound_when_exceeded(self):
         s = _summary_frame({'CB': ['a'], 'MT_perc': [72.0]})
@@ -933,10 +933,10 @@ class TestReasonFormat:
         assert out.loc['a', 'filter_reason'] == 'MT_perc: -3.0 < 0'
 
     def test_several_failures_are_semicolon_joined_like_SQANTI3(self):
-        s = _summary_frame({'CB': ['a'], 'Transcripts_in_cell': [3], 'Annotated_genes': [1]})
-        out = _verdict(s, {'Transcripts_in_cell': 10, 'Annotated_genes': 10})
+        s = _summary_frame({'CB': ['a'], 'Counts_in_cell': [3], 'Annotated_genes': [1]})
+        out = _verdict(s, {'Counts_in_cell': 10, 'Annotated_genes': 10})
         parts = out.loc['a', 'filter_reason'].split('; ')
-        assert sorted(parts) == ['Annotated_genes: 1 < 10', 'Transcripts_in_cell: 3 < 10']
+        assert sorted(parts) == ['Annotated_genes: 1 < 10', 'Counts_in_cell: 3 < 10']
 
 
 class TestRulesFile:
@@ -945,8 +945,8 @@ class TestRulesFile:
             cell_filter.load_rules(filter_args.DEFAULT_CELL_RULES, 'reads'))
         iso = cell_filter.rule_columns(
             cell_filter.load_rules(filter_args.DEFAULT_CELL_RULES, 'isoforms'))
-        assert 'Reads_in_cell' in reads and 'Transcripts_in_cell' not in reads
-        assert 'Transcripts_in_cell' in iso and 'Reads_in_cell' not in iso
+        assert 'Reads_in_cell' in reads and 'Counts_in_cell' not in reads
+        assert 'Counts_in_cell' in iso and 'Reads_in_cell' not in iso
         assert cell_filter.DEPTH_TOKEN not in reads
 
     def test_every_default_rule_is_numeric(self):
@@ -956,7 +956,7 @@ class TestRulesFile:
 
     def test_a_rules_file_without_the_all_key_is_rejected(self, tmp_path):
         path = tmp_path / "r.json"
-        path.write_text('{"Transcripts_in_cell": 10}')
+        path.write_text('{"Counts_in_cell": 10}')
         with pytest.raises(ValueError, match='top-level "all" key'):
             cell_filter.load_rules(str(path), 'isoforms')
 
@@ -979,8 +979,8 @@ class TestRulesFile:
         path = tmp_path / "r.json"
         path.write_text('{"all": [{"depth": 500}, {}]}')
         rulesets = cell_filter.load_rules(str(path), 'isoforms')
-        assert rulesets == [{'Transcripts_in_cell': 500}]
-        s = _summary_frame({'CB': ['a', 'b'], 'Transcripts_in_cell': [5, 5000]})
+        assert rulesets == [{'Counts_in_cell': 500}]
+        s = _summary_frame({'CB': ['a', 'b'], 'Counts_in_cell': [5, 5000]})
         out = _verdict(s, rulesets)
         assert out['filter_result'].tolist() == [RESULT_ARTIFACT, RESULT_CELL]
 
@@ -1010,7 +1010,7 @@ class TestEmptyEntries:
     def test_a_set_left_empty_is_dropped(self, tmp_path):
         path = _rules_file(tmp_path, '{"all": [{"depth": 500}, '
                                      '{"depth": null, "MT_perc": []}]}')
-        assert cell_filter.load_rules(path, 'isoforms') == [{'Transcripts_in_cell': 500}]
+        assert cell_filter.load_rules(path, 'isoforms') == [{'Counts_in_cell': 500}]
 
     def test_a_file_with_no_value_is_refused(self, tmp_path):
         path = _rules_file(tmp_path, '{"all": [{"depth": null}, {"MT_perc": ""}]}')
@@ -1018,20 +1018,20 @@ class TestEmptyEntries:
             cell_filter.load_rules(path, 'isoforms')
 
     def test_an_empty_depth_token_does_not_override_the_depth_column(self, tmp_path):
-        path = _rules_file(tmp_path, '{"all": [{"Transcripts_in_cell": 500, "depth": null}]}')
-        assert cell_filter.load_rules(path, 'isoforms') == [{'Transcripts_in_cell': 500}]
+        path = _rules_file(tmp_path, '{"all": [{"Counts_in_cell": 500, "depth": null}]}')
+        assert cell_filter.load_rules(path, 'isoforms') == [{'Counts_in_cell': 500}]
 
     def test_an_empty_column_of_the_other_mode_is_accepted(self, tmp_path):
         path = _rules_file(tmp_path, '{"all": [{"depth": 10, "UMIs_in_cell": null}]}')
         rules = cell_filter.load_rules(path, 'isoforms')
-        s = _summary_frame({'CB': ['a', 'b'], 'Transcripts_in_cell': [5, 50]})
+        s = _summary_frame({'CB': ['a', 'b'], 'Counts_in_cell': [5, 50]})
         out = _verdict(s, rules)
         assert out['filter_result'].tolist() == [RESULT_ARTIFACT, RESULT_CELL]
 
     def test_a_filled_unknown_column_is_still_refused(self, tmp_path):
         path = _rules_file(tmp_path, '{"all": [{"depth": 10, "No_Such_Column": 1}]}')
         rules = cell_filter.load_rules(path, 'isoforms')
-        s = _summary_frame({'CB': ['a'], 'Transcripts_in_cell': [5]})
+        s = _summary_frame({'CB': ['a'], 'Counts_in_cell': [5]})
         with pytest.raises(ValueError, match="not present in the cell summary"):
             _verdict(s, rules)
 
@@ -1063,7 +1063,7 @@ class TestEmptyEntries:
         params = dict(line.split('\t', 1) for line in
                       (tmp_path / "f" / "rep1" / "s1_cell_filter_params.txt")
                       .read_text().strip().split('\n'))
-        assert params['Rules'] == 'Transcripts_in_cell >= 500 AND MT_perc in [0, 10]'
+        assert params['Rules'] == 'Counts_in_cell >= 500 AND MT_perc in [0, 10]'
 
 
 class TestRulesTemplate:

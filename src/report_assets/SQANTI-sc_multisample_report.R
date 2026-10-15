@@ -217,14 +217,14 @@ format_feature_display_name <- function(feature) {
 # Helper: derive axis labels and scaling behaviour from feature metadata
 infer_feature_metadata <- function(feature, values) {
   name_lower <- tolower(feature)
-  # A per-read/per-transcript rate: the numerator names the domain, so the
+  # A per-read/per-count rate: the numerator names the domain, so the
   # suffix is stripped before the rules below run, and the values (<= 1) must
   # not trip the "looks like a fraction, call it a percentage" branch.
-  rate_unit <- stringr::str_match(name_lower, "_per_(read|transcript)$")[, 2]
-  if (!is.na(rate_unit)) name_lower <- sub("_per_(read|transcript)$", "", name_lower)
+  rate_unit <- stringr::str_match(name_lower, "_per_(read|count)$")[, 2]
+  if (!is.na(rate_unit)) name_lower <- sub("_per_(read|count)$", "", name_lower)
   # What the cell summary counts in this mode. Every proportion below that is
   # not explicitly per-gene, per-junction or per-exon divides by it.
-  entity <- if (exists("params") && identical(params$mode, "isoforms")) "Transcripts" else "Reads"
+  entity <- if (exists("params") && identical(params$mode, "isoforms")) "Counts" else "Reads"
   domain <- "Value"
   if (stringr::str_detect(name_lower, "length")) domain <- "Length"
   if (stringr::str_detect(name_lower, "length") && stringr::str_detect(name_lower, "prop|perc|pct|ratio|fraction")) {
@@ -236,7 +236,7 @@ infer_feature_metadata <- function(feature, values) {
   if (stringr::str_detect(name_lower, "intron")) domain <- "Introns"
   if (stringr::str_detect(name_lower, "coverage")) domain <- "Coverage"
   if (stringr::str_detect(name_lower, "isoform")) domain <- "Isoforms"
-  if (stringr::str_detect(name_lower, "transcript")) domain <- "Transcripts"
+  if (stringr::str_detect(name_lower, "(^|_)counts(_|$)")) domain <- entity
   if (stringr::str_detect(name_lower, "gene")) domain <- "Genes"
   if (stringr::str_detect(name_lower, "^anno_.*_bin") || stringr::str_detect(name_lower, "^novel_.*_bin")) domain <- "Genes"
   if (stringr::str_detect(name_lower, "umi")) domain <- "UMIs"
@@ -283,7 +283,7 @@ infer_feature_metadata <- function(feature, values) {
     if (unit == "%") scale_to_percent <- TRUE
   }
   # A column that declares itself a proportion but names no other domain is a
-  # share of the cell's reads (or transcripts): every *_prop_in_cell and
+  # share of the cell's reads (or counts): every *_prop_in_cell and
   # *_support_prop column in the summary divides by that count. Naming the
   # entity is what makes these axes readable and keeps them agreeing with the
   # per-sample report, which labels the same columns that way. Restricted to
@@ -549,10 +549,10 @@ QC_BLOCKS_PLOTTED_ELSEWHERE <- c(QC_BLOCK_YIELD, QC_BLOCK_LENGTH, QC_BLOCK_STRUC
 
 curated_feature_registry <- function(mode) {
   is_iso <- identical(mode, "isoforms")
-  count_col <- if (is_iso) "Transcripts_in_cell" else "Reads_in_cell"
-  count_lab <- if (is_iso) "Transcripts per cell" else "Reads per cell"
-  unit <- if (is_iso) "transcript" else "read"
-  unit_pl <- if (is_iso) "Transcripts" else "Reads"
+  count_col <- if (is_iso) "Counts_in_cell" else "Reads_in_cell"
+  count_lab <- if (is_iso) "Counts per cell" else "Reads per cell"
+  unit <- if (is_iso) "count" else "read"
+  unit_pl <- if (is_iso) "Counts" else "Reads"
   # `conditional` lists the features in a block that are only computed when a
   # SQANTI3 run flag was passed; the rest are always present. It is per feature,
   # not per block, because the good/bad quality blocks mix the two.
@@ -561,7 +561,7 @@ curated_feature_registry <- function(mode) {
   # so that block has the same number of rows either way. Reads mode divides
   # UJCs_in_cell (distinct junction chains) by the read count; isoforms mode divides
   # Isoforms_in_cell (distinct collapsed models) by the FL sum. The denominator is
-  # depth in both cases -- Transcripts_in_cell is the FL sum, i.e. transcript copies,
+  # depth in both cases -- Counts_in_cell is the FL sum,
   # which is why it is not itself a diversity feature. Only one of the two source
   # columns exists per mode, so naming just the applicable one here keeps
   # curated_feature_table() from reporting the other as an exclusion every run.
@@ -677,8 +677,8 @@ curated_feature_registry <- function(mode) {
 # of 1.00 and 0.01 (median 0.505), while dividing the medians gives 0.10.
 derived_feature_defs <- function(mode) {
   is_iso <- identical(mode, "isoforms")
-  count_col <- if (is_iso) "Transcripts_in_cell" else "Reads_in_cell"
-  unit <- if (is_iso) "transcript" else "read"
+  count_col <- if (is_iso) "Counts_in_cell" else "Reads_in_cell"
+  unit <- if (is_iso) "count" else "read"
   defs <- list()
   defs[[paste0("Annotated_genes_per_", unit)]] <- list(
     inputs = c("Annotated_genes", count_col),
@@ -1672,7 +1672,7 @@ main <- function() {
   render_html <- params$report %in% c("html", "both")
 
   # Basic cohort-level aggregates per sample
-  count_col <- if (params$mode == "isoforms") "Transcripts_in_cell" else "Reads_in_cell"
+  count_col <- if (params$mode == "isoforms") "Counts_in_cell" else "Reads_in_cell"
 
   per_sample_stats <- multi %>%
     group_by(sampleID) %>%
@@ -1689,7 +1689,7 @@ main <- function() {
   # Median_length_per_cell is one value per real cell (the same source as the
   # per-cell median-length violin), so the summary table agrees with the violin.
   # We deliberately do NOT re-derive this from the classification file: that
-  # would give a pooled median over all reads/transcripts (and in isoforms mode
+  # would give a pooled median over all reads/counts (and in isoforms mode
   # the comma-separated FL breaks as.integer() outright), which disagrees with
   # the violin. The raw length *distribution* still reads the classification
   # file below, since per-read lengths cannot be recovered from a per-cell median.
@@ -1717,7 +1717,11 @@ main <- function() {
     dplyr::arrange(.data$sampleID) %>%
     mutate(sampleID = as.character(.data$sampleID))
 
+  # As in the per-sample report: entity_* names the thing (a length), count_* the unit
+  # counted in a cell.
   entity_label_plural <- if (params$mode == "isoforms") "Transcripts" else "Reads"
+  count_label_plural <- if (params$mode == "isoforms") "Counts" else "Reads"
+  count_axis_label <- if (params$mode == "isoforms") "Counts" else "Reads, count"
 
   summary_tbl <- per_sample_stats %>%
     mutate(across(where(is.numeric), ~ round(., 1))) %>%
@@ -1732,8 +1736,8 @@ main <- function() {
       `Length\nIQR\n(bp)` = iqr_length
     )
 
-  # Rename reads/transcripts column dynamically to match the mode
-  colnames(summary_tbl)[colnames(summary_tbl) == "Median\nReads/Cell"] <- paste0("Median\n", entity_label_plural, "/Cell")
+  # Rename the reads column dynamically to match the mode
+  colnames(summary_tbl)[colnames(summary_tbl) == "Median\nReads/Cell"] <- paste0("Median\n", count_label_plural, "/Cell")
 
   if (params$mode == "isoforms") {
     summary_tbl <- summary_tbl %>% select(-`Median\nUMIs/Cell`, -`Median\nUJCs/Cell`)
@@ -1752,6 +1756,7 @@ main <- function() {
   assign("multi_summary_tbl_html", summary_tbl_html, envir = .GlobalEnv)
   assign("entity_label", if (params$mode == "isoforms") "Transcript" else "Read", envir = .GlobalEnv)
   assign("entity_label_plural", entity_label_plural, envir = .GlobalEnv)
+  assign("count_label_plural", count_label_plural, envir = .GlobalEnv)
   assign("mode", params$mode, envir = .GlobalEnv)
 
   # Derived before any plotting: the per-unit rates are shown as figures in the
@@ -1768,7 +1773,7 @@ main <- function() {
     if (col %in% colnames(multi)) specs[[nm]] <- list(col = col, y = y)
     specs
   }
-  rate_ent <- if (params$mode == "isoforms") "Transcript" else "Read"
+  rate_ent <- if (params$mode == "isoforms") "Count" else "Read"
   rate_unit <- tolower(rate_ent)
 
   # -------- Per-Cell Library Size plots --------
@@ -1777,8 +1782,8 @@ main <- function() {
   # the cell's library holds. Anything gene-related lives in gene
   # characterisation below, including the mitochondrial share.
   library_size_specs <- list()
-  library_size_specs[[paste0(entity_label_plural, " per Cell")]] <- list(
-    col = count_col, y = paste0(entity_label_plural, ", count"), log = TRUE
+  library_size_specs[[paste0(count_label_plural, " per Cell")]] <- list(
+    col = count_col, y = count_axis_label, log = TRUE
   )
   if (params$mode == "reads" && "UMIs_in_cell" %in% colnames(multi)) {
     library_size_specs[["UMIs per Cell"]] <- list(col = "UMIs_in_cell", y = "UMIs, count", log = TRUE)
@@ -1833,7 +1838,7 @@ main <- function() {
   )
   if ("MT_perc" %in% colnames(multi)) {
     gene_char_specs[["Mitochondrial % per Cell"]] <- list(
-      col = "MT_perc", y = paste0(entity_label_plural, ", %")
+      col = "MT_perc", y = paste0(count_label_plural, ", %")
     )
   }
 
@@ -2067,8 +2072,8 @@ main <- function() {
         stat_summary(fun = mean, fun.args = list(na.rm = TRUE), geom = "point", shape = 4, size = 1, colour = "red", stroke = 0.9) +
         scale_y_continuous(limits = c(0, 100), expand = expansion(add = c(1, 0))) +
         theme_classic(base_size = 13) +
-        labs(title = paste0("Per Sample ", cat_lab, " ", entity_label_plural, " Distribution Across Cells"),
-             x = "Sample", y = paste0(entity_label_plural, ", %")) +
+        labs(title = paste0("Per Sample ", cat_lab, " ", count_label_plural, " Distribution Across Cells"),
+             x = "Sample", y = paste0(count_label_plural, ", %")) +
         theme(
           legend.position = "none",
           axis.text.x = element_text(angle = 35, hjust = 1, size = 16),

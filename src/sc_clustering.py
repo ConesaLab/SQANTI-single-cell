@@ -43,7 +43,8 @@ def prepare_anndata(args, row):
         novel_mask = df['associated_gene'].str.startswith('novelGene_', na=False)
         n_novel = novel_mask.sum()
         if n_novel > 0:
-            print(f"[INFO] Excluding {n_novel:,} reads/transcripts mapped to novel genes from clustering.", file=sys.stdout)
+            unit = 'isoforms' if args.mode == 'isoforms' else 'reads'
+            print(f"[INFO] Excluding {n_novel:,} {unit} mapped to novel genes from clustering.", file=sys.stdout)
             df = df[~novel_mask]
         
         if df.empty:

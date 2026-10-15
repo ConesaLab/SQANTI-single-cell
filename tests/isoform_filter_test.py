@@ -62,7 +62,7 @@ def _write_sample(sample_dir, labelled=False):
     }).to_csv(f"{prefix}_junctions.txt", sep='\t', index=False)
     summary = pd.DataFrame({
         'CB': ['bc1', 'bc2', 'bc3'],
-        'Transcripts_in_cell': [5, 10, 2],
+        'Counts_in_cell': [5, 10, 2],
     })
     if labelled:
         summary['filter_result'] = ['Cell', 'Cell', 'Cell']
@@ -216,7 +216,7 @@ class TestRunTranscriptFilter:
         _run(tmp_path, qc_dir, design)
         summary = pd.read_csv(
             tmp_path / "filter" / "rep1" / "s1_SQANTI_cell_summary.txt.gz", sep='\t')
-        depth = dict(zip(summary['CB'], summary['Transcripts_in_cell']))
+        depth = dict(zip(summary['CB'], summary['Counts_in_cell']))
         # bc2 carried 3 + 7 before; only PB.1.1's 3 survives.
         assert depth == {'bc1': 5, 'bc2': 3}
 
@@ -262,7 +262,7 @@ class TestRunTranscriptFilter:
 
 
 class TestAfterTheCellFilter:
-    """The intended order is cells first, then transcripts, with the cell filter's
+    """The intended order is cells first, then isoforms, with the cell filter's
     output directory as the input. That directory has the labelled summary and no
     plain one."""
 
@@ -401,8 +401,8 @@ class TestLabelledClassificationReaders:
         assert set(cls['CB']) == {'bc1'}
 
 
-class TestCellFilterAfterTranscripts:
-    """Transcripts first, then cells: the cell filter reads the labelled classification
+class TestCellFilterAfterIsoforms:
+    """Isoforms first, then cells: the cell filter reads the labelled classification
     and must keep its verdict column, so the readers downstream still skip artifacts."""
 
     def test_the_verdict_survives_the_cell_filter(self, qc_run, fake_sqanti3):
@@ -488,7 +488,7 @@ class TestOptionalModelFiles:
                 'PB.1.1', 'PB.2.1'}, suffix
 
 
-class TestTranscriptsParser:
+class TestIsoformsParser:
     def test_defaults(self):
         ns = _args('qc', 'out')
         assert ns.subcommand == 'isoforms'
@@ -668,7 +668,7 @@ class TestRunMLFilter:
         prefix = str(tmp_path / "filter" / "rep1" / "s1")
         assert filter_io.classification_path(prefix) == prefix + "_ML_classification.txt"
         summary = pd.read_csv(f"{prefix}_SQANTI_cell_summary.txt.gz", sep='\t')
-        assert dict(zip(summary['CB'], summary['Transcripts_in_cell'])) == {'bc1': 5, 'bc2': 3}
+        assert dict(zip(summary['CB'], summary['Counts_in_cell'])) == {'bc1': 5, 'bc2': 3}
 
     def test_sqanti3_rows_out_of_order_are_refused(self, qc_run, monkeypatch):
         tmp_path, qc_dir, design = qc_run

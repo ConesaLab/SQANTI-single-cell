@@ -514,7 +514,7 @@ python sqanti_sc_filter.py cells \
 
 Every run writes both the verdict and the filtered data files. `--qc_dir` is read and never written, so the original QC run is untouched.
 
-There is no `--mode`: `Reads_in_cell` and `Transcripts_in_cell` are mutually exclusive, so the cell summary states which mode it came from.
+There is no `--mode`: `Reads_in_cell` and `Counts_in_cell` are mutually exclusive, so the cell summary states which mode it came from.
 
 **Nothing existing is ever modified.** `--qc_dir` is read and never written; everything the filter produces goes under `--out_dir`.
 
@@ -566,7 +566,7 @@ Criteria live in a JSON file (`--rules`, default `src/filter_assets/cell_filter_
 }
 ```
 
-`depth` resolves to `Reads_in_cell` in reads mode and `Transcripts_in_cell` in isoforms mode, so one file works for both.
+`depth` resolves to `Reads_in_cell` in reads mode and `Counts_in_cell` in isoforms mode, so one file works for both.
 
 #### Every column: the template
 
@@ -595,7 +595,7 @@ A cell is discarded only when **every** rule-set rejects it, so no single rule "
 
 **These are defaults, not recommendations.** The right values depend on your tissue, platform and library chemistry — edit the JSON for your data.
 
-*   **`depth`** (min 500): single-cell long-read libraries typically run in the thousands of reads or transcripts per real cell, so this mainly separates cells from empty droplets. Note this is a different question from whether a *proportion* is estimable: below ~10 observations a percentage moves in steps of more than 10%, so a proportion rule on a very shallow cell is noise even when the cell is real.
+*   **`depth`** (min 500): single-cell long-read libraries typically run in the thousands of reads or counts per real cell, so this mainly separates cells from empty droplets. Note this is a different question from whether a *proportion* is estimable: below ~10 observations a percentage moves in steps of more than 10%, so a proportion rule on a very shallow cell is noise even when the cell is real.
 *   **`Annotated_genes`** (min 200): chosen because the retention curve is flat either side of it. On data that still contains empty droplets the separation between empty and real barcodes is sharp, so anything from about 50 to 300 keeps the same cells; above roughly 500 the floor starts removing real ones. 200 sits in the middle of that plateau, which also means the exact value matters little. `Annotated_genes` rather than `Genes_in_cell`, because SQANTI3 mints a fresh `novelGene_*` id for nearly every unassignable read, so `Genes_in_cell` partly counts artifacts.
 *   **`MT_perc`** (max 10): a ruptured cell loses cytoplasmic mRNA while membrane-bound mitochondria stay, so high MT does indicate damage. MT transcripts are short and long-read protocols size-select, so expect a *lower* fraction here than the familiar short-read thresholds, not a higher one. Some cell types (cardiomyocytes, neurons) genuinely run much higher — raise it for those.
 
@@ -812,7 +812,7 @@ The majority of SQANTI-reads-specific otuputs are not output by SQANTI-sc, with 
 
 #### Glossary of Cell Summary columns
 
-The output `_SQANTI_cell_summary.txt.gz` has the following possible fields:
+The output `_SQANTI_cell_summary.txt.gz` has the following possible fields. In reads mode a cell's quantities count its reads. In isoforms mode they count its **counts**: each isoform contributes its `FL` value in that cell, taken from the count matrix, which can be fractional when the matrix comes from an EM-based quantifier.
 
 > **Proportion columns can be `NA`.** Every `*_prop`, `*_perc` and `*_support` column
 > is a percentage of some denominator — the cell's reads, its junctions, or its reads
@@ -823,8 +823,8 @@ The output `_SQANTI_cell_summary.txt.gz` has the following possible fields:
 > non-canonical junctions is `0`, not `NA`). Count columns are never `NA` — a cell
 > with no fusion reads has a `Fusion` count of `0`. Filter or aggregate accordingly
 > (`na.rm = TRUE` in R, `skipna=True` is the pandas default); the denominator columns
-> (`Reads_in_cell` / `Transcripts_in_cell`, `total_junctions`,
-> `total_reads_no_monoexon` / `total_transcripts_no_monoexon`, and the per-category
+> (`Reads_in_cell` / `Counts_in_cell`, `total_junctions`,
+> `total_reads_no_monoexon` / `total_counts_no_monoexon`, and the per-category
 > counts) are all present in this file if you need to reconstruct which case applies.
 >
 > **A whole column is `NA` when the run never measured that attribute.** The
@@ -845,26 +845,28 @@ The output `_SQANTI_cell_summary.txt.gz` has the following possible fields:
 > evaluated on.
 
 * **`CB`** : Cell Barcode identifier.  
-* **`Reads_in_cell`** / **`Transcripts_in_cell`** : Total number of reads (Reads Mode) or transcripts (Isoforms Mode) associated with the cell.  
+* **`Reads_in_cell`** / **`Counts_in_cell`** : Total number of reads (Reads Mode) or counts (Isoforms Mode) associated with the cell.  
+* **`Isoforms_in_cell`** : Number of distinct isoforms detected in the cell (Isoforms Mode only).  
 * **`UMIs_in_cell`** : Total number of unique Molecular Identifiers (UMIs) detected (Reads Mode only) in the cell.  
-* **`total_reads_no_monoexon`** / **`total_transcripts_no_monoexon`** : Count of reads/transcripts excluding mono-exons.  
-* **`FSM`**, **`ISM`**, **`NIC`**, **`NNC`**, **`Genic_Genomic`**, **`Antisense`**, **`Fusion`**, **`Intergenic`**, **`Genic_intron`** : Absolute counts of reads/transcripts belonging to each SQANTI3 structural category.
-* **`[Category]_prop`** (e.g., `FSM_prop`, `NIC_prop`) : The proportion of reads/transcripts in the cell belonging to each structural category.
+* **`total_reads_no_monoexon`** / **`total_counts_no_monoexon`** : Reads/counts excluding mono-exons.  
+* **`FSM`**, **`ISM`**, **`NIC`**, **`NNC`**, **`Genic_Genomic`**, **`Antisense`**, **`Fusion`**, **`Intergenic`**, **`Genic_intron`** : Absolute counts of reads/counts belonging to each SQANTI3 structural category.
+* **`[Category]_prop`** (e.g., `FSM_prop`, `NIC_prop`) : The proportion of reads/counts in the cell belonging to each structural category.
 * **`Genes_in_cell`** : Number of unique genes detected in the cell.
 * **`UJCs_in_cell`** : Number of Unique Junction Chains (UJCs) detected (multi-exon only).
-* **`MT_reads_count`** : Number of reads/transcripts mapping to mitochondrial genes.  
-* **`MT_perc`** : Percentage of reads/transcripts mapping to mitochondrial genes.  
+* **`MT_reads_count`** / **`MT_counts`** : Reads/counts mapping to mitochondrial genes.  
+* **`MT_perc`** : Percentage of reads/counts mapping to mitochondrial genes.  
 * **`Annotated_genes`** : Number of known (annotated) genes detected. 
 * **`Novel_genes`** : Number of novel genes detected.
 * **`*_junctions`** (e.g., `Known_canonical_junctions`, `Novel_canonical_junctions`, `Novel_non_canonical_junctions`, `Known_non_canonical_junctions`) : Counts of splice junctions by type.  
 * **`total_junctions`** : Total number of splice junctions identified in the cell.  
 * **`*_junctions_prop`** : Proportions of each junction type relative to total junctions.  
-* **`[Category]_[Subcategory]_prop`** : Proportion of reads/transcripts within a category that belong to a specific subcategory (e.g., `FSM_alternative_3end_prop`, `ISM_intron_retention_prop`, `Genic_mono_exon_prop`).  
-* **`anno_bin*_perc`** : Proportion of annotated genes with expression levels (reads or transcript model counts) in specific bins (`bin1`: 1 count, `bin2_4`: 2-4 counts, `bin5_9`: 5-9 counts, `bin10plus`: >=10 counts).  
-* **`novel_bin*_perc`** : Proportion of novel genes with expression levels in specific bins (same as above).  
+* **`[Category]_[Subcategory]_prop`** : Proportion of reads/counts within a category that belong to a specific subcategory (e.g., `FSM_alternative_3end_prop`, `ISM_intron_retention_prop`, `Genic_mono_exon_prop`).  
+* **`Annotated_genes_reads`** / **`Annotated_genes_counts`**, **`Novel_genes_reads`** / **`Novel_genes_counts`** : Reads/counts on annotated and on novel genes.  
+* **`anno_gene_reads_bin_*`** / **`anno_gene_counts_bin_*`** : Number of annotated genes whose reads/counts in the cell fall in each bin: `_1` to `_10` are the intervals (0, 1] to (9, 10], so a fractional count falls in a bin, and `_10plus` is above 10.  
+* **`anno_gene_isoforms_bin_*`** : Number of annotated genes with 1 to 10 (`_1` to `_10`) or more than 10 (`_10plus`) distinct isoforms detected in the cell (Isoforms Mode only).  
 * **`*_ujc_bin*_perc`** : Similar bins calculated for Unique Junction Chains (UJCs) (Reads Mode only): `bin1` (1 count), `bin2_3` (2-3 counts), `bin4_5` (4-5 counts), `bin6plus` (>=6 counts).  
 * **`[Total|Category]_*_length_[mono]_prop`** : Proportion of reads falling into specific length bins (Total and per-category, including mono-exonic specific). Length bins: `<250bp`, `250-500bp`, `500-1000bp` (`short`), `1000-2000bp` (`mid`), `>2000bp` (`long`).  
-* **`*_ref_coverage_prop`** : Proportion of reads/transcripts in each category covering at least `ref_cov_min_pct` of the reference transcript length.  
+* **`*_ref_coverage_prop`** : Proportion of reads/counts in each category covering at least `ref_cov_min_pct` of the reference transcript length.  
 * **`ref_cov_min_pct`** : The minimum reference coverage percentage used for the above metric (parameter value).  
 * **`RTS_prop_in_cell`** : Proportion of reads flagged as Reverse Transcriptase Switching (RTS) artifacts.  
 * **`[Category]_RTS_prop`** : Proportion of RTS artifacts within each structural category.  
@@ -876,15 +878,15 @@ The output `_SQANTI_cell_summary.txt.gz` has the following possible fields:
 * **`[Category]_TSSAnnotationSupport`** : Proportion of TSS support within each structural category.  
 * **`Annotated_genes_prop_in_cell`** : Proportion of genes detected that are annotated.  
 * **`Annotated_juction_strings_prop_in_cell`** : Proportion of UJCs that match annotated junction combinations.  
-* **`Canonical_prop_in_cell`** : Proportion of reads/transcripts with canonical splicing.  
+* **`Canonical_prop_in_cell`** : Proportion of reads/counts with canonical splicing.  
 * **`[Category]_canon_prop`** : Proportion of canonical splicing within each structural category.  
 * **`NMD_prop_in_cell`** : Proportion of reads predicted to be NMD candidates (if ORF prediction is on).  
 * **`[Category]_NMD_prop`** : Proportion of NMD candidates within each structural category.  
-* **`srjunctions_support_prop`** : Proportion of reads/transcripts supported by short read junctions (min_cov >= threshold).
+* **`srjunctions_support_prop`** : Proportion of reads/counts supported by short read junctions (min_cov >= threshold).
 * **`[Category]_srjunctions_support_prop`** : Proportion of short read junction support within each structural category.
-* **`TSS_ratio_validated_prop`** : Proportion of reads/transcripts with validated TSS (ratio_TSS >= threshold).
+* **`TSS_ratio_validated_prop`** : Proportion of reads/counts with validated TSS (ratio_TSS >= threshold).
 * **`[Category]_TSS_ratio_validated_prop`** : Proportion of TSS validation within each structural category.
-* **`[Category]_[non]_coding_prop`** : Proportion of coding vs non-coding transcripts within each category.  
+* **`[Category]_[non]_coding_prop`** : Proportion of coding vs non-coding reads/counts within each category.  
 * **`CAGE_peak_support_prop`** : Proportion of reads supported by CAGE peaks (if provided).  
 * **`[Category]_CAGE_peak_support_prop`** : Proportion of CAGE support within each structural category.  
 * **`PolyA_motif_support_prop`** : Proportion of reads with identified PolyA motifs (if provided).  

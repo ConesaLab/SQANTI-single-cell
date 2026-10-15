@@ -151,22 +151,30 @@ if (!(mode %in% c("reads", "isoforms"))) {
   stop("Mode needs to be: reads or isoforms. Abort!")
 }
 
-# Set labels based on mode
+# entity_*: the thing measured (a length, exons, a class). count_*: the unit counted in a
+# cell -- one read in reads mode, summed FL in isoforms mode.
 if (mode == "isoforms") {
   entity_label <- "Transcript"
   entity_label_plural <- "Transcripts"
+  count_label <- "Count"
+  count_label_plural <- "Counts"
+  count_axis_label <- "Counts"
+  count_bins_label <- "Count Bins"
 } else {
   entity_label <- "Read"
   entity_label_plural <- "Reads"
+  count_label <- "Read"
+  count_label_plural <- "Reads"
+  count_axis_label <- "Reads, count"
+  count_bins_label <- "Read Count Bins"
 }
+count_label_lower <- tolower(count_label)
+count_label_plural_lower <- tolower(count_label_plural)
 
-# Lowercase versions for inline text
-entity_label_lower <- tolower(entity_label)
-entity_label_plural_lower <- tolower(entity_label_plural)
-
-# The "everything pooled" pane of the by-category dropdowns. Also used as the
-# list KEY for those panes, so the report Rmd has to look it up the same way.
+# The "everything pooled" pane of the by-category dropdowns, for lengths and for count
+# shares. Also the list KEY for those panes, so the Rmd has to look them up the same way.
 all_entities_label <- paste("All", entity_label_plural)
+all_counts_label <- paste("All", count_label_plural)
 
 # Print cell summary saving status
 if (ignore_cell_summary) {
@@ -180,8 +188,8 @@ save_option <- ifelse(ignore_cell_summary, "N", "Y")
 
 # Define column names based on mode
 if (mode == "isoforms") {
-  count_col <- "Transcripts_in_cell"
-  no_mono_col <- "total_transcripts_no_monoexon"
+  count_col <- "Counts_in_cell"
+  no_mono_col <- "total_counts_no_monoexon"
 } else {
   count_col <- "Reads_in_cell"
   no_mono_col <- "total_reads_no_monoexon"
@@ -300,7 +308,7 @@ build_violin_plot <- function(df_long,
                               fill_map,
                               color_map = fill_map,
                               x_title = "",
-                              y_label = paste(entity_label_plural, ", %", sep = ""),
+                              y_label = paste(count_label_plural, ", %", sep = ""),
                               legend = FALSE,
                               ylim = NULL,
                               override_outline_vars = character(0),
@@ -451,7 +459,7 @@ build_continuous_umap <- function(data, color_col, title, color_base = "blue") {
       limits = c(0, max(plot_data[[color_col]], na.rm = TRUE))
     ) +
     guides(color = guide_colorbar(barwidth = 2.5, barheight = 15)) +
-    labs(title = title, x = "UMAP 1", y = "UMAP 2", color = paste0(entity_label_plural, ", %")) +
+    labs(title = title, x = "UMAP 1", y = "UMAP 2", color = paste0(count_label_plural, ", %")) +
     theme_classic() +
     theme(
       plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
@@ -544,7 +552,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
               p <- ggplot(merged_umap, aes(x = UMAP_1, y = UMAP_2, color = .data[[cat_col]])) +
                 geom_point(alpha = 0.6, size = 0.5) +
                 theme_classic() +
-                labs(title = paste("UMAP - %", cat_label), x = "UMAP 1", y = "UMAP 2", color = paste0(entity_label_plural, ", %")) +
+                labs(title = paste("UMAP - %", cat_label), x = "UMAP 1", y = "UMAP 2", color = paste0(count_label_plural, ", %")) +
                 theme(
                   plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
                   axis.title = element_text(size = 18),
@@ -596,7 +604,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
                 title = paste(cat_label, "Distribution"),
                 x_labels = levels(cat_data$Variable),
                 fill_map = fixed_color_map,
-                y_label = paste(entity_label_plural, ", %", sep = ""),
+                y_label = paste(count_label_plural, ", %", sep = ""),
                 legend = FALSE,
                 x_title = "Cluster",
                 x_tickangle = 0,
@@ -782,17 +790,17 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
               # Use Cluster Colors (same as Junctions Coverage)
               p_all_tss <- build_violin_plot(
                 df_long = prepare_violin_data(merged_umap, "TSS_ratio_validated_prop"),
-                title = paste(all_entities_label, "TSS Validation by Short Reads"),
+                title = paste(all_counts_label, "TSS Validation by Short Reads"),
                 x_labels = levels(merged_umap$Cluster),
                 fill_map = cluster_colors,
                 x_title = "Cluster",
-                y_label = paste0(entity_label_plural, " Validated, %"),
+                y_label = paste0(count_label_plural, " Validated, %"),
                 x_tickangle = 0,
                 violin_outline_fill = TRUE,
                 violin_alpha = 0.7,
                 box_alpha = 0.3
               )
-              gg_tss_cluster_plots[[all_entities_label]] <<- p_all_tss
+              gg_tss_cluster_plots[[all_counts_label]] <<- p_all_tss
 
               # 2. Per-Category Plots - TSS
               # Use Category Color for ALL clusters
@@ -812,7 +820,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
                     x_labels = levels(merged_umap$Cluster),
                     fill_map = fixed_color_map,
                     x_title = "Cluster",
-                    y_label = paste0(entity_label_plural, " Validated, %"),
+                    y_label = paste0(count_label_plural, " Validated, %"),
                     x_tickangle = 0,
                     violin_outline_fill = TRUE,
                     violin_alpha = 0.7,
@@ -830,12 +838,12 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
             global_data <- prepare_violin_data(merged_umap, "srjunctions_support_prop")
 
             # Use build_violin_plot (which returns a ggplot object)
-            gg_sr_cluster_plots[[all_entities_label]] <<- build_violin_plot(
+            gg_sr_cluster_plots[[all_counts_label]] <<- build_violin_plot(
               df_long = global_data,
-              title = paste(all_entities_label, "Junction Coverage by Short Reads"),
+              title = paste(all_counts_label, "Junction Coverage by Short Reads"),
               x_labels = levels(global_data$Variable),
               fill_map = cluster_colors,
-              y_label = paste0(entity_label_plural, " Supported, %"),
+              y_label = paste0(count_label_plural, " Supported, %"),
               legend = FALSE,
               x_title = "Cluster",
               x_tickangle = 0,
@@ -870,7 +878,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
                   title = title,
                   x_labels = levels(cat_data$Variable),
                   fill_map = fixed_color_map, # Per-category uses the category color for all clusters
-                  y_label = paste0(entity_label_plural, " Supported, %"),
+                  y_label = paste0(count_label_plural, " Supported, %"),
                   legend = FALSE,
                   x_title = "Cluster",
                   x_tickangle = 0,
@@ -899,10 +907,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   if (exists("merged_umap") && "srjunctions_support_prop" %in% colnames(merged_umap) &&
       any(!is.na(merged_umap$srjunctions_support_prop))) {
     # Global
-    gg_sr_umap_plots[[all_entities_label]] <<- build_continuous_umap(
+    gg_sr_umap_plots[[all_counts_label]] <<- build_continuous_umap(
       merged_umap,
       "srjunctions_support_prop",
-      paste(all_entities_label, "Junction Coverage by Short Reads"),
+      paste(all_counts_label, "Junction Coverage by Short Reads"),
       color_base = "#cd4f39"
     )
 
@@ -929,10 +937,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   if (exists("merged_umap") && "TSS_ratio_validated_prop" %in% colnames(merged_umap) &&
       any(!is.na(merged_umap$TSS_ratio_validated_prop))) {
     # Global
-    gg_tss_umap_plots[[all_entities_label]] <<- build_continuous_umap(
+    gg_tss_umap_plots[[all_counts_label]] <<- build_continuous_umap(
       merged_umap,
       "TSS_ratio_validated_prop",
-      paste(all_entities_label, "TSS Validation by Short Reads"),
+      paste(all_counts_label, "TSS Validation by Short Reads"),
       color_base = "#ffc125"
     )
 
@@ -1117,7 +1125,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       x_labels = x_labels,
       fill_map = fill_map,
       color_map = color_map,
-      y_label = paste(entity_label_plural, ", %", sep = ""),
+      y_label = paste(count_label_plural, ", %", sep = ""),
       legend = FALSE,
       violin_alpha = violin_alpha,
       box_alpha = box_alpha,
@@ -1213,7 +1221,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       labs(
         title = paste(entity_label, "Body Coverage Along Reference Transcript"),
         x = "Position along reference transcript (%)\n5' -> 3'",
-        y = paste(entity_label_plural, "covering position, %"),
+        y = paste(count_label_plural, "covering position, %"),
         color = "Reference length"
       ) +
       theme_classic(base_size = 14) +
@@ -1253,7 +1261,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       return(NULL)
     }
 
-    sample_label <- if (mode == "isoforms") "Sample Transcriptome" else "Sample Reads"
+    sample_label <- if (mode == "isoforms") "Sample Isoforms" else "Sample Reads"
     sample_df <- data.frame(
       length = sample_lengths,
       Dataset = sample_label,
@@ -1319,7 +1327,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     plot_df$Dataset <- factor(plot_df$Dataset, levels = dataset_levels)
     pal <- setNames(c("#1fa291", "#f5c05d"), dataset_levels)
     y_axis_label <- "Length, bp"
-    plot_subtitle <- if (mode == "isoforms") "Reference transcriptome vs. Sample transcriptome" else "Reference transcriptome vs. Sample reads"
+    plot_subtitle <- if (mode == "isoforms") "Reference transcriptome vs. Sample isoforms" else "Reference transcriptome vs. Sample reads"
 
     p <- ggplot(plot_df, aes(x = Dataset, y = length, fill = Dataset)) +
       geom_violin(aes(color = Dataset), alpha = 0.7, scale = "width", adjust = 1, trim = TRUE, show.legend = FALSE) +
@@ -1345,7 +1353,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   }
 
   # Helper: build a per-category exon count profile (median + IQR across cells)
-  build_exon_profile_plot <- function(df_prof, title, line_color, k_max = 20, y_label = paste(entity_label_plural, ", %", sep = ""), n_cells = NULL) {
+  build_exon_profile_plot <- function(df_prof, title, line_color, k_max = 20, y_label = paste(count_label_plural, ", %", sep = ""), n_cells = NULL) {
     # Sanitize title
     title <- tryCatch(
       {
@@ -1466,9 +1474,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   cfg_reads <- list(
     column = count_col,
     name = "gg_reads_in_cells",
-    title = paste0("Number of ", entity_label_plural, "\nAcross Cells"),
+    title = paste0("Number of ", count_label_plural, "\nAcross Cells"),
     fill = "#CC6633",
-    y_label = paste(entity_label_plural, ", count", sep = ""),
+    y_label = count_axis_label,
     x_label = "Cells",
     plot_args = common_plot_args
   )
@@ -1575,15 +1583,15 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     ))
   }
 
-  # 5. Percentage of Reads/Transcripts from Known/Novel Genes Across Cells
+  # 5. Percentage of Reads/Counts from Known/Novel Genes Across Cells
   # (Enabled for both reads and isoforms modes)
   {
     # Annotated/Novel per-cell counts are provided directly by cell_metrics, so we
     # no longer re-explode CB/FL here -- we just read the columns and take the ratio.
     # Column names follow the mode convention: Annotated_genes_reads (reads mode) /
-    # Annotated_genes_transcripts (isoforms mode), via entity_label_plural_lower.
-    anno_genes_col <- paste0("Annotated_genes_", entity_label_plural_lower)
-    novel_genes_col <- paste0("Novel_genes_", entity_label_plural_lower)
+    # Annotated_genes_counts (isoforms mode), via count_label_plural_lower.
+    anno_genes_col <- paste0("Annotated_genes_", count_label_plural_lower)
+    novel_genes_col <- paste0("Novel_genes_", count_label_plural_lower)
     SQANTI_cell_summary$Annotated_reads_perc <- 100 * SQANTI_cell_summary[[anno_genes_col]] / SQANTI_cell_summary[[count_col]]
     SQANTI_cell_summary$Novel_reads_perc <- 100 * SQANTI_cell_summary[[novel_genes_col]] / SQANTI_cell_summary[[count_col]]
 
@@ -1593,9 +1601,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     pivot_violin(SQANTI_cell_summary, list(
       name = "gg_annotation_of_reads_in_cell",
       columns = c("Annotated_reads_perc", "Novel_reads_perc"),
-      title = paste("Percentage of", entity_label_plural, "from Known/Novel Genes Across Cells"),
+      title = paste("Percentage of", count_label_plural, "from Known/Novel Genes Across Cells"),
       x_labels = c("Annotated Genes", "Novel Genes"),
-      y_label = paste(entity_label_plural, ", %", sep = ""),
+      y_label = paste(count_label_plural, ", %", sep = ""),
       fill_map = c("Annotated_reads_perc" = fill_color_orange, "Novel_reads_perc" = fill_color_orange),
       plot_args = pivot_defaults
     ))
@@ -1604,9 +1612,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   single_violin(SQANTI_cell_summary, list(
     name = "gg_MT_perc",
     column = "MT_perc",
-    title = paste("Mitochondrial", entity_label_plural, "Across Cells"),
+    title = paste("Mitochondrial", count_label_plural, "Across Cells"),
     x_labels = c("Cell"),
-    y_label = paste(entity_label_plural, ", %", sep = ""),
+    y_label = paste(count_label_plural, ", %", sep = ""),
     fill = "#CC6633",
     plot_args = common_plot_args
   ))
@@ -1617,7 +1625,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # cell_metrics stores per-cell gene COUNTS in 11 bins: columns *_bin_1..*_bin_10
   # and *_bin_10plus. Two families:
   #   * abundance  -> anno_gene_reads_bin_* (reads) / anno_gene_transcripts_bin_*
-  #                   (isoforms), via entity_label_plural_lower.
+  #                   (isoforms), via count_label_plural_lower.
   #   * isoforms   -> anno_gene_isoforms_bin_* (isoforms mode only).
   # Novel genes are no longer binned. We read these columns directly -- no CB/FL
   # explosion -- and turn each into a one-violin-per-bin distribution.
@@ -1677,10 +1685,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     )
   }
 
-  # Abundance: annotated genes by (read/transcript) count bins -- both modes.
+  # Abundance: annotated genes by (read/count) count bins -- both modes.
   gg_read_bins_all <<- build_gene_bin_violin(
-    col_prefix = paste0("anno_gene_", entity_label_plural_lower, "_bin_"),
-    plot_title = paste("Distribution of Annotated Genes by", entity_label, "Count Bins Across Cells"),
+    col_prefix = paste0("anno_gene_", count_label_plural_lower, "_bin_"),
+    plot_title = paste("Distribution of Annotated Genes by", count_bins_label, "Across Cells"),
     bin_labels = abundance_bin_labels,
     fill_hex = "#CC6633"
   )
@@ -1782,10 +1790,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     x_labels <- c("Cell")
     gg_MT_perc <<- build_violin_plot(
       df_long,
-      title = paste("Mitochondrial", entity_label_plural, "\nAcross Cells"),
+      title = paste("Mitochondrial", count_label_plural, "\nAcross Cells"),
       x_labels = x_labels,
       fill_map = fill_map,
-      y_label = paste(entity_label_plural, ", %", sep = ""),
+      y_label = paste(count_label_plural, ", %", sep = ""),
       legend = FALSE,
       violin_alpha = 0.5,
       box_alpha = 0.3,
@@ -1884,7 +1892,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     labs(
       title = paste("All", entity_label, "Lengths Distribution"),
       x = "Length, bp",
-      y = paste(entity_label_plural, ", count", sep = "")
+      y = count_axis_label
     ) +
     theme_classic() +
     theme(
@@ -1945,7 +1953,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     labs(
       title = paste("All", entity_label, "Lengths Distribution by Structural Category"),
       x = "Length, bp",
-      y = paste(entity_label_plural, ", count", sep = ""),
+      y = count_axis_label,
       color = NULL
     ) +
     theme_classic(base_size = 16) +
@@ -1977,7 +1985,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     labs(
       title = paste("Mono- vs Multi- Exon", entity_label, "Lengths Distribution"),
       x = "Length, bp",
-      y = paste(entity_label_plural, ", count", sep = ""),
+      y = count_axis_label,
       color = NULL
     ) +
     theme_classic(base_size = 16) +
@@ -2070,7 +2078,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       NULL
     }
     title_txt <- if (!is.null(pct_lbl)) {
-      paste0(entity_label_plural, " with Coverage >=", pct_lbl, "% of the Reference Transcript Length\nby Structural Category Across Cells")
+      paste0(count_label_plural, " with Coverage >=", pct_lbl, "% of the Reference Transcript Length\nby Structural Category Across Cells")
     } else {
       "Reference Transcript Length Coverage\nby Structural Category Across Cells"
     }
@@ -2079,7 +2087,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       title = title_txt,
       x_labels = x_labels,
       fill_map = fill_map,
-      y_label = paste(entity_label_plural, ", %", sep = ""),
+      y_label = paste(count_label_plural, ", %", sep = ""),
       legend = FALSE,
       violin_outline_fill = TRUE
     )
@@ -2103,7 +2111,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     columns = names(category_fill_map),
     title = "Structural Categories Distribution Across Cells",
     x_labels = cat_labels_pretty,
-    y_label = paste(entity_label_plural, ", %", sep = ""),
+    y_label = paste(count_label_plural, ", %", sep = ""),
     fill_map = category_fill_map,
     plot_args = list(override_outline_vars = c("Genic_Genomic_prop"), violin_outline_fill = TRUE)
   ))
@@ -2134,7 +2142,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       columns = names(coding_fill_map),
       title = "Coding Proportion of Structural Categories Distribution Across Cells",
       x_labels = cat_labels_pretty,
-      y_label = paste(entity_label_plural, ", %", sep = ""),
+      y_label = paste(count_label_plural, ", %", sep = ""),
       fill_map = coding_fill_map,
       plot_args = list(override_outline_vars = c("genic_coding_prop"), violin_outline_fill = TRUE)
     ))
@@ -2157,7 +2165,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       columns = names(noncoding_fill_map),
       title = "Non-coding Proportion of Structural Categories Distribution Across Cells",
       x_labels = cat_labels_pretty,
-      y_label = paste(entity_label_plural, ", %", sep = ""),
+      y_label = paste(count_label_plural, ", %", sep = ""),
       fill_map = noncoding_fill_map,
       plot_args = list(
         override_outline_vars = c(),
@@ -2291,7 +2299,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   ### Good features plots (SR & TSS Validation) ###
   #################################################
 
-  # 1. Combined Good Features Plot (All Transcripts)
+  # 1. Combined Good Features Plot (All Counts)
   # all_good_features_map is defined at top level, so the cell filter section and
   # these plots cannot drift apart on a label or a colour.
 
@@ -2310,7 +2318,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       columns = good_feature_cols_present,
       title = "Validation Features Distribution Across Cells",
       x_labels = current_good_labels,
-      y_label = paste(entity_label_plural, ", %", sep = ""),
+      y_label = paste(count_label_plural, ", %", sep = ""),
       fill_map = current_good_colors,
       plot_args = list(violin_outline_fill = TRUE)
     ))
@@ -2325,7 +2333,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       columns = sr_cat_cols,
       title = "SJs Validated by Short Reads by Structural Category",
       x_labels = cat_labels_pretty,
-      y_label = paste(entity_label_plural, ", %", sep = ""),
+      y_label = paste(count_label_plural, ", %", sep = ""),
       fill_map = setNames(rep("#cd4f39", length(sr_cat_cols)), sr_cat_cols),
       plot_args = list(violin_outline_fill = TRUE)
     ))
@@ -2339,7 +2347,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       columns = tss_cat_cols,
       title = "TSS Validated by Short Reads by Structural Category",
       x_labels = cat_labels_pretty,
-      y_label = paste(entity_label_plural, ", %", sep = ""),
+      y_label = paste(count_label_plural, ", %", sep = ""),
       fill_map = setNames(rep("#FFC125", length(tss_cat_cols)), tss_cat_cols),
       plot_args = list(violin_outline_fill = TRUE)
     ))
@@ -2350,7 +2358,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   bad_specs <- list(
     list(suffix = "_intrapriming_prop", title = "Intrapriming by Structural Category", color = "#78C679", name = "gg_intrapriming_by_category"),
     list(suffix = "_RTS_prop", title = "RT-switching by Structural Category", color = "#FF9933", name = "gg_RTS_by_category"),
-    list(suffix = "_noncanon_prop", title = paste(entity_label_plural, "with Non-Canonical SJ by Structural Category"), color = "#41B6C4", name = "gg_noncanon_by_category")
+    list(suffix = "_noncanon_prop", title = paste(count_label_plural, "with Non-Canonical SJ by Structural Category"), color = "#41B6C4", name = "gg_noncanon_by_category")
   )
   invisible(lapply(bad_specs, function(sp) {
     cols <- cat_cols(sp$suffix)
@@ -2359,7 +2367,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       columns = cols,
       title = sp$title,
       x_labels = cat_labels_pretty,
-      y_label = paste(entity_label_plural, ", %", sep = ""),
+      y_label = paste(count_label_plural, ", %", sep = ""),
       fill_map = setNames(rep(sp$color, length(cols)), cols),
       plot_args = list(violin_outline_fill = TRUE)
     ))
@@ -2373,7 +2381,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       columns = nmd_cols,
       title = "Nonsense-Mediated Decay by Structural Category",
       x_labels = cat_labels_pretty,
-      y_label = paste(entity_label_plural, ", %", sep = ""),
+      y_label = paste(count_label_plural, ", %", sep = ""),
       fill_map = setNames(rep("#969696", length(nmd_cols)), nmd_cols),
       plot_args = list(violin_outline_fill = TRUE)
     ))
@@ -2407,7 +2415,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     columns = bad_feature_cols_present,
     title = "Bad Quality Control Attributes Across Cells",
     x_labels = current_labels,
-    y_label = paste(entity_label_plural, ", %", sep = ""),
+    y_label = paste(count_label_plural, ", %", sep = ""),
     fill_map = current_colors,
     plot_args = list(violin_outline_fill = TRUE)
   ))
@@ -2435,7 +2443,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       columns = sp$cols,
       title = sp$title,
       x_labels = cat_labels_pretty,
-      y_label = paste(entity_label_plural, ", %", sep = ""),
+      y_label = paste(count_label_plural, ", %", sep = ""),
       fill_map = setNames(rep(sp$color, length(sp$cols)), sp$cols),
       plot_args = list(violin_outline_fill = TRUE)
     ))
@@ -2490,7 +2498,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     columns = good_feature_cols,
     title = "Good Quality Control Attributes Across Cells",
     x_labels = label_map,
-    y_label = paste(entity_label_plural, ", %", sep = ""),
+    y_label = paste(count_label_plural, ", %", sep = ""),
     fill_map = color_map,
     plot_args = list(violin_outline_fill = TRUE)
   ))
@@ -2541,10 +2549,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     gg_exon_mean_by_category <<- build_violin_plot(
       df_long = df_exon_mean_long,
-      title = paste("Mean Exons per", entity_label, "by Structural Category Across Cells"),
+      title = paste("Mean Exons per", count_label, "by Structural Category Across Cells"),
       x_labels = x_labels_pretty,
       fill_map = fill_map_cat,
-      y_label = paste("Exons per", entity_label),
+      y_label = paste("Exons per", count_label),
       legend = FALSE,
       violin_alpha = 0.7,
       box_alpha = 0.3,
@@ -2572,10 +2580,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     gg_exon_mono_by_category <<- build_violin_plot(
       df_long = df_exon_mono_long,
-      title = paste("Mono-exonic", entity_label_plural, "by Structural Category Across Cells"),
+      title = paste("Mono-exonic", count_label_plural, "by Structural Category Across Cells"),
       x_labels = x_labels_pretty,
       fill_map = fill_map_cat,
-      y_label = paste(entity_label_plural, ", %", sep = ""),
+      y_label = paste(count_label_plural, ", %", sep = ""),
       legend = FALSE,
       ylim = c(0, 100),
       violin_alpha = 0.7,
@@ -2642,7 +2650,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       )
       gg_exon_profile_by_category[[pretty_name]] <<- build_exon_profile_plot(
         df_prof = prof, title = paste0("Exon Count Profile in ", pretty_name, " Across Cells"),
-        line_color = fill_map_cat[ck], k_max = K, y_label = paste(entity_label_plural, ", %", sep = ""), n_cells = length(unique(cells_ok))
+        line_color = fill_map_cat[ck], k_max = K, y_label = paste(count_label_plural, ", %", sep = ""), n_cells = length(unique(cells_ok))
       )
     }
   }
@@ -2971,10 +2979,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
         df = df_allcanon %>% transmute(bin = unname(bin_pretty_map[as.character(cat_key)]), group = as.character(allcanon_status), value = perc),
         bin_levels = pretty_levels,
         group_levels = c("True", "False"),
-        title = paste(entity_label_plural, "with All Canonical Junctions Distribution by Structural Category Across Cells"),
+        title = paste(count_label_plural, "with All Canonical Junctions Distribution by Structural Category Across Cells"),
         fill_map = cols_tf,
         legend_labels = c("True" = "True", "False" = "False"),
-        y_label = paste(entity_label_plural, ", %", sep = ""),
+        y_label = paste(count_label_plural, ", %", sep = ""),
         ylim = c(0, 100),
         violin_alpha = 0.7,
         box_alpha = 0.3,
@@ -3032,10 +3040,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
         gg_nmd_by_category <<- build_violin_plot(
           df_long = data.frame(Variable = df_nmd$PrettyVar, Value = df_nmd$Value),
-          title = paste("Predicted NMD", entity_label_plural, "Distribution by Structural Category Across Cells"),
+          title = paste("Predicted NMD", count_label_plural, "Distribution by Structural Category Across Cells"),
           x_labels = levels(df_nmd$PrettyVar),
           fill_map = nmd_fill_map,
-          y_label = paste(entity_label_plural, ", %", sep = ""),
+          y_label = paste(count_label_plural, ", %", sep = ""),
           legend = FALSE,
           override_outline_vars = character(0),
           violin_alpha = 0.7,
@@ -3104,7 +3112,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     if (mode == "isoforms") {
       read_class_table <- aggregate(Classification_file$count, by = list(Category = factor(Classification_file$structural_category, levels = read_cat_levels)), FUN = sum, na.rm = TRUE)
-      colnames(read_class_table) <- c("Category", "Transcripts, count")
+      colnames(read_class_table) <- c("Category", count_axis_label)
       # Ensure all levels are present
       read_class_temp <- data.frame(Category = read_cat_levels)
       read_class_table <- merge(read_class_temp, read_class_table, by = "Category", all.x = TRUE)
@@ -3112,10 +3120,10 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       read_class_table[is.na(read_class_table)] <- 0
     } else {
       read_class_table <- as.data.frame(table(factor(Classification_file$structural_category, levels = read_cat_levels)))
-      colnames(read_class_table) <- c("Category", "Transcripts, count")
+      colnames(read_class_table) <- c("Category", count_axis_label)
     }
     read_class_table$Category <- read_cat_names
-    read_class_table[["Transcripts, percent"]] <- round(100 * read_class_table[["Transcripts, count"]] / sum(read_class_table[["Transcripts, count"]]), 1)
+    read_class_table[[paste0(count_label_plural, ", percent")]] <- round(100 * read_class_table[[count_axis_label]] / sum(read_class_table[[count_axis_label]]), 1)
 
     # Splice Junction Classification table
     Junctions$junction_type <- paste(Junctions$junction_category, Junctions$canonical, sep = "_")
@@ -3159,7 +3167,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     if (mode == "isoforms") {
       unique_counts_text <- sprintf(
         "Number of %s: %s\nIsoforms: %s\nUnique Genes: %s",
-        entity_label_plural,
+        count_label_plural,
         format(total_reads_count, big.mark = ","),
         format(unique_isoforms, big.mark = ","),
         format(unique_genes, big.mark = ",")
@@ -3167,7 +3175,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     } else if (unique_junctions > 0) {
       unique_counts_text <- sprintf(
         "Number of %s: %s\nUnique Genes: %s\nUnique Junction Chains: %s",
-        entity_label_plural,
+        count_label_plural,
         format(total_reads_count, big.mark = ","),
         format(unique_genes, big.mark = ","),
         format(unique_junctions, big.mark = ",")
@@ -3175,7 +3183,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     } else {
       unique_counts_text <- sprintf(
         "Number of %s: %s\nUnique Genes: %s",
-        entity_label_plural,
+        count_label_plural,
         format(total_reads_count, big.mark = ","),
         format(unique_genes, big.mark = ",")
       )
@@ -3248,7 +3256,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     )
     pick <- function(stat) vapply(stat_rows, function(s) unname(s[[stat]]), numeric(1))
     summary_table1 <- data.frame(
-      Feature = c(paste(entity_label_plural, "in cell"), "UMIs in cell", "Unique Genes",
+      Feature = c(paste(count_label_plural, "in cell"), "UMIs in cell", "Unique Genes",
                   "Unique Junction Chains", "Isoforms"),
       Mean = pick("Mean"), Median = pick("Median"), Min = pick("Min"),
       Max = pick("Max"), IQR = pick("IQR"), SD = pick("SD")
@@ -3331,8 +3339,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
     # Cell Summary Statistics Page 2: Read Classification
     title_read_class <- textGrob(paste(entity_label, "Classification"), gp = gpar(fontface = "italic", fontsize = 28), vjust = 0, hjust = 0.5)
-    desc_counts <- textGrob(paste("Summary of per cell", entity_label_lower, "counts by structural category"), gp = gpar(fontface = "italic", fontsize = 18), vjust = 0.5)
-    desc_props <- textGrob(paste("Summary of per cell", entity_label_lower, "percentages by structural category"), gp = gpar(fontface = "italic", fontsize = 18), vjust = 0.5)
+    desc_counts <- textGrob(paste("Summary of per cell", if (mode == "isoforms") "counts" else "read counts", "by structural category"), gp = gpar(fontface = "italic", fontsize = 18), vjust = 0.5)
+    desc_props <- textGrob(paste("Summary of per cell", count_label_lower, "percentages by structural category"), gp = gpar(fontface = "italic", fontsize = 18), vjust = 0.5)
     struct_cat_cols <- c(
       "FSM", "ISM", "NIC", "NNC", "Genic_Genomic", "Antisense", "Fusion", "Intergenic", "Genic_intron"
     )
@@ -3634,8 +3642,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       if (exists("gg_sr_cluster_plots") && !is.null(gg_sr_cluster_plots)) {
         # UMAPs first (Global then Category-specific if available)
         if (exists("gg_sr_umap_plots") && !is.null(gg_sr_umap_plots)) {
-          if (!is.null(gg_sr_umap_plots[[all_entities_label]])) print(apply_pdf_theme(gg_sr_umap_plots[[all_entities_label]]))
-          for (label in setdiff(names(gg_sr_umap_plots), all_entities_label)) {
+          if (!is.null(gg_sr_umap_plots[[all_counts_label]])) print(apply_pdf_theme(gg_sr_umap_plots[[all_counts_label]]))
+          for (label in setdiff(names(gg_sr_umap_plots), all_counts_label)) {
             print(apply_pdf_theme(gg_sr_umap_plots[[label]]))
           }
         }
@@ -3650,8 +3658,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       if (exists("gg_tss_cluster_plots") && !is.null(gg_tss_cluster_plots)) {
         # UMAPs first
         if (exists("gg_tss_umap_plots") && !is.null(gg_tss_umap_plots)) {
-          if (!is.null(gg_tss_umap_plots[[all_entities_label]])) print(apply_pdf_theme(gg_tss_umap_plots[[all_entities_label]]))
-          for (label in setdiff(names(gg_tss_umap_plots), all_entities_label)) {
+          if (!is.null(gg_tss_umap_plots[[all_counts_label]])) print(apply_pdf_theme(gg_tss_umap_plots[[all_counts_label]]))
+          for (label in setdiff(names(gg_tss_umap_plots), all_counts_label)) {
             print(apply_pdf_theme(gg_tss_umap_plots[[label]]))
           }
         }
@@ -3882,11 +3890,11 @@ all_goodq_features_map <- list(
 all_bad_features_map <- list(
   "Intrapriming_prop_in_cell" = list(label = "Intrapriming", color = "#78C679"),
   "RTS_prop_in_cell" = list(label = "RT-switching", color = "#FF9933"),
-  # NOT a junction proportion: the fraction of multi-exon reads/transcripts whose
+  # NOT a junction proportion: the fraction of multi-exon reads/counts whose
   # all_canonical field is non_canonical, i.e. entities carrying at least one
   # non-canonical junction. Named accordingly so it is not read as a share of
   # junctions (matches SQANTI-sc_multisample_report.R's Non_canonical_prop_in_cell label).
-  "Non_canonical_prop_in_cell" = list(label = paste0(entity_label_plural, " with\nNon-canonical SJ"), color = "#41B6C4"),
+  "Non_canonical_prop_in_cell" = list(label = paste0(count_label_plural, " with\nNon-canonical SJ"), color = "#41B6C4"),
   "NMD_prop_in_cell" = list(label = "Predicted NMD", color = "#969696")
 )
 
@@ -3961,7 +3969,7 @@ filter_pair_plot <- function(df, group, feature_map, title,
     ggplot(d, aes(x = Feature, y = Value, fill = Feature, colour = Feature,
                   alpha = Group, group = interaction(Feature, Group))),
     fills, "grey40", alphas, alpha_title
-  ) + labs(title = title, x = NULL, y = paste0(entity_label_plural, ", %")) +
+  ) + labs(title = title, x = NULL, y = paste0(count_label_plural, ", %")) +
     coord_cartesian(ylim = c(0, 100))
 }
 
@@ -4051,7 +4059,7 @@ if (!is.null(cell_filter_labelled)) {
   # #44. A criterion outside this map keeps its column name, which is honest rather
   # than confidently wrong.
   cf_pretty <- c(
-    Transcripts_in_cell = "Transcripts per cell",
+    Counts_in_cell = "Counts per cell",
     Reads_in_cell = "Reads per cell",
     Annotated_genes = "Annotated genes per cell",
     Genes_in_cell = "Genes per cell",
@@ -4061,7 +4069,7 @@ if (!is.null(cell_filter_labelled)) {
     MT_perc = "Mitochondrial (%)",
     RTS_prop_in_cell = "RT-switching (%)",
     Intrapriming_prop_in_cell = "Intrapriming (%)",
-    Non_canonical_prop_in_cell = paste(entity_label_plural, "with non-canonical SJ (%)"),
+    Non_canonical_prop_in_cell = paste(count_label_plural, "with non-canonical SJ (%)"),
     NMD_prop_in_cell = "Predicted NMD (%)",
     TSSAnnotationSupport_prop = "TSS annotation support (%)",
     PolyA_motif_support_prop = "PolyA motif support (%)",
@@ -4080,13 +4088,12 @@ if (!is.null(cell_filter_labelled)) {
   cf_label <- function(cn) if (cn %in% names(cf_pretty)) unname(cf_pretty[[cn]]) else cn
 
   # The y axis names the unit, not the metric -- the report's convention throughout is
-  # "<thing>, count" / "<thing>, %" ("Genes, count", "UJCs, count", "Transcripts, %").
+  # "<thing>, count" / "<thing>, %" ("Genes, count", "UJCs, count", "Counts, %").
   # The metric goes in the title instead. Percentages take their own denominator: the
-  # junction shares divide by junctions, everything else by the cell's reads or
-  # transcripts.
+  # junction shares divide by junctions, everything else by the cell's reads or counts.
   cf_count_axis <- c(
-    Transcripts_in_cell = paste0(entity_label_plural, ", count"),
-    Reads_in_cell = paste0(entity_label_plural, ", count"),
+    Counts_in_cell = count_axis_label,
+    Reads_in_cell = count_axis_label,
     Annotated_genes = "Genes, count",
     Genes_in_cell = "Genes, count",
     UJCs_in_cell = "UJCs, count",
@@ -4101,7 +4108,7 @@ if (!is.null(cell_filter_labelled)) {
   cf_axis <- function(cn) {
     if (cn %in% names(cf_count_axis)) return(unname(cf_count_axis[[cn]]))
     if (cn %in% cf_junction_pct) return("Junctions, %")
-    if (grepl("_prop|_perc", cn)) return(paste0(entity_label_plural, ", %"))
+    if (grepl("_prop|_perc", cn)) return(paste0(count_label_plural, ", %"))
     cn
   }
 
@@ -4166,7 +4173,7 @@ gg_tf_ml_category_pct <- NULL
 gg_tf_ml_category_count <- NULL
 tf_ml_importance_height <- 6
 # What the filter judges and removes: collapsed models in isoforms mode, reads otherwise.
-tf_unit <- if (mode == "isoforms") "isoforms" else entity_label_plural_lower
+tf_unit <- if (mode == "isoforms") "isoforms" else count_label_plural_lower
 tf_by_ml <- !is.null(ml_dir)
 tf_reason_label <- if (tf_by_ml) "Reason" else "Rule"
 tf_reasons_title <- if (tf_by_ml) "Reasons for removal" else
@@ -4210,7 +4217,7 @@ if (!is.null(tf_removed_models)) {
                          stringsAsFactors = FALSE)
 
   tf_counts <- data.frame(
-    Measure = c(if (mode == "isoforms") "Isoforms", entity_label_plural,
+    Measure = c(if (mode == "isoforms") "Isoforms", count_label_plural,
                 "Genes", "Cells"),
     Input = c(if (mode == "isoforms") tf_removed_models$models[1],
               tf_removed_models$counts[1], tf_removed_models$genes[1], nrow(tf_cells)),
@@ -4226,7 +4233,7 @@ if (!is.null(tf_removed_models)) {
   # distribution, not a separate event.
   gg_tf_removed_per_cell <- tf_single_violins(
     data.frame(Variable = factor("All cells"), Value = tf_cells$removed_pct),
-    paste(entity_label_plural, "removed per cell"),
+    paste(count_label_plural, "removed per cell"),
     c("All cells" = fill_color_orange), x_tickangle = 0)
 
   kept_cells <- tf_cells[!tf_lost, , drop = FALSE]
@@ -4238,9 +4245,9 @@ if (!is.null(tf_removed_models)) {
       scale_x_log10(labels = scales::comma, limits = lims) +
       scale_y_log10(labels = scales::comma, limits = lims) +
       coord_fixed() +
-      labs(title = paste(entity_label_plural, "per cell, input vs filtered"),
-           x = paste0(entity_label_plural, " per cell, input"),
-           y = paste0(entity_label_plural, " per cell, filtered")) +
+      labs(title = paste(count_label_plural, "per cell, input vs filtered"),
+           x = paste0(count_label_plural, " per cell, input"),
+           y = paste0(count_label_plural, " per cell, filtered")) +
       tf_theme
   }
 
@@ -4251,8 +4258,8 @@ if (!is.null(tf_removed_models)) {
                                   levels = c("Kept", lost_label)),
                  Value = tf_cells$before),
       setNames(c(0.7, 0.35), c("Kept", lost_label)), "Cells",
-      paste(entity_label_plural, "per cell in the input"),
-      paste0(entity_label_plural, ", count"))
+      paste(count_label_plural, "per cell in the input"),
+      count_axis_label)
   }
 
   if (exists("umap_df")) {
@@ -4262,12 +4269,12 @@ if (!is.null(tf_removed_models)) {
       gg_tf_removed_by_cluster <- tf_single_violins(
         data.frame(Variable = factor(by_cluster$Cluster, levels = clusters),
                    Value = by_cluster$removed_pct),
-        paste(entity_label_plural, "removed per cell, by cluster"),
+        paste(count_label_plural, "removed per cell, by cluster"),
         setNames(scales::hue_pal()(length(clusters)), clusters),
         x_title = "Cluster", x_tickangle = 0)
       if (max(by_cluster$removed_pct) > 0) {
         gg_tf_umap_removed <- build_continuous_umap(
-          by_cluster, "removed_pct", paste(entity_label_plural, "removed per cell"))
+          by_cluster, "removed_pct", paste(count_label_plural, "removed per cell"))
       }
     }
   }
@@ -4305,8 +4312,8 @@ if (!is.null(tf_removed_models)) {
         tf_rule_counts$`Isoforms removed (%)` <-
           round(100 * as.integer(models_per_rule) / tf_removed_models$models[1], 2)
       }
-      tf_rule_counts[[paste(entity_label_plural, "removed")]] <- round(rule_totals$removed, 2)
-      tf_rule_counts[[paste0(entity_label_plural, " removed (%)")]] <-
+      tf_rule_counts[[paste(count_label_plural, "removed")]] <- round(rule_totals$removed, 2)
+      tf_rule_counts[[paste0(count_label_plural, " removed (%)")]] <-
         round(100 * rule_totals$removed / tf_removed_models$counts[1], 2)
 
       per_cell <- by_rule[, list(removed = sum(count, na.rm = TRUE)), by = c("CB", "rule")]
@@ -4320,7 +4327,7 @@ if (!is.null(tf_removed_models)) {
       # One violin is drawn as the report's other single violins: narrow, label level.
       tf_rules_single <- length(rules) == 1
       gg_tf_removed_by_rule <- tf_single_violins(
-        d, paste(entity_label_plural, "removed per cell, by", tolower(tf_reason_label)),
+        d, paste(count_label_plural, "removed per cell, by", tolower(tf_reason_label)),
         setNames(rep(fill_color_orange, length(rules)), rules),
         x_tickangle = if (tf_rules_single) 0 else 45)
     }
@@ -4384,11 +4391,11 @@ if (!is.null(tf_removed_models)) {
     tf_category_counts$`Isoforms removed (%)` <-
       round(100 * bc$models_removed / pmax(bc$models_before, 1), 2)
   }
-  tf_category_counts[[paste0(entity_label_plural, ", input")]] <- round(bc$count_before, 2)
-  tf_category_counts[[paste0(entity_label_plural, ", filtered")]] <-
+  tf_category_counts[[paste0(count_label_plural, ", input")]] <- round(bc$count_before, 2)
+  tf_category_counts[[paste0(count_label_plural, ", filtered")]] <-
     round(bc$count_before - bc$count_removed, 2)
-  tf_category_counts[[paste(entity_label_plural, "removed")]] <- round(bc$count_removed, 2)
-  tf_category_counts[[paste0(entity_label_plural, " removed (%)")]] <-
+  tf_category_counts[[paste(count_label_plural, "removed")]] <- round(bc$count_removed, 2)
+  tf_category_counts[[paste0(count_label_plural, " removed (%)")]] <-
     round(100 * bc$count_removed / pmax(bc$count_before, 1), 2)
 
   # Which categories each ML reason hit, as SQANTI3's own filter report shows it. Counted

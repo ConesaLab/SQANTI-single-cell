@@ -31,6 +31,15 @@ def flag_measured(values):
     return (values == 'TRUE') | (values == 'FALSE')
 
 
+def isoforms_column_names(columns):
+    """Isoforms mode sums FL rather than counting reads, so its depth columns say counts."""
+    renames = {'total_reads': 'Counts_in_cell', 'total_reads_no_monoexon': 'total_counts_no_monoexon',
+               'MT_reads_count': 'MT_counts'}
+    renames.update({c: c.replace('_reads', '_counts') for c in columns
+                    if 'genes_reads' in c or 'gene_reads_bin' in c})
+    return renames
+
+
 def calculate_metrics_per_cell(args, df):
     structural_categories = [
         'full-splice_match', 'incomplete-splice_match', 'novel_in_catalog',
@@ -272,11 +281,11 @@ def calculate_metrics_per_cell(args, df):
         # CB list never appears in that row, so there is no FL > 0 filter to apply --
         # which makes the count of pairs per cell the distinct-model count.
         # Deliberately NOT msum(): that weights by FL and yields depth
-        # (Transcripts_in_cell, i.e. transcript copies) rather than a count of models.
+        # (Counts_in_cell) rather than a count of models.
         # distinct() rather than a bare bincount(col) because it dedupes on
         # row * Cn + col: the cell-association TSV path takes a barcode list verbatim
         # from a user-supplied file and may repeat a barcode within one row (the MEX
-        # path cannot). Naming follows anno_gene_transcripts_bin_* (FL-weighted
+        # path cannot). Naming follows anno_gene_counts_bin_* (FL-weighted
         # abundance) vs anno_gene_isoforms_bin_* (distinct models).
         summary['Isoforms_in_cell'] = distinct(np.arange(T, dtype=np.int64))
 
@@ -430,7 +439,7 @@ def calculate_metrics_per_cell(args, df):
         # Two per-cell distributions over annotated genes, both from a single pass over
         # the (gene, cell) groups of the sparse COO -- no CB/FL explosion:
         #   * abundance = sum(FL) per gene -> half-open bins (0,1]..(9,10],(10,inf),
-        #     named *_gene_reads_bin_* (renamed *_transcripts on output). Half-open so
+        #     named *_gene_reads_bin_* (renamed *_counts on output). Half-open so
         #     float/EM abundances never fall through a gap.
         #   * isoforms  = # distinct models per gene (group size) -> exact bins 1..10,>10,
         #     named anno_gene_isoforms_bin_* (always integer counts).
@@ -704,12 +713,7 @@ def calculate_metrics_per_cell(args, df):
             # frame. Produces the same columns as the reads-mode branch below.
             summary = _isoforms_summary(cls, junc)
             summary = summary.reset_index()
-            # In isoforms mode the per-cell counter is transcript-level (sum of FL),
-            # so the gene read-count columns follow the tool's convention and are
-            # named *_transcripts / *_gene_transcripts_bin_* (cf. Transcripts_in_cell).
-            gene_tx = {c: c.replace('_reads', '_transcripts') for c in summary.columns
-                       if 'genes_reads' in c or 'gene_reads_bin' in c}
-            summary = summary.rename(columns={'total_reads': 'Transcripts_in_cell', 'total_reads_no_monoexon': 'total_transcripts_no_monoexon', 'MT_reads_count': 'MT_transcripts_count', **gene_tx})
+            summary = summary.rename(columns=isoforms_column_names(summary.columns))
             for c in summary.columns[1:]:
                 summary[c] = coerce_keeping_undefined(summary[c])
             try:
@@ -1289,9 +1293,7 @@ def calculate_metrics_per_cell(args, df):
 
         summary = summary.reset_index()
         if args.mode == 'isoforms':
-            gene_tx = {c: c.replace('_reads', '_transcripts') for c in summary.columns
-                       if 'genes_reads' in c or 'gene_reads_bin' in c}
-            summary = summary.rename(columns={'total_reads': 'Transcripts_in_cell', 'total_reads_no_monoexon': 'total_transcripts_no_monoexon', 'MT_reads_count': 'MT_transcripts_count', **gene_tx})
+            summary = summary.rename(columns=isoforms_column_names(summary.columns))
         else:
             summary = summary.rename(columns={'total_reads': 'Reads_in_cell', 'total_UMI': 'UMIs_in_cell'})
 

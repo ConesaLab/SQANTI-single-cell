@@ -432,7 +432,7 @@ if (exists("Classification") && has_data(Classification)) {
     unique_junctions <- NULL
   }
 
-  cat(paste0("**Number of ", entity_label_plural, ":** "), format(total_reads_count, big.mark = ","), "\n\n")
+  cat(paste0("**Number of ", count_label_plural, ":** "), format(total_reads_count, big.mark = ","), "\n\n")
   if (mode == "isoforms") {
     unique_isoforms <- nrow(Classification)
     cat("**Isoforms:** ", format(unique_isoforms, big.mark = ","), "\n\n")
@@ -492,13 +492,12 @@ if (exists("Classification") && has_data(Classification)) {
 
   # Reorder
   read_class_table <- read_class_table[match(read_cat_levels, read_class_table$structural_category), ]
-  colnames(read_class_table) <- c("Category", "Transcripts, count")
+  colnames(read_class_table) <- c("Category", count_axis_label)
   read_class_table$Category <- read_cat_names
-  read_class_table[["Transcripts, percent"]] <- round(100 * read_class_table[["Transcripts, count"]] / sum(read_class_table[["Transcripts, count"]]), 1)
+  read_class_table[[paste0(count_label_plural, ", percent")]] <- round(100 * read_class_table[[count_axis_label]] / sum(read_class_table[[count_axis_label]]), 1)
 
   # Remove categories with 0 counts
-  count_col_name <- "Transcripts, count"
-  read_class_table <- read_class_table[read_class_table[[count_col_name]] > 0, ]
+  read_class_table <- read_class_table[read_class_table[[count_axis_label]] > 0, ]
 
   rownames(read_class_table) <- NULL
   render_sqanti_table(read_class_table)
@@ -574,7 +573,7 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
                     unique_junctions_stats, unique_isoforms_stats)
   pick <- function(stat) vapply(stat_rows, function(s) unname(s[[stat]]), numeric(1))
   summary_table1 <- data.frame(
-    Feature = c(entity_label_plural, "UMIs", "Unique Genes",
+    Feature = c(count_label_plural, "UMIs", "Unique Genes",
                 "Unique Junction Chains", "Isoforms"),
     Mean = pick("Mean"), Median = pick("Median"), Min = pick("Min"),
     Max = pick("Max"), IQR = pick("IQR"), SD = pick("SD")
@@ -910,7 +909,7 @@ if (!is.null(junction_proportions_per_cell)) {
 
 # Per-cell Library Size {.tabset .tabset-fade}
 
-## Number of `r entity_label_plural` Across Cells
+## Number of `r count_label_plural` Across Cells
 
 ```{=html}
 <div class="narrow-plot">
@@ -1043,20 +1042,20 @@ if (exists("gg_annotation_of_genes_percent_in_cell")) {
 
 </div>
 
-## `r paste(entity_label_plural, "per Gene")`
+## `r paste(count_label_plural, "per Gene")`
 
 ```{=html}
 <div id="readspergene-dropdown" class="dropdown-toolbar">
   <div class="btn-group">
     <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
       <span class="label">
-        `r paste0("% ", entity_label_plural, " from Known/Novel Genes")`
+        `r paste0("% ", count_label_plural, " from Known/Novel Genes")`
       </span> <span class="caret"></span>
     </button>
     <ul class="dropdown-menu dropdown-menu-right" role="menu">
-      <li><a href="#" data-target="#readspergene-perc-reads-annot">% `r entity_label_plural` from Known/Novel Genes</a></li>
+      <li><a href="#" data-target="#readspergene-perc-reads-annot">% `r count_label_plural` from Known/Novel Genes</a></li>
       <li><a href="#" data-target="#readspergene-bins-all">
-        `r paste("% Annotated Genes by", entity_label, "Count Bins")`
+        `r paste("% Annotated Genes by", count_bins_label)`
       </a></li>
     </ul>
   </div>
@@ -1769,7 +1768,7 @@ if (exists("gg_non_coding_across_category")) {
     <ul class="dropdown-menu dropdown-menu-right" role="menu">
       <li><a href="#" data-target="#sj-dist-class">Splice Junction Classification</a></li>
       <li><a href="#" data-target="#sj-dist-bycat">Splice Junction Classification by Structural Category</a></li>
-      <li><a href="#" data-target="#sj-dist-readscanon">`r entity_label_plural` All Canonical</a></li>
+      <li><a href="#" data-target="#sj-dist-readscanon">`r count_label_plural` All Canonical</a></li>
     </ul>
   </div>
 </div>
@@ -1837,7 +1836,7 @@ if (exists("gg_rts_unique_by_sjtype")) {
 
 # Features of Bad Quality {.tabset .tabset-fade}
 
-## All `r entity_label_plural`
+## All `r count_label_plural`
 
 ```{r badq-allreads, fig.height=8, fig.width=12}
 if (exists("gg_bad_feature")) {
@@ -1896,7 +1895,7 @@ for (f in badq_features) {
 
 # Features of Good Quality {.tabset .tabset-fade}
 
-## All `r entity_label_plural`
+## All `r count_label_plural`
 
 ```{r goodq-allreads, fig.height=8, fig.width=12}
 if (exists("gg_good_feature")) {
@@ -2452,10 +2451,10 @@ if (show_sr_cluster) {
 <div id="sr-cluster-dropdown" class="dropdown-toolbar" style="display:`r if(show_sr_cluster) 'block' else 'none'`">
   <div class="btn-group">
     <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-      <span class="label">`r all_entities_label`</span> <span class="caret"></span>
+      <span class="label">`r all_counts_label`</span> <span class="caret"></span>
     </button>
     <ul class="dropdown-menu dropdown-menu-right" role="menu">
-      <li><a href="#" data-target="#sr-cluster-Global">`r all_entities_label`</a></li>
+      <li><a href="#" data-target="#sr-cluster-Global">`r all_counts_label`</a></li>
       <li><a href="#" data-target="#sr-cluster-FSM">FSM</a></li>
       <li><a href="#" data-target="#sr-cluster-ISM">ISM</a></li>
       <li><a href="#" data-target="#sr-cluster-NIC">NIC</a></li>
@@ -2472,8 +2471,8 @@ if (show_sr_cluster) {
 
 <div id="sr-cluster-Global" class="toggle-pane" style="display:block;">
 ```{r sr-cluster-Global, fig.height=8, fig.width=12, eval=show_sr_cluster, out.width="100%"}
-if (show_sr_cluster && !is.null(gg_sr_cluster_plots[[all_entities_label]])) {
-  print(gg_sr_cluster_plots[[all_entities_label]])
+if (show_sr_cluster && !is.null(gg_sr_cluster_plots[[all_counts_label]])) {
+  print(gg_sr_cluster_plots[[all_counts_label]])
 }
 ```
 </div>
@@ -2549,10 +2548,10 @@ if (show_sr_cluster && exists("gg_sr_umap_plots") && length(gg_sr_umap_plots) > 
 <div id="sr-umap-dropdown" class="dropdown-toolbar">
 <div class="btn-group">
 <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-<span class="label">', all_entities_label, '</span> <span class="caret"></span>
+<span class="label">', all_counts_label, '</span> <span class="caret"></span>
 </button>
 <ul class="dropdown-menu dropdown-menu-right" role="menu">
-<li><a href="#" data-target="#sr-umap-Global">', all_entities_label, '</a></li>
+<li><a href="#" data-target="#sr-umap-Global">', all_counts_label, '</a></li>
 <li><a href="#" data-target="#sr-umap-FSM">FSM</a></li>
 <li><a href="#" data-target="#sr-umap-ISM">ISM</a></li>
 <li><a href="#" data-target="#sr-umap-NIC">NIC</a></li>
@@ -2571,8 +2570,8 @@ if (show_sr_cluster && exists("gg_sr_umap_plots") && length(gg_sr_umap_plots) > 
 
 <div id="sr-umap-Global" class="toggle-pane" style="display:block;">
 ```{r sr-umap-Global, fig.height=6, fig.width=8, eval=show_sr_cluster, out.width="100%"}
-if (show_sr_cluster && !is.null(gg_sr_umap_plots[[all_entities_label]])) {
-  gg_sr_umap_plots[[all_entities_label]]
+if (show_sr_cluster && !is.null(gg_sr_umap_plots[[all_counts_label]])) {
+  gg_sr_umap_plots[[all_counts_label]]
 } else {
   print(ggplot2::ggplot() +
     ggplot2::annotate("text", x = 0.5, y = 0.5, label = "No data available") +
@@ -2711,10 +2710,10 @@ if (show_tss_cluster) {
 <div id="tss-cluster-dropdown" class="dropdown-toolbar" style="display:`r if(show_tss_cluster) 'block' else 'none'`">
   <div class="btn-group">
     <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-      <span class="label">`r all_entities_label`</span> <span class="caret"></span>
+      <span class="label">`r all_counts_label`</span> <span class="caret"></span>
     </button>
     <ul class="dropdown-menu dropdown-menu-right" role="menu">
-      <li><a href="#" data-target="#tss-cluster-Global">`r all_entities_label`</a></li>
+      <li><a href="#" data-target="#tss-cluster-Global">`r all_counts_label`</a></li>
       <li><a href="#" data-target="#tss-cluster-FSM">FSM</a></li>
       <li><a href="#" data-target="#tss-cluster-ISM">ISM</a></li>
       <li><a href="#" data-target="#tss-cluster-NIC">NIC</a></li>
@@ -2731,8 +2730,8 @@ if (show_tss_cluster) {
 
 <div id="tss-cluster-Global" class="toggle-pane" style="display:block;">
 ```{r tss-cluster-Global, fig.height=8, fig.width=12, eval=show_tss_cluster, out.width="100%"}
-if (show_tss_cluster && !is.null(gg_tss_cluster_plots[[all_entities_label]])) {
-  print(gg_tss_cluster_plots[[all_entities_label]])
+if (show_tss_cluster && !is.null(gg_tss_cluster_plots[[all_counts_label]])) {
+  print(gg_tss_cluster_plots[[all_counts_label]])
 }
 ```
 </div>
@@ -2817,10 +2816,10 @@ if (show_tss_cluster && exists("gg_tss_umap_plots") && length(gg_tss_umap_plots)
 <div id="tss-umap-dropdown" class="dropdown-toolbar">
 <div class="btn-group">
 <button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown">
-<span class="label">', all_entities_label, '</span> <span class="caret"></span>
+<span class="label">', all_counts_label, '</span> <span class="caret"></span>
 </button>
 <ul class="dropdown-menu dropdown-menu-right" role="menu">
-<li><a href="#" data-target="#tss-umap-Global">', all_entities_label, '</a></li>
+<li><a href="#" data-target="#tss-umap-Global">', all_counts_label, '</a></li>
 <li><a href="#" data-target="#tss-umap-FSM">FSM</a></li>
 <li><a href="#" data-target="#tss-umap-ISM">ISM</a></li>
 <li><a href="#" data-target="#tss-umap-NIC">NIC</a></li>
@@ -2839,8 +2838,8 @@ if (show_tss_cluster && exists("gg_tss_umap_plots") && length(gg_tss_umap_plots)
 
 <div id="tss-umap-Global" class="toggle-pane" style="display:block;">
 ```{r tss-umap-Global, fig.height=6, fig.width=8, eval=show_tss_cluster, out.width="100%"}
-if (show_tss_cluster && !is.null(gg_tss_umap_plots[[all_entities_label]])) {
-  gg_tss_umap_plots[[all_entities_label]]
+if (show_tss_cluster && !is.null(gg_tss_umap_plots[[all_counts_label]])) {
+  gg_tss_umap_plots[[all_counts_label]]
 } else {
   print(ggplot2::ggplot() +
     ggplot2::annotate("text", x = 0.5, y = 0.5, label = "No data available") +

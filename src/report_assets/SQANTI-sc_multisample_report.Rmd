@@ -279,7 +279,7 @@ if (exists("multi_length_plots", envir = .GlobalEnv)) {
 <div class="section-spacer-xl"></div>
 ```
 
-# Samples `r entity_label_plural` Distributions per Structural Category
+# Samples `r count_label_plural` Distributions per Structural Category
 
 ```{=html}
 <div id="structcat-dropdown" class="dropdown-toolbar">
