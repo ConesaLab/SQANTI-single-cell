@@ -724,18 +724,10 @@ if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
 <div id="sj-counts" class="toggle-pane" style="display:block;">
 
 ```{r cells-splice-junction-counts}
-if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
-  Junctions$junction_type <- paste(Junctions$junction_category, Junctions$canonical, sep = "_")
-  junction_counts_per_cell <- Junctions %>%
-    filter(CB != "unassigned") %>%
-    group_by(CB) %>%
-    summarise(
-      Known_canonical = sum(count[junction_type == "known_canonical"], na.rm = TRUE),
-      Known_Non_canonical = sum(count[junction_type == "known_non_canonical"], na.rm = TRUE),
-      Novel_canonical = sum(count[junction_type == "novel_canonical"], na.rm = TRUE),
-      Novel_Non_canonical = sum(count[junction_type == "novel_non_canonical"], na.rm = TRUE),
-      .groups = "drop"
-    )
+junction_counts_per_cell <- if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
+  sj_counts_per_cell(SQANTI_cell_summary)
+}
+if (!is.null(junction_counts_per_cell)) {
   sj_count_stats <- junction_counts_per_cell %>%
     select(-CB) %>%
     summarise(
@@ -773,19 +765,10 @@ if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") 
 <div id="sj-perc" class="toggle-pane hidden-pane" style="display:block;">
 
 ```{r cells-splice-junction-percentages}
-if (exists("Junctions") && has_data(Junctions) && exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
-  Junctions$junction_type <- paste(Junctions$junction_category, Junctions$canonical, sep = "_")
-  junction_proportions_per_cell <- Junctions %>%
-    filter(CB != "unassigned") %>%
-    group_by(CB) %>%
-    summarise(
-      total = sum(count),
-      Known_canonical = sum(count[junction_type == "known_canonical"], na.rm = TRUE) / total * 100,
-      Known_Non_canonical = sum(count[junction_type == "known_non_canonical"], na.rm = TRUE) / total * 100,
-      Novel_canonical = sum(count[junction_type == "novel_canonical"], na.rm = TRUE) / total * 100,
-      Novel_Non_canonical = sum(count[junction_type == "novel_non_canonical"], na.rm = TRUE) / total * 100,
-      .groups = "drop"
-    )
+junction_proportions_per_cell <- if (exists("SQANTI_cell_summary") && has_data(SQANTI_cell_summary)) {
+  sj_props_per_cell(SQANTI_cell_summary)
+}
+if (!is.null(junction_proportions_per_cell)) {
   sj_prop_stats <- junction_proportions_per_cell %>%
     select(-CB, -total) %>%
     summarise(

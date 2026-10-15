@@ -248,6 +248,29 @@ pivot_long <- function(df, cols) {
 
 # Text copy for tableGrob only: the HTML tables read the same data frames and sort on
 # the numbers, so those must stay numeric.
+# Per-cell junction counts by type, from the cell summary: in isoforms mode the junctions
+# file's CB field lists every cell of the isoform, so it cannot be grouped by cell.
+sj_counts_per_cell <- function(summary) {
+  cols <- c(Known_canonical = "Known_canonical_junctions",
+            Known_Non_canonical = "Known_non_canonical_junctions",
+            Novel_canonical = "Novel_canonical_junctions",
+            Novel_Non_canonical = "Novel_non_canonical_junctions")
+  if (!all(cols %in% colnames(summary))) return(NULL)
+  data.frame(CB = summary$CB, lapply(cols, function(cn) as.numeric(summary[[cn]])),
+             check.names = FALSE)
+}
+
+# A cell without junctions has no share to report, so it is left out.
+sj_props_per_cell <- function(summary) {
+  counts <- sj_counts_per_cell(summary)
+  if (is.null(counts)) return(NULL)
+  total <- rowSums(counts[, -1, drop = FALSE])
+  props <- counts
+  props[, -1] <- counts[, -1] / total * 100
+  props$total <- total
+  props[total > 0, , drop = FALSE]
+}
+
 format_table_numbers <- function(df) {
   df[] <- lapply(df, function(x) if (is.numeric(x)) {
     trimws(formatC(x, format = "f", digits = 3, big.mark = ",", drop0trailing = TRUE))
@@ -1851,7 +1874,9 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
   # Bulk distributions
   bulk_len_breaks <- c(50, 100, 250, 500, 1000, 2000, 5000, 10000, 20000, 50000)
 
-  gg_bulk_all_reads <<- ggplot(Classification_file[Classification_file$length > 0, ], aes(x = length)) +
+  # Weighted by count: one row is an isoform in isoforms mode, so unweighted it would
+  # count models. In reads mode count is 1.
+  gg_bulk_all_reads <<- ggplot(Classification_file[Classification_file$length > 0, ], aes(x = length, weight = count)) +
     geom_histogram(bins = 80, fill = "#CC6633", color = "black", alpha = 0.5) +
     scale_x_log10(breaks = bulk_len_breaks, labels = scales::comma) +
     annotation_logticks(sides = "b") +
@@ -1915,7 +1940,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     levels = names(structural_category_palette)
   )
 
-  gg_bulk_length_by_category <<- ggplot(Classification_file[Classification_file$length > 0, ], aes(x = length, color = structural_category_pretty)) +
+  gg_bulk_length_by_category <<- ggplot(Classification_file[Classification_file$length > 0, ], aes(x = length, color = structural_category_pretty, weight = count)) +
     geom_freqpoly(bins = 80, linewidth = 1.2, na.rm = TRUE) +
     labs(
       title = paste("All", entity_label, "Lengths Distribution by Structural Category"),
@@ -1946,7 +1971,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
   gg_bulk_length_by_exon_type <<- ggplot(
     Classification_file[Classification_file$length > 0, ],
-    aes(x = length, color = ifelse(exons == 1, "Mono-Exon", "Multi-Exon"))
+    aes(x = length, color = ifelse(exons == 1, "Mono-Exon", "Multi-Exon"), weight = count)
   ) +
     geom_freqpoly(bins = 80, linewidth = 1.2, na.rm = TRUE) +
     labs(
@@ -3255,58 +3280,45 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     gt_gene_class_stats <- gTree(children = gList(table_gene_class_stats, title_gene_class_stats))
 
     # 3. Splice Junction Classification summary table (across all cells)
-
-    # Create a junction type column for easier summarization
-    Junctions$junction_type <- paste(Junctions$junction_category, Junctions$canonical, sep = "_")
-
-    # Calculate proportions of each junction type per cell
-    junction_proportions_per_cell <- Junctions %>%
-      filter(CB != "unassigned") %>%
-      group_by(CB) %>%
-      summarise(
-        Known_canonical = sum(junction_type == "known_canonical", na.rm = TRUE) / n() * 100,
-        Known_Non_canonical = sum(junction_type == "known_non_canonical", na.rm = TRUE) / n() * 100,
-        Novel_canonical = sum(junction_type == "novel_canonical", na.rm = TRUE) / n() * 100,
-        Novel_Non_canonical = sum(junction_type == "novel_non_canonical", na.rm = TRUE) / n() * 100,
-        .groups = "drop"
-      )
-
-    # Calculate summary statistics across all cells
-    sj_stats <- junction_proportions_per_cell %>%
-      select(-CB) %>%
-      summarise(
-        across(
-          everything(),
-          list(
-            Mean = ~ mean(.x, na.rm = TRUE),
-            Median = ~ median(.x, na.rm = TRUE),
-            Min = ~ min(.x, na.rm = TRUE),
-            Max = ~ max(.x, na.rm = TRUE),
-            SD = ~ sd(.x, na.rm = TRUE)
+    junction_proportions_per_cell <- sj_props_per_cell(SQANTI_cell_summary)
+    gt_sj_stats <- nullGrob()
+    if (!is.null(junction_proportions_per_cell)) {
+      sj_stats <- junction_proportions_per_cell %>%
+        select(-CB, -total) %>%
+        summarise(
+          across(
+            everything(),
+            list(
+              Mean = ~ mean(.x, na.rm = TRUE),
+              Median = ~ median(.x, na.rm = TRUE),
+              Min = ~ min(.x, na.rm = TRUE),
+              Max = ~ max(.x, na.rm = TRUE),
+              SD = ~ sd(.x, na.rm = TRUE)
+            )
           )
         )
-      )
 
-    # Reshape the data for display
-    sj_stats_df <- sj_stats %>%
-      pivot_longer(
-        cols = everything(),
-        names_to = c("Category", ".value"),
-        names_pattern = "(.+)_(Mean|Median|Min|Max|SD)$"
-      ) %>%
-      mutate(Category = gsub("_", " ", Category))
+      # Reshape the data for display
+      sj_stats_df <- sj_stats %>%
+        pivot_longer(
+          cols = everything(),
+          names_to = c("Category", ".value"),
+          names_pattern = "(.+)_(Mean|Median|Min|Max|SD)$"
+        ) %>%
+        mutate(Category = gsub("_", " ", Category))
 
-    # Ensure we have the expected number of columns before subsetting
-    if (ncol(sj_stats_df) >= 6) {
-      sj_stats_df[, 2:6] <- round(sj_stats_df[, 2:6], 3)
-    } else {
-      # If we have fewer columns, round all numeric columns except the first (Category)
-      numeric_cols <- sapply(sj_stats_df[, -1], is.numeric)
-      sj_stats_df[, -1][numeric_cols] <- round(sj_stats_df[, -1][numeric_cols], 3)
+      # Ensure we have the expected number of columns before subsetting
+      if (ncol(sj_stats_df) >= 6) {
+        sj_stats_df[, 2:6] <- round(sj_stats_df[, 2:6], 3)
+      } else {
+        # If we have fewer columns, round all numeric columns except the first (Category)
+        numeric_cols <- sapply(sj_stats_df[, -1], is.numeric)
+        sj_stats_df[, -1][numeric_cols] <- round(sj_stats_df[, -1][numeric_cols], 3)
+      }
+      table_sj_stats <- tableGrob(format_table_numbers(sj_stats_df), rows = NULL, theme = big_table_theme)
+      title_sj_stats <- textGrob("Splice Junction Classification (per cell, %)", gp = gpar(fontface = "italic", fontsize = 22), vjust = -4.4)
+      gt_sj_stats <- gTree(children = gList(table_sj_stats, title_sj_stats))
     }
-    table_sj_stats <- tableGrob(format_table_numbers(sj_stats_df), rows = NULL, theme = big_table_theme)
-    title_sj_stats <- textGrob("Splice Junction Classification (per cell, %)", gp = gpar(fontface = "italic", fontsize = 22), vjust = -4.4)
-    gt_sj_stats <- gTree(children = gList(table_sj_stats, title_sj_stats))
 
     grid.arrange(
       num_cells_grob,
