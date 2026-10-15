@@ -33,7 +33,7 @@ def cell_summary_path(outputPathPrefix):
     return f"{outputPathPrefix}_SQANTI_cell_summary.txt.gz"
 
 
-# The classification each transcript-filter method writes, under SQANTI3's names.
+# The classification each isoform-filter method writes, under SQANTI3's names.
 LABELLED_CLASSIFICATIONS = {
     'rules': '_RulesFilter_classification.txt',
     'ml': '_ML_classification.txt',
@@ -43,7 +43,7 @@ RESCUED_CLASSIFICATION = '_rescued_classification.txt'
 
 
 def classification_path(outputPathPrefix):
-    """The transcript filter labels the classification rather than subsetting it, as
+    """The isoform filter labels the classification rather than subsetting it, as
     SQANTI3 does, so a filtered run has the labelled file and no plain one."""
     for suffix in (*LABELLED_CLASSIFICATIONS.values(), RESCUED_CLASSIFICATION):
         if os.path.isfile(outputPathPrefix + suffix):
@@ -63,7 +63,7 @@ def read_sample_table(design_path, qc_dir, labelled_summary_ok=False):
     nothing, writes nothing, and needs only the two columns that locate an output.
 
     labelled_summary_ok accepts a cell filter's output as the input directory. A
-    transcript filter's labelled classification is accepted by both steps."""
+    isoform filter's labelled classification is accepted by both steps."""
     if not os.path.isfile(design_path):
         raise ValueError(f"ERROR: design file not found: {design_path}")
     df = pd.read_csv(design_path, sep=',')

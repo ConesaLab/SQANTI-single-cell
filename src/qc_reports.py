@@ -43,9 +43,9 @@ def generate_report(args, df):
                 if os.path.isfile(reasons_file):
                     flags.extend(["--cell_filter_reasons", reasons_file])
 
-                # Only the transcript filter's own render gets these, so a later cell
+                # Only the isoform filter's own render gets these, so a later cell
                 # filter on its output describes the cell step alone.
-                if getattr(args, 'subcommand', None) == 'transcripts':
+                if getattr(args, 'subcommand', None) == 'isoforms':
                     input_summary = cell_summary_path(
                         sample_prefix(args.qc_dir, file_acc, sampleID))
                     flags.extend(["--input_cell_summary", f'"{input_summary}"'])
@@ -55,7 +55,7 @@ def generate_report(args, df):
                         # importance unprefixed, next to the sample's outputs.
                         flags.extend(["--ml_dir", f'"{os.path.dirname(outputPathPrefix)}"'])
                     elif os.path.isfile(tx_reasons):
-                        flags.extend(["--transcript_filter_reasons", f'"{tx_reasons}"'])
+                        flags.extend(["--isoform_filter_reasons", f'"{tx_reasons}"'])
 
                 # Check for clustering results
                 # Clustering is usually one level up from sampleID if run per file_acc

@@ -15,7 +15,7 @@ from filter_io import (CHUNKSIZE, LABELLED_CLASSIFICATIONS, READ_KW, RESCUED_CLA
                        RESULT_ARTIFACT, RESULT_COLUMN, SENTINEL_BARCODES)
 from paths import sqantiqcPath
 from qc_io import coverage_argument
-from transcript_filter import _cells_in, detect_run_mode
+from isoform_filter import _cells_in, detect_run_mode
 
 FSM = 'full-splice_match'
 # What sqanti3_rescue.py reads from the classification. Its copy leaves out the CB/FL
@@ -38,13 +38,13 @@ MODEL_FILES = (
 
 
 def detect_strategy(prefix):
-    """The method of the transcript filter that removed the models."""
+    """The method of the isoform filter that removed the models."""
     for method, suffix in LABELLED_CLASSIFICATIONS.items():
         if os.path.isfile(prefix + suffix):
             return method
     raise ValueError(
-        f"ERROR: {prefix} has no transcript filter output. Rescue reads the output "
-        "directory of sqanti_sc_filter.py transcripts, which labels each model kept or "
+        f"ERROR: {prefix} has no isoform filter output. Rescue reads the output "
+        "directory of sqanti_sc_filter.py isoforms, which labels each model kept or "
         "removed."
     )
 
@@ -544,7 +544,7 @@ def run_transcript_rescue(args, df, log=print):
             filter_io.sample_prefix(args.qc_dir, row['file_acc'], row['sampleID'])))
         after = _cells_in(out_summary)
         if after - before:
-            log(f"**** {row['sampleID']}: {len(after - before)} cell(s) the transcript filter "
+            log(f"**** {row['sampleID']}: {len(after - before)} cell(s) the isoform filter "
                 "had emptied hold rescued reads again")
         if before - after:
             log(f"**** {row['sampleID']}: {len(before - after)} cell(s) absent after rescue")

@@ -20,24 +20,24 @@ def add_cell_filter_args(group):
     return group
 
 
-TRANSCRIPT_METHODS = ('rules', 'ml')
+ISOFORM_METHODS = ('rules', 'ml')
 
 
-def transcript_method(argv):
+def isoform_method(argv):
     """-j and the method options depend on --method, as they depend on the subcommand in
     SQANTI3, so the method is read before the parser is built. An unknown value is left
     for the real parser to reject."""
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument('--method')
     method = pre.parse_known_args(argv)[0].method
-    return method if method in TRANSCRIPT_METHODS else 'rules'
+    return method if method in ISOFORM_METHODS else 'rules'
 
 
-def add_transcript_filter_args(group, method='rules'):
-    group.add_argument('--method', choices=TRANSCRIPT_METHODS, default='rules',
+def add_isoform_filter_args(group, method='rules'):
+    group.add_argument('--method', choices=ISOFORM_METHODS, default='rules',
                        help="SQANTI3 filter to run: 'rules' or 'ml' (machine learning). "
                             "The options below, -j included, are those of the chosen "
-                            "method; 'transcripts --method ml -h' lists the ML ones. "
+                            "method; 'isoforms --method ml -h' lists the ML ones. "
                             "Default: rules.")
     if method == 'rules':
         group.add_argument('-j', '--rules', default=None,
@@ -98,8 +98,8 @@ def add_downstream_args(parser, ref_gtf=True):
 
 def build_filter_parser(version_str: str = '1.2.0', method: str = 'rules'):
     ap = argparse.ArgumentParser(
-        description="SQANTI-sc filter: quality filtering of cell barcodes and transcript "
-                    "models from an existing SQANTI-sc QC run"
+        description="SQANTI-sc filter: quality filtering of cell barcodes and isoforms "
+                    "from an existing SQANTI-sc QC run"
     )
     ap.add_argument('-v', '--version', action='version', version='sqanti-sc-filter ' + version_str)
 
@@ -125,13 +125,12 @@ def build_filter_parser(version_str: str = '1.2.0', method: str = 'rules'):
     add_cell_filter_args(cells.add_argument_group("Cell filter options"))
     add_downstream_args(cells)
 
-    transcripts = sub.add_parser(
-        'transcripts', parents=[common],
-        help='Filter transcript models with the SQANTI3 rules or ML filter.')
-    add_transcript_filter_args(transcripts.add_argument_group("Transcript filter options"),
-                               method)
-    add_cell_metrics_args(transcripts.add_argument_group(
+    isoforms = sub.add_parser(
+        'isoforms', parents=[common],
+        help='Filter isoforms with the SQANTI3 rules or ML filter.')
+    add_isoform_filter_args(isoforms.add_argument_group("Isoform filter options"), method)
+    add_cell_metrics_args(isoforms.add_argument_group(
         "Cell summary options (pass the values the QC run used)"))
-    add_downstream_args(transcripts)
+    add_downstream_args(isoforms)
 
     return ap

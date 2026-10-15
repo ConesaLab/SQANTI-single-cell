@@ -27,7 +27,7 @@ def add_clustering_args(group):
 
 
 def add_cell_metrics_args(group):
-    """Shared by the QC parser and the transcript filter, which recomputes the cell
+    """Shared by the QC parser and the isoform filter, which recomputes the cell
     summary on the models it keeps and must be able to do so with the QC run's settings."""
     group.add_argument('--min_cov', type=int, default=1,
                        help='Minimum min_cov short read coverage to validate an isoform (default: 1).')

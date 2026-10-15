@@ -373,7 +373,7 @@ def run_cell_filter(args, df, log=print):
         log(f"**** {sampleID}: {params['BarcodesPassing']}/{params['BarcodesIn']} "
             f"barcodes passed the cell filter")
 
-        # Kept under the input's name, so a transcript filter's verdict column stays
+        # Kept under the input's name, so an isoform filter's verdict column stays
         # where the readers look for it.
         in_class = filter_io.classification_path(qc_prefix)
         out_class = os.path.join(out_dir, os.path.basename(in_class))

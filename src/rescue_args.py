@@ -24,7 +24,7 @@ def add_rescue_args(group):
                             'beside it.')
     group.add_argument('-j', '--rules', default=None,
                        help='Rules JSON full rescue checks reference targets with: the one the '
-                            'transcript filter used, or any for ML filter output, whose '
+                            'isoform filter used, or any for ML filter output, whose '
                             'reference targets are checked by rules too. Default: SQANTI3\'s '
                             'filter_default.json.')
     return group
@@ -55,7 +55,7 @@ def add_reference_qc_args(group):
 
 def build_rescue_parser(version_str: str = '1.2.0'):
     ap = argparse.ArgumentParser(
-        description="SQANTI-sc rescue: put back what the transcript filter removed, as "
+        description="SQANTI-sc rescue: put back what the isoform filter removed, as "
                     "SQANTI3 rescue does, moving each removed model's reads to its target "
                     "cell by cell"
     )
@@ -65,10 +65,10 @@ def build_rescue_parser(version_str: str = '1.2.0'):
     apr.add_argument('-de', '--design', dest="inDESIGN", required=True,
                      help='Design file with sampleID and file_acc, as used for the QC run.')
     apr.add_argument('-q', '--qc_dir', required=True,
-                     help="Output directory of the transcript filter (sqanti_sc_filter.py "
-                          "transcripts). Read but never written.")
+                     help="Output directory of the isoform filter (sqanti_sc_filter.py "
+                          "isoforms). Read but never written.")
     apr.add_argument('--pre_filter_dir', required=True,
-                     help="The directory the transcript filter read (its -q). Full rescue "
+                     help="The directory the isoform filter read (its -q). Full rescue "
                           "aligns the removed models, whose sequences only that directory "
                           "still has.")
     apr.add_argument('--refGTF', required=True,

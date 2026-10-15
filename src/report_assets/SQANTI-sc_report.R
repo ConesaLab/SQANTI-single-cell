@@ -41,7 +41,7 @@ cell_summary_path <- NULL
 clustering_path <- NULL
 cell_filter_reasons_path <- NULL
 input_cell_summary_path <- NULL
-transcript_filter_reasons_path <- NULL
+isoform_filter_reasons_path <- NULL
 ml_dir <- NULL
 ref_gtf_path <- NULL
 
@@ -97,13 +97,13 @@ if (length(args) > 5) {
         stop("--input_cell_summary requires a path argument")
       }
     }
-    if (arg == "--transcript_filter_reasons") {
+    if (arg == "--isoform_filter_reasons") {
       if ((i + 1) <= length(args)) {
-        transcript_filter_reasons_path <- args[i + 1]
+        isoform_filter_reasons_path <- args[i + 1]
         i <- i + 2
         next
       } else {
-        stop("--transcript_filter_reasons requires a path argument")
+        stop("--isoform_filter_reasons requires a path argument")
       }
     }
     if (arg == "--ml_dir") {
@@ -3684,8 +3684,8 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
     }
 
     if (!is.null(tf_counts)) {
-      section_page("Transcript Filtering")
-      filter_table_page(tf_counts, "Transcript filter: input and filtered")
+      section_page("Isoform Filtering")
+      filter_table_page(tf_counts, "Isoform filter: input and filtered")
       render_pdf_plot_centered("gg_tf_removed_per_cell", width_frac = 0.5)
       if (!is.null(gg_tf_depth)) render_pdf_plot_centered("gg_tf_depth", width_frac = 0.6)
       for (p in list(gg_tf_lost_depth, gg_tf_removed_by_cluster, gg_tf_umap_removed)) {
@@ -3720,7 +3720,7 @@ if (mode == "isoforms" && "FL" %in% colnames(Classification)) {
   Classification$count <- 1
 }
 
-# Everything the transcript filter section needs from the removed models, taken before
+# Everything the isoform filter section needs from the removed models, taken before
 # they are dropped. In isoforms mode a model is spread over its cells by its FL list.
 summarise_removed_models <- function(cls) {
   removed <- cls$filter_result == "Artifact"
@@ -3785,7 +3785,7 @@ summarise_removed_models <- function(cls) {
   )
 }
 
-# The transcript filter labels the classification in place, as SQANTI3 does.
+# The isoform filter labels the classification in place, as SQANTI3 does.
 tf_removed_models <- NULL
 if ("filter_result" %in% colnames(Classification)) {
   if (!is.null(input_cell_summary_path)) {
@@ -3878,7 +3878,7 @@ all_bad_features_map <- list(
   "NMD_prop_in_cell" = list(label = "Predicted NMD", color = "#969696")
 )
 
-# ---- Shared by the cell and transcript filter sections ---------------------------
+# ---- Shared by the cell and isoform filter sections ------------------------------
 # build_violin_plot() has no dodge dimension, so paired figures are built here with its
 # construction; only alpha differs, and it is what separates the two halves of a pair.
 CF_VIOLIN_ALPHA <- c(Kept = 0.7, Discarded = 0.35)
@@ -4131,8 +4131,8 @@ if (!is.null(cell_filter_labelled)) {
     "Bad-quality attributes: kept vs discarded cells")
 }
 
-# ---- Transcript filter section -------------------------------------------------
-# Built only when the transcript filter renders the report. "Input" is the summary of
+# ---- Isoform filter section ----------------------------------------------------
+# Built only when the isoform filter renders the report. "Input" is the summary of
 # the run it filtered, "Filtered" the one recomputed from the kept models.
 tf_counts <- NULL
 tf_rule_counts <- NULL
@@ -4264,8 +4264,8 @@ if (!is.null(tf_removed_models)) {
   # counted under each and the shares can sum to more than the total removed. The ML
   # filter's reasons are exclusive.
   rule_map <- NULL
-  if (!is.null(transcript_filter_reasons_path)) {
-    reasons <- data.table::fread(transcript_filter_reasons_path, header = TRUE, sep = "\t",
+  if (!is.null(isoform_filter_reasons_path)) {
+    reasons <- data.table::fread(isoform_filter_reasons_path, header = TRUE, sep = "\t",
                                  stringsAsFactors = FALSE, data.table = FALSE)
     parts <- strsplit(as.character(reasons$filter_reason), "; ", fixed = TRUE)
     rule_map <- unique(data.frame(

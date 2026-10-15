@@ -1881,7 +1881,7 @@ main <- function() {
       # the median-length bug) and silently drop to unweighted.
       len_dfs <- lapply(class_file_paths, function(f) {
         sel <- if (params$mode == "isoforms") c("length", "FL") else c("length")
-        # A transcript filter's classification is labelled in place, as SQANTI3's is.
+        # An isoform filter's classification is labelled in place, as SQANTI3's is.
         header <- tryCatch(colnames(data.table::fread(f, nrows = 0, sep = "\t")),
                            error = function(e) character(0))
         if ("filter_result" %in% header) sel <- c(sel, "filter_result")
