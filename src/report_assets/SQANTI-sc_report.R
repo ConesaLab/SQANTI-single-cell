@@ -1624,7 +1624,7 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
 
   # cell_metrics stores per-cell gene COUNTS in 11 bins: columns *_bin_1..*_bin_10
   # and *_bin_10plus. Two families:
-  #   * abundance  -> anno_gene_reads_bin_* (reads) / anno_gene_transcripts_bin_*
+  #   * abundance  -> anno_gene_reads_bin_* (reads) / anno_gene_counts_bin_*
   #                   (isoforms), via count_label_plural_lower.
   #   * isoforms   -> anno_gene_isoforms_bin_* (isoforms mode only).
   # Novel genes are no longer binned. We read these columns directly -- no CB/FL
