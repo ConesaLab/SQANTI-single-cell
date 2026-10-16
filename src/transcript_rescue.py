@@ -247,7 +247,7 @@ def build_rescue_command(args, strategy, rescue_input, prefix, fasta, reference,
 
 
 def _cell_counts(cb, fl):
-    """A row's cells and reads. A count that is not a number is one read, as the cell
+    """A row's cells and counts. A count that is not a number counts as one, as the cell
     metrics count it; an association file without counts lists the cells only."""
     cells = [] if cb in SENTINEL_BARCODES else cb.split(',')
     counts = fl.split(',') if fl else []
@@ -274,7 +274,7 @@ def _number(text):
     return 1.0 if np.isnan(value) else value
 
 
-def add_reads(cb, fl, added):
+def add_counts(cb, fl, added):
     """CB/FL of a row with `added` ({cell: reads}) summed in. Untouched cells keep their
     original text; new cells go at the end."""
     cells = [] if cb in SENTINEL_BARCODES else cb.split(',')
@@ -293,16 +293,16 @@ def add_reads(cb, fl, added):
 
 
 def residual_name(gene):
-    """SQANTI3's requantification row for the reads of removed models without a target."""
+    """SQANTI3's requantification row for the counts of removed models without a target."""
     return 'general_residual' if str(gene).startswith('novel') else f'{gene}_residual'
 
 
 def plan_moves(class_file, table, chunksize=CHUNKSIZE):
-    """{target: {cell: reads}} from the rescue table, and {residual row: {cell: reads}}. A
-    removed model's reads stay in their cells; tied targets share them in proportion to
-    their reads across the sample, evenly when none has any (a reference transcript has
+    """{target: {cell: counts}} from the rescue table, and {residual row: {cell: counts}}. A
+    removed model's counts stay in their cells; tied targets share them in proportion to
+    their counts across the sample, evenly when none has any (a reference transcript has
     none), as SQANTI3's requantification splits a count -- but without rounding to whole
-    reads. A removed model without a target gives its reads to its gene's residual row."""
+    counts. A removed model without a target gives its counts to its gene's residual row."""
     targets_of = table.groupby('artifact', sort=False)['assigned_transcript'].apply(list).to_dict()
     target_ids = set(table['assigned_transcript'])
     mode_of = table.groupby('artifact', sort=False)['rescue_mode'].first().to_dict()
@@ -319,7 +319,7 @@ def plan_moves(class_file, table, chunksize=CHUNKSIZE):
             cells, values = _cell_counts(cb, fl)
             if removed:
                 stats['removed_models'] += 1
-                stats['removed_reads'] += values.sum()
+                stats['removed_counts'] += values.sum()
                 if iso in targets_of:
                     artifact_cells[iso] = (cells, values)
                 else:
@@ -339,12 +339,12 @@ def plan_moves(class_file, table, chunksize=CHUNKSIZE):
                 added[target][cell] += value * share
         kind = 'automatic' if mode_of[artifact] == 'automatic' else 'mapping'
         stats[f'{kind}_models'] += 1
-        stats[f'{kind}_reads'] += values.sum()
+        stats[f'{kind}_counts'] += values.sum()
         stats['tied_models'] += len(targets) > 1
     stats['residual_models'] = (stats['removed_models'] - stats['automatic_models']
                                 - stats['mapping_models'])
-    stats['residual_reads'] = (stats['removed_reads'] - stats['automatic_reads']
-                               - stats['mapping_reads'])
+    stats['residual_counts'] = (stats['removed_counts'] - stats['automatic_counts']
+                               - stats['mapping_counts'])
     return ({t: dict(cells) for t, cells in added.items()},
             {r: dict(cells) for r, cells in residual.items()}, dict(stats))
 
@@ -353,7 +353,7 @@ def write_residual(path, residual):
     with open(path, 'w') as fh:
         fh.write('isoform\tCB\tFL\n')
         for name in sorted(residual):
-            cb, fl = add_reads('', '', residual[name])
+            cb, fl = add_counts('', '', residual[name])
             fh.write(f'{name}\t{cb}\t{fl}\n')
 
 
@@ -372,10 +372,10 @@ def _rows_of(path, isoforms, chunksize=CHUNKSIZE):
 
 def write_rescued_classification(src, dst, added, reference_class, references,
                                  chunksize=CHUNKSIZE):
-    """Kept models with their moved reads, then the reintroduced references from the
+    """Kept models with their moved counts, then the reintroduced references from the
     reference QC. Returns (references appended, {isoform: new CB} for every changed row).
     A reference already present as a kept model (Bambu names its models after the
-    reference) gains the reads in place."""
+    reference) gains the counts in place."""
     columns = [c for c in _columns(src) if c != RESULT_COLUMN]
     kept_ids, new_cb = set(), {}
     hit_ids = set(added)
@@ -386,7 +386,7 @@ def write_rescued_classification(src, dst, added, reference_class, references,
             kept_ids.update(kept['isoform'])
             for i in kept.index[kept['isoform'].isin(hit_ids)]:
                 iso = kept.at[i, 'isoform']
-                kept.at[i, 'CB'], kept.at[i, 'FL'] = add_reads(kept.at[i, 'CB'],
+                kept.at[i, 'CB'], kept.at[i, 'FL'] = add_counts(kept.at[i, 'CB'],
                                                                kept.at[i, 'FL'], added[iso])
                 new_cb[iso] = kept.at[i, 'CB']
             kept.to_csv(out_fh, sep='\t', index=False, header=False)
@@ -401,7 +401,7 @@ def write_rescued_classification(src, dst, added, reference_class, references,
                     "run on --refGTF?")
             rows = rows.reindex(columns=columns, fill_value='NA').reset_index(drop=True)
             for i, iso in enumerate(rows['isoform']):
-                rows.at[i, 'CB'], rows.at[i, 'FL'] = add_reads('', '', added.get(iso, {}))
+                rows.at[i, 'CB'], rows.at[i, 'FL'] = add_counts('', '', added.get(iso, {}))
                 new_cb[iso] = rows.at[i, 'CB']
             rows.to_csv(out_fh, sep='\t', index=False, header=False)
     return appended, new_cb
@@ -410,7 +410,7 @@ def write_rescued_classification(src, dst, added, reference_class, references,
 def write_rescued_junctions(src, reference_junctions, dst, new_cb, appended,
                             chunksize=CHUNKSIZE):
     """In isoforms mode a junction row's CB copies its model's, so it follows the moved
-    reads; the reintroduced references bring their junctions from the reference QC."""
+    counts; the reintroduced references bring their junctions from the reference QC."""
     if not os.path.isfile(src):
         return
     columns = _columns(src)
@@ -511,14 +511,14 @@ def rescue_sample(args, row, reference, log):
 
     log(f"**** {sampleID}: {len(appended)} reference transcript(s) reintroduced; of "
         f"{int(stats.get('removed_models', 0))} removed models, "
-        f"{int(stats.get('automatic_models', 0))} gave their reads to a reference by "
+        f"{int(stats.get('automatic_models', 0))} gave their counts to a reference by "
         f"automatic rescue, {int(stats.get('mapping_models', 0))} to a target by mapping "
         f"({int(stats.get('tied_models', 0))} split between tied targets), and "
         f"{int(stats.get('residual_models', 0))} had no target")
-    removed_reads = stats.get('removed_reads', 0.0)
-    if removed_reads:
-        log(f"**** {sampleID}: reads moved {_fmt(removed_reads - stats['residual_reads'])} "
-            f"of {_fmt(removed_reads)} removed; {_fmt(stats['residual_reads'])} without a "
+    removed_counts = stats.get('removed_counts', 0.0)
+    if removed_counts:
+        log(f"**** {sampleID}: counts moved {_fmt(removed_counts - stats['residual_counts'])} "
+            f"of {_fmt(removed_counts)} removed; {_fmt(stats['residual_counts'])} without a "
             f"target are in {os.path.basename(out_prefix + RESIDUAL)}")
     return stats
 
@@ -545,7 +545,7 @@ def run_transcript_rescue(args, df, log=print):
         after = _cells_in(out_summary)
         if after - before:
             log(f"**** {row['sampleID']}: {len(after - before)} cell(s) the isoform filter "
-                "had emptied hold rescued reads again")
+                "had emptied hold rescued counts again")
         if before - after:
             log(f"**** {row['sampleID']}: {len(before - after)} cell(s) absent after rescue")
     return mode, evidence

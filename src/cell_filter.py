@@ -14,7 +14,7 @@ RESULT_CELL = 'Cell'
 
 DEPTH_TOKEN = 'depth'
 
-_MODE_DEPTH_COLUMNS = {'isoforms': 'Transcripts_in_cell', 'reads': 'Reads_in_cell'}
+_MODE_DEPTH_COLUMNS = {'isoforms': 'Counts_in_cell', 'reads': 'Reads_in_cell'}
 
 
 def depth_column(mode):

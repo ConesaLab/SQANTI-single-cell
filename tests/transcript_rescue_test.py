@@ -83,7 +83,7 @@ def _write_filter_output(sample_dir, rows=CLASSIFICATION):
                   'canonical': ['canonical'] * len(kept),
                   'CB': [r['CB'] for r in kept]}).to_csv(prefix + '_junctions.txt', sep='\t',
                                                          index=False)
-    pd.DataFrame({'CB': ['c1', 'c2', 'c3', 'c4'], 'Transcripts_in_cell': [4, 1, 13, 0]}) \
+    pd.DataFrame({'CB': ['c1', 'c2', 'c3', 'c4'], 'Counts_in_cell': [4, 1, 13, 0]}) \
         .to_csv(prefix + '_SQANTI_cell_summary.txt.gz', sep='\t', index=False,
                 compression='gzip')
     with open(prefix + '_corrected.gtf', 'w') as fh:
@@ -218,7 +218,7 @@ class TestReadsMoveCellByCell:
         assert {r: _cells(row) for r, row in residual.iterrows()} == {
             'G1_residual': {'c1': 5}, 'general_residual': {'c2': 2}}
         assert any('2 had no target' in m for m in messages)
-        assert any('reads moved 15 of 22 removed; 7 without a target are in '
+        assert any('counts moved 15 of 22 removed; 7 without a target are in '
                    's1_rescue_residual.tsv' in m for m in messages)
 
     def test_every_cell_keeps_its_reads_across_the_classification_and_residual(
@@ -243,7 +243,7 @@ class TestReadsMoveCellByCell:
         assert (cls['isoform'] == 'ENST9').sum() == 1
         assert _cells(cls.set_index('isoform').loc['ENST9']) == {'c3': 1, 'c1': 2}
 
-    def test_cells_detected_follows_the_moved_reads(self, runs, fake_sqanti3):
+    def test_cells_detected_follows_the_moved_counts(self, runs, fake_sqanti3):
         tmp_path, tf, pre, design = runs
         out, _ = _rescue(tmp_path, tf, pre, design, '--mode', 'full')
         cls = _read(out + '_rescued_classification.txt')
