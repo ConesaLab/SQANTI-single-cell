@@ -31,6 +31,37 @@ def flag_measured(values):
     return (values == 'TRUE') | (values == 'FALSE')
 
 
+def cb_fl_coo(cls):
+    """The CB/FL lists of an isoforms-mode classification as COO arrays: transcript row
+    (position in cls), cell index, FL weight, and the sorted cell barcodes. A missing or
+    unparseable FL counts as 1."""
+    T = len(cls)
+    cb_ser = (cls['CB'].fillna('') if 'CB' in cls.columns
+              else pd.Series([''] * T)).reset_index(drop=True)
+    if 'FL' in cls.columns:
+        fl_ser = cls['FL'].fillna('1').astype(str).reset_index(drop=True)
+        tmp = pd.DataFrame({'CB': cb_ser.str.split(','), 'FL': fl_ser.str.split(',')})
+        tmp = tmp.explode(['CB', 'FL'])
+        row = tmp.index.to_numpy()
+        cb_flat = tmp['CB'].to_numpy()
+        data = pd.to_numeric(pd.Series(tmp['FL'].to_numpy()), errors='coerce').to_numpy()
+        data = np.where(np.isnan(data), 1.0, data)
+        del tmp
+    else:
+        split = cb_ser.str.split(',')
+        lens = split.str.len().fillna(0).astype(int).to_numpy()
+        row = np.repeat(np.arange(T), lens)
+        cb_flat = np.concatenate(split.to_numpy()) if lens.sum() > 0 else np.array([], dtype=object)
+        data = np.ones(len(cb_flat))
+
+    keep = pd.notna(cb_flat) & (cb_flat != '')
+    row = row[keep].astype(np.int64)
+    data = data[keep].astype(np.float64)
+    # sorted unique cells + inverse mapping == searchsorted, matches groupby('CB') order
+    cells, col = np.unique(cb_flat[keep].astype(str), return_inverse=True)
+    return row, col.astype(np.int64), data, cells
+
+
 def isoforms_column_names(columns):
     """Isoforms mode sums FL rather than counting reads, so its depth columns say counts."""
     renames = {'total_reads': 'Counts_in_cell', 'total_reads_no_monoexon': 'total_counts_no_monoexon',
@@ -133,34 +164,9 @@ def calculate_metrics_per_cell(args, df):
         cls = cls.reset_index(drop=True)
         T = len(cls)
 
-        # ---- parse CB/FL lists into COO arrays (row=transcript, col=cell, data=FL) ----
-        cb_ser = cls['CB'].fillna('') if 'CB' in cls.columns else pd.Series([''] * T)
-        if 'FL' in cls.columns:
-            fl_ser = cls['FL'].fillna('1').astype(str)
-            _tmp = pd.DataFrame({'CB': cb_ser.str.split(','), 'FL': fl_ser.str.split(',')})
-            _tmp = _tmp.explode(['CB', 'FL'])
-            row = _tmp.index.to_numpy()
-            cb_flat = _tmp['CB'].to_numpy()
-            data = pd.to_numeric(pd.Series(_tmp['FL'].to_numpy()), errors='coerce').to_numpy()
-            data = np.where(np.isnan(data), 1.0, data)
-            del _tmp
-        else:
-            _split = cb_ser.str.split(',')
-            _lens = _split.str.len().fillna(0).astype(int).to_numpy()
-            row = np.repeat(np.arange(T), _lens)
-            cb_flat = np.concatenate(_split.to_numpy()) if _lens.sum() > 0 else np.array([], dtype=object)
-            data = np.ones(len(cb_flat))
-
-        keep = pd.notna(cb_flat) & (cb_flat != '')
-        row = row[keep]
-        cb_flat = cb_flat[keep]
-        data = data[keep].astype(np.float64)
-        # sorted unique cells + inverse mapping == searchsorted, matches groupby('CB') order
-        cells, col = np.unique(cb_flat.astype(str), return_inverse=True)
-        col = col.astype(np.int64)
+        row, col, data, cells = cb_fl_coo(cls)
         Cn = len(cells)
         cells_index = pd.Index(cells, name='CB')
-        del cb_flat, keep
 
         # ---- transcript-level attribute arrays / masks (length T) ----
         def _num(colname):

@@ -1,6 +1,42 @@
 import os
 import sys
+import numpy as np
 import pandas as pd
+from scipy import sparse
+
+from cell_metrics import cb_fl_coo
+
+ISOFORMS_GENE_TOTALS = ['total_counts', 'unique_isoforms', 'flag_annotated_gene']
+
+
+def _flag_annotated(genes):
+    return genes.apply(lambda g: 0 if isinstance(g, str) and g.startswith('novel') else 1)
+
+
+def _gene_counts_isoforms(cls, structural_categories):
+    """Per gene and cell: the counts in each structural category, their total and the
+    distinct isoforms, read from the CB/FL lists as the cell summary reads them."""
+    row, col, data, cells = cb_fl_coo(cls)
+    gene_codes, genes = pd.factorize(cls['associated_gene'])
+    cat_codes, cats = pd.factorize(cls['structural_category'])
+    long = pd.DataFrame({'g': gene_codes[row], 'c': col, 'k': cat_codes[row], 't': row, 'w': data})
+    long = long[long['g'] >= 0]
+    if long.empty:
+        return None
+
+    by_cat = long.groupby(['g', 'c', 'k'])['w'].sum().unstack(fill_value=0)
+    by_cat.columns = [cats[k] if k >= 0 else '' for k in by_cat.columns]
+    out = by_cat.reindex(columns=structural_categories, fill_value=0)
+    out['total_counts'] = long.groupby(['g', 'c'])['w'].sum()
+    # Distinct (isoform, cell) pairs, as Isoforms_in_cell: a barcode can repeat in a row.
+    out['unique_isoforms'] = long.drop_duplicates(['g', 'c', 't']).groupby(['g', 'c']).size()
+    out = out.reset_index()
+    out.insert(0, 'associated_gene', genes.to_numpy()[out['g'].to_numpy()])
+    out.insert(1, 'CB', cells[out['c'].to_numpy()])
+    out['flag_annotated_gene'] = _flag_annotated(out['associated_gene'])
+    out = out.sort_values(['associated_gene', 'CB'], kind='stable')
+    return out[['associated_gene', 'CB'] + structural_categories + ISOFORMS_GENE_TOTALS]
+
 
 def write_gene_counts_by_cell(args, df):
     structural_categories = [
@@ -17,6 +53,31 @@ def write_gene_counts_by_cell(args, df):
         if not os.path.isfile(class_file):
             print(f"[INFO] Classification file not found for {file_acc}. Skipping gene counts.",
                   file=sys.stdout)
+            continue
+
+        out_file = f"{outputPathPrefix}_gene_counts.csv"
+        if args.mode == 'isoforms':
+            try:
+                cls = pd.read_csv(class_file, sep='\t', dtype=str, low_memory=False,
+                                  usecols=lambda c: c in ('isoform', 'associated_gene',
+                                                          'structural_category', 'CB', 'FL'))
+            except Exception as e:
+                print(f"[ERROR] Failed reading {class_file}: {e}", file=sys.stderr)
+                continue
+            for col in ['associated_gene', 'structural_category', 'CB']:
+                if col not in cls.columns:
+                    cls[col] = np.nan
+            agg_df = _gene_counts_isoforms(cls, structural_categories)
+            if agg_df is None:
+                pd.DataFrame(columns=['associated_gene', 'CB'] + structural_categories +
+                             ISOFORMS_GENE_TOTALS).to_csv(out_file, index=False)
+                print(f"[INFO] No valid CB rows for {file_acc}. Wrote empty gene counts.", file=sys.stdout)
+                continue
+            try:
+                agg_df.to_csv(out_file, index=False)
+                print(f"**** Gene counts by cell written: {out_file}", file=sys.stdout)
+            except Exception as e:
+                print(f"[ERROR] Failed writing {out_file}: {e}", file=sys.stderr)
             continue
 
         try:
@@ -41,7 +102,6 @@ def write_gene_counts_by_cell(args, df):
 
         filtered = class_df[(class_df['CB'].notna()) & (class_df['CB'] != '')].copy()
         if filtered.empty:
-            out_file = f"{outputPathPrefix}_gene_counts.csv"
             empty_cols = (['associated_gene', 'CB'] + structural_categories +
                           ['total_read_count', 'unique_jxnHash_counts', 'flag_annotated_gene'])
             pd.DataFrame(columns=empty_cols).to_csv(out_file, index=False)
@@ -78,15 +138,12 @@ def write_gene_counts_by_cell(args, df):
         agg_df = agg_df.merge(unique_jxn_counts, left_index=True, right_index=True)
         agg_df = agg_df.reset_index()
 
-        agg_df['flag_annotated_gene'] = agg_df['associated_gene'].apply(
-            lambda g: 0 if isinstance(g, str) and g.startswith('novel') else 1
-        )
+        agg_df['flag_annotated_gene'] = _flag_annotated(agg_df['associated_gene'])
 
         final_cols = (['associated_gene', 'CB'] + structural_categories +
                       ['total_read_count', 'unique_jxnHash_counts', 'flag_annotated_gene'])
         agg_df = agg_df[final_cols]
 
-        out_file = f"{outputPathPrefix}_gene_counts.csv"
         try:
             agg_df.to_csv(out_file, index=False)
             print(f"**** Gene counts by cell written: {out_file}", file=sys.stdout)
@@ -95,6 +152,10 @@ def write_gene_counts_by_cell(args, df):
 
 
 def write_ujc_counts_by_cell(args, df):
+    if args.mode == 'isoforms':
+        print("[INFO] UJC counts are reads-mode only: isoforms mode has no junction-chain "
+              "hashes. Skipping.", file=sys.stdout)
+        return
     for _, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
@@ -245,9 +306,115 @@ def write_ujc_counts_by_cell(args, df):
             print(f"[ERROR] Failed writing {out_file}: {e}", file=sys.stderr)
 
 
-def write_cv_by_cell(args, df):
-    import numpy as np
+CV_COLUMNS = ['chrom', 'strand', 'coord', 'mean_abs_diff', 'std_abs_diff', 'cv', 'count',
+              'associated_gene', 'gene_count', 'flag_multi_gene', 'flag_annotated_gene',
+              'flag_donor', 'flag_acceptor', 'flag_mean_0', 'flag_std_0', 'flag_ref_match',
+              'flag_cv_0', 'flag_cv_gt_0', 'CB']
 
+
+def _cv_flags(agg):
+    agg['flag_mean_0'] = (agg['mean_abs_diff'] == 0).astype(int)
+    agg['flag_std_0'] = (agg['std_abs_diff'] == 0).astype(int)
+    agg['flag_ref_match'] = agg['flag_mean_0']
+    agg['flag_cv_0'] = ((agg['cv'] == 0) & (agg['flag_mean_0'] != 1)).astype(int)
+    agg['flag_cv_gt_0'] = (agg['cv'] > 0).astype(int)
+    agg['flag_multi_gene'] = (agg['gene_count'] > 1).astype(int)
+
+    def is_annotated(genestr):
+        genes = [g for g in str(genestr).split('|') if g]
+        if len(genes) == 0:
+            return 0
+        return 1 if all(not str(g).startswith('novel') for g in genes) else 0
+
+    agg['flag_annotated_gene'] = agg['associated_gene'].apply(is_annotated)
+    return agg
+
+
+def _values_at(M, keys, n_cols):
+    """M's values at the given row * n_cols + col keys, 0 where M has no entry."""
+    M = M.tocoo()
+    k = M.row.astype(np.int64) * n_cols + M.col
+    order = np.argsort(k)
+    k, v = k[order], M.data[order]
+    out = np.zeros(len(keys))
+    if len(k):
+        pos = np.minimum(np.searchsorted(k, keys), len(k) - 1)
+        hit = k[pos] == keys
+        out[hit] = v[pos[hit]]
+    return out
+
+
+def _level(pairs, i):
+    return pairs.get_level_values(i).to_numpy().astype(np.int64)
+
+
+def _entries_per_key(M, site_of_row, n_cols):
+    """The positive entries of M as (site * n_cols + col key, row) pairs."""
+    M = M.tocoo()
+    pos = M.data > 0
+    return site_of_row[M.row[pos]].astype(np.int64) * n_cols + M.col[pos], M.row[pos]
+
+
+def _cv_isoforms_side(jdf, coord_col, abs_col, W, cells, gene_codes, genes):
+    """The CV statistics per junction site and cell with each junction weighted by its
+    isoform's FL in that cell: with whole counts, the reads-mode table of the expanded
+    reads. Sparse (site x isoform) @ (isoform x cell) products, so no junction x cell
+    frame is built."""
+    n_iso, n_cells = W.shape
+    grouped = jdf.groupby(['chrom', 'strand', coord_col], dropna=False, sort=True)
+    site = grouped.ngroup().to_numpy()
+    sites = grouped.size().reset_index()
+    t = jdf['_t'].to_numpy()
+    x = jdf[abs_col].to_numpy(dtype=np.float64)
+
+    def per_site(values, rows, n_rows):
+        return sparse.csr_matrix((values, (rows, t)), shape=(n_rows, n_iso)) @ W
+
+    s0 = per_site(np.ones(len(site)), site, len(sites)).tocoo()
+    keys = s0.row.astype(np.int64) * n_cells + s0.col
+    order = np.argsort(keys)
+    keys, s0v = keys[order], s0.data[order]
+    s1v = _values_at(per_site(x, site, len(sites)), keys, n_cells)
+    s2v = _values_at(per_site(x * x, site, len(sites)), keys, n_cells)
+
+    # Exact zero spread where only one distance is present: S2/S0 - mean^2 cancels
+    # imperfectly with fractional weights and would flip flag_std_0 / flag_cv_0.
+    pair_codes, pairs = pd.MultiIndex.from_arrays([site, x]).factorize()
+    dist_keys, _ = _entries_per_key(per_site(np.ones(len(site)), pair_codes, len(pairs)),
+                                    _level(pairs, 0), n_cells)
+    uk, n_distinct = np.unique(dist_keys, return_counts=True)
+    single = np.isin(keys, uk[n_distinct == 1])
+
+    mean = s1v / s0v
+    pop_var = np.clip(s2v / s0v - mean ** 2, 0, None)
+    pop_var[single] = 0.0
+    with np.errstate(divide='ignore', invalid='ignore'):
+        std = np.sqrt(np.where(s0v > 1, pop_var * s0v / (s0v - 1), np.nan))
+        cv = np.where(mean > 0, np.sqrt(pop_var) / mean, np.nan)
+
+    has_gene = gene_codes[t] >= 0
+    gpair_codes, gpairs = pd.MultiIndex.from_arrays(
+        [site[has_gene], gene_codes[t][has_gene]]).factorize()
+    gene_rows = sparse.csr_matrix((np.ones(has_gene.sum()), (gpair_codes, t[has_gene])),
+                                  shape=(len(gpairs), n_iso)) @ W
+    gkeys, grow = _entries_per_key(gene_rows, _level(gpairs, 0), n_cells)
+    present = pd.DataFrame({'key': gkeys,
+                            'gene': np.asarray(genes, dtype=object)[_level(gpairs, 1)[grow]]})
+    present = present.sort_values(['key', 'gene']).groupby('key', sort=True)['gene']
+    gene_str = present.agg('|'.join).reindex(keys, fill_value='').to_numpy()
+    gene_n = present.size().reindex(keys, fill_value=0).to_numpy()
+
+    at_site = keys // n_cells
+    return pd.DataFrame({
+        'chrom': sites['chrom'].to_numpy()[at_site],
+        'strand': sites['strand'].to_numpy()[at_site],
+        'coord': sites[coord_col].to_numpy()[at_site],
+        'CB': cells[keys % n_cells],
+        'mean_abs_diff': mean, 'std_abs_diff': std, 'count': s0v,
+        'associated_gene': gene_str, 'gene_count': gene_n, 'cv': cv})
+
+
+def write_cv_by_cell(args, df):
     def safe_to_numeric(series):
         return pd.to_numeric(series, errors='coerce')
 
@@ -265,31 +432,20 @@ def write_cv_by_cell(args, df):
             lambda s: np.nan if pd.isna(s.mean()) or s.mean() == 0 else float(np.std(s, ddof=0)) / float(s.mean())
         ).reset_index(name='cv')
         agg = pd.merge(agg, cv_vals, on=group_keys, how='left')
+        return agg.rename(columns={coord_col: 'coord'})
 
-        agg['flag_mean_0'] = agg['mean_abs_diff'].apply(lambda x: 1 if pd.notna(x) and x == 0 else 0)
-        agg['flag_std_0'] = agg['std_abs_diff'].apply(lambda x: 0 if pd.isna(x) else (1 if x == 0 else 0))
-        agg['flag_ref_match'] = agg['flag_mean_0']
-        agg['flag_cv_0'] = agg.apply(lambda r: 1 if pd.notna(r['cv']) and r['cv'] == 0 and r['flag_mean_0'] != 1 else 0, axis=1)
-        agg['flag_cv_gt_0'] = agg['cv'].apply(lambda x: 1 if pd.notna(x) and x > 0 else 0)
-        agg['flag_multi_gene'] = agg['gene_count'].apply(lambda x: 1 if x > 1 else 0)
+    def write_empty(out_file, why):
+        pd.DataFrame(columns=CV_COLUMNS).to_csv(out_file, index=False)
+        print(f"[INFO] {why} for {file_acc}. Wrote empty CV table.", file=sys.stdout)
 
-        def is_annotated(genestr):
-            genes = [g for g in str(genestr).split('|') if g]
-            if len(genes) == 0:
-                return 0
-            return 1 if all(not str(g).startswith('novel') for g in genes) else 0
-
-        agg['flag_annotated_gene'] = agg['associated_gene'].apply(is_annotated)
-
-        agg = agg.rename(columns={coord_col: 'coord'})
-        return agg
-
+    isoforms = args.mode == 'isoforms'
     for _, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
         outputPathPrefix = os.path.join(args.out_dir, file_acc, sampleID)
         class_file = f"{outputPathPrefix}_classification.txt"
         junc_file = f"{outputPathPrefix}_junctions.txt"
+        out_file = f"{outputPathPrefix}_cv.csv"
 
         if not os.path.isfile(class_file):
             print(f"[INFO] Classification file not found for {file_acc}. Skipping CV.", file=sys.stdout)
@@ -299,7 +455,7 @@ def write_cv_by_cell(args, df):
             continue
 
         try:
-            class_needed = ['isoform', 'associated_gene', 'CB']
+            class_needed = ['isoform', 'associated_gene', 'CB'] + (['FL'] if isoforms else [])
             cls_df = pd.read_csv(class_file, sep='\t', dtype=str, low_memory=False,
                                  usecols=lambda c: c in class_needed)
         except Exception as e:
@@ -315,17 +471,24 @@ def write_cv_by_cell(args, df):
             print(f"[ERROR] Failed reading {junc_file}: {e}", file=sys.stderr)
             continue
 
-        jdf = pd.merge(jdf, cls_df, on='isoform', how='left')
-        jdf = jdf[(jdf['CB'].notna()) & (jdf['CB'] != '')].copy()
-        if jdf.empty:
-            out_file = f"{outputPathPrefix}_cv.csv"
-            empty_cols = ['chrom', 'strand', 'coord', 'mean_abs_diff', 'std_abs_diff', 'cv', 'count',
-                          'associated_gene', 'gene_count', 'flag_multi_gene', 'flag_annotated_gene',
-                          'flag_donor', 'flag_acceptor', 'flag_mean_0', 'flag_std_0', 'flag_ref_match',
-                          'flag_cv_0', 'flag_cv_gt_0', 'CB']
-            pd.DataFrame(columns=empty_cols).to_csv(out_file, index=False)
-            print(f"[INFO] No valid CB rows for {file_acc}. Wrote empty CV table.", file=sys.stdout)
-            continue
+        if isoforms:
+            if 'associated_gene' not in cls_df.columns:
+                cls_df['associated_gene'] = np.nan
+            iso_row, iso_col, fl, cells = cb_fl_coo(cls_df)
+            weighted = fl > 0
+            W = sparse.csr_matrix((fl[weighted], (iso_row[weighted], iso_col[weighted])),
+                                  shape=(len(cls_df), len(cells)))
+            jdf = jdf.merge(pd.DataFrame({'isoform': cls_df['isoform'].to_numpy(),
+                                          '_t': np.arange(len(cls_df))}), on='isoform', how='inner')
+            if W.nnz == 0 or jdf.empty:
+                write_empty(out_file, "No valid CB rows")
+                continue
+        else:
+            jdf = pd.merge(jdf, cls_df, on='isoform', how='left')
+            jdf = jdf[(jdf['CB'].notna()) & (jdf['CB'] != '')].copy()
+            if jdf.empty:
+                write_empty(out_file, "No valid CB rows")
+                continue
 
         jdf['genomic_start_coord'] = safe_to_numeric(jdf['genomic_start_coord'])
         jdf['genomic_end_coord'] = safe_to_numeric(jdf['genomic_end_coord'])
@@ -334,13 +497,7 @@ def write_cv_by_cell(args, df):
 
         jdf = jdf.dropna(subset=['diff_to_Ref_start_site', 'diff_to_Ref_end_site'])
         if jdf.empty:
-            out_file = f"{outputPathPrefix}_cv.csv"
-            empty_cols = ['chrom', 'strand', 'coord', 'mean_abs_diff', 'std_abs_diff', 'cv', 'count',
-                          'associated_gene', 'gene_count', 'flag_multi_gene', 'flag_annotated_gene',
-                          'flag_donor', 'flag_acceptor', 'flag_mean_0', 'flag_std_0', 'flag_ref_match',
-                          'flag_cv_0', 'flag_cv_gt_0', 'CB']
-            pd.DataFrame(columns=empty_cols).to_csv(out_file, index=False)
-            print(f"[INFO] No diff-to-ref data for {file_acc}. Wrote empty CV table.", file=sys.stdout)
+            write_empty(out_file, "No diff-to-ref data")
             continue
 
         jdf['ref_junction_start'] = jdf['genomic_start_coord'] + jdf['diff_to_Ref_start_site']
@@ -348,11 +505,22 @@ def write_cv_by_cell(args, df):
         jdf['abs_diff_start'] = jdf['diff_to_Ref_start_site'].abs()
         jdf['abs_diff_end'] = jdf['diff_to_Ref_end_site'].abs()
 
-        start_group = jdf.groupby(['chrom', 'strand', 'ref_junction_start', 'CB'], dropna=False, observed=True)
-        end_group = jdf.groupby(['chrom', 'strand', 'ref_junction_end', 'CB'], dropna=False, observed=True)
-
-        cv_start = aggregate_cv(start_group, 'ref_junction_start', 'abs_diff_start')
-        cv_end = aggregate_cv(end_group, 'ref_junction_end', 'abs_diff_end')
+        if isoforms:
+            gene_codes, genes = pd.factorize(cls_df['associated_gene'])
+            cv_start = _cv_isoforms_side(jdf, 'ref_junction_start', 'abs_diff_start', W, cells,
+                                         gene_codes, genes)
+            cv_end = _cv_isoforms_side(jdf, 'ref_junction_end', 'abs_diff_end', W, cells,
+                                       gene_codes, genes)
+            if cv_start.empty and cv_end.empty:
+                write_empty(out_file, "No valid CB rows")
+                continue
+        else:
+            start_group = jdf.groupby(['chrom', 'strand', 'ref_junction_start', 'CB'], dropna=False, observed=True)
+            end_group = jdf.groupby(['chrom', 'strand', 'ref_junction_end', 'CB'], dropna=False, observed=True)
+            cv_start = aggregate_cv(start_group, 'ref_junction_start', 'abs_diff_start')
+            cv_end = aggregate_cv(end_group, 'ref_junction_end', 'abs_diff_end')
+        cv_start = _cv_flags(cv_start)
+        cv_end = _cv_flags(cv_end)
 
         cv_start['flag_donor'] = cv_start['strand'].apply(lambda s: 1 if s == '+' else 0)
         cv_start['flag_acceptor'] = cv_start['strand'].apply(lambda s: 1 if s == '-' else 0)
@@ -361,18 +529,13 @@ def write_cv_by_cell(args, df):
 
         out_df = pd.concat([cv_start, cv_end], ignore_index=True)
 
-        final_cols = ['chrom', 'strand', 'coord', 'mean_abs_diff', 'std_abs_diff', 'cv', 'count',
-                      'associated_gene', 'gene_count', 'flag_multi_gene', 'flag_annotated_gene',
-                      'flag_donor', 'flag_acceptor', 'flag_mean_0', 'flag_std_0', 'flag_ref_match',
-                      'flag_cv_0', 'flag_cv_gt_0', 'CB']
-        for col in final_cols:
+        for col in CV_COLUMNS:
             if col not in out_df.columns:
                 out_df[col] = np.nan if col in ['mean_abs_diff', 'std_abs_diff', 'cv'] else 0
-        out_df = out_df[final_cols]
+        out_df = out_df[CV_COLUMNS]
 
         out_df['coord'] = pd.to_numeric(out_df['coord'], errors='coerce').astype('Int64')
 
-        out_file = f"{outputPathPrefix}_cv.csv"
         try:
             out_df.to_csv(out_file, index=False)
             print(f"**** CV by cell written: {out_file}", file=sys.stdout)

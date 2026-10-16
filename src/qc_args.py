@@ -79,7 +79,7 @@ def build_parser(version_str: str = '1.2.0'):
                           'feature set used for the multisample QC overview and PCA. Blank lines and '
                           'lines starting with # are ignored.')
     apsc.add_argument('--write_per_cell_outputs', action='store_true', default=False,
-                       help='When set, writes per-cell gene_counts.csv, ujc_counts.csv, and cv.csv for each sample.')
+                       help='When set, writes per-cell gene_counts.csv, ujc_counts.csv (reads mode only), and cv.csv for each sample.')
     apsc.add_argument('--export_h5ad', action='store_true', default=False,
                       help='Export an AnnData .h5ad file per sample with count matrix and cell QC metadata, '
                            'compatible with Scanpy and Seurat.')
