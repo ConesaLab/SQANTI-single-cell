@@ -537,7 +537,7 @@ def test_pipeline_main_smoke(
         mock_build_parser,
         tmpdir):
     class DummyArgs:
-        def __init__(self, write_per_cell_outputs=False):
+        def __init__(self):
             self.inDESIGN = str(tmpdir.join('design.csv'))
             self.input_dir = str(tmpdir)
             self.out_dir = str(tmpdir)
@@ -546,7 +546,7 @@ def test_pipeline_main_smoke(
             self.mode = 'reads'
             self.report = 'pdf'
             self.SKIPHASH = True
-            self.write_per_cell_outputs = write_per_cell_outputs
+            self.count_matrix = self.export_h5ad = self.sqanti_reads_tables = False
             self.log_level = 'INFO'
             self.run_clustering = False
     # Write a minimal design
@@ -554,7 +554,7 @@ def test_pipeline_main_smoke(
 
     class DummyParser:
         def parse_args(self_inner):
-            return DummyArgs(write_per_cell_outputs=False)
+            return DummyArgs()
 
     mock_build_parser.return_value = DummyParser()
     pipeline_main()  # should run through without errors
@@ -1047,7 +1047,7 @@ def test_pipeline_main_with_clustering(
             self.mode = 'isoforms'
             self.report = 'html'
             self.SKIPHASH = True
-            self.write_per_cell_outputs = False
+            self.count_matrix = self.export_h5ad = self.sqanti_reads_tables = False
             self.log_level = 'INFO'
             self.run_clustering = True  # <-- enabled
 
@@ -2039,7 +2039,7 @@ def test_sc_export_h5ad_with_clustering(tmpdir):
 @patch('qc_pipeline.annotate_with_cell_metadata')
 @patch('qc_pipeline.calculate_metrics_per_cell')
 @patch('qc_pipeline.generate_report')
-@patch('qc_pipeline.export_h5ad')
+@patch('sc_export.export_h5ad')
 def test_pipeline_main_with_export_h5ad(
         mock_export,
         mock_generate_report,
@@ -2060,7 +2060,7 @@ def test_pipeline_main_with_export_h5ad(
             self.mode = 'reads'
             self.report = 'pdf'
             self.SKIPHASH = True
-            self.write_per_cell_outputs = False
+            self.count_matrix = self.export_h5ad = self.sqanti_reads_tables = False
             self.log_level = 'INFO'
             self.run_clustering = False
             self.export_h5ad = True  # <-- enabled

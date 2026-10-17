@@ -7,12 +7,13 @@ from isoform_filter import run_isoform_filter
 
 
 def run_downstream(args, df, mode, evidence):
-    """Re-run clustering and the reports on the filtered data. The filter's out_dir has
-    the same <dir>/<file_acc>/<sampleID>_* layout as a QC run, so the existing functions
-    need the original design and no path rewriting. Imported lazily so the filter stays
-    usable without scanpy or R installed."""
-    if mode is None or not (args.report != 'skip' or args.multisample_report
-                            or args.run_clustering):
+    """Re-run clustering, the optional outputs and the reports on the filtered data. The
+    filter's out_dir has the same <dir>/<file_acc>/<sampleID>_* layout as a QC run, so the
+    existing functions need the original design and no path rewriting. Imported lazily so
+    the filter stays usable without scanpy or R installed."""
+    wanted = (args.report != 'skip', args.multisample_report, args.run_clustering,
+              args.count_matrix, args.export_h5ad, args.sqanti_reads_tables)
+    if mode is None or not any(wanted):
         return
     args.mode = mode
     for flag, was_measured in evidence.items():
@@ -24,6 +25,9 @@ def run_downstream(args, df, mode, evidence):
         from sc_clustering import run_clustering_analysis
         for _, row in df.iterrows():
             run_clustering_analysis(args, row)
+
+    from qc_outputs import write_outputs
+    write_outputs(args, df)
 
     if args.report != 'skip':
         from qc_reports import generate_report

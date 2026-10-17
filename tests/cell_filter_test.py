@@ -769,28 +769,40 @@ class TestDownstreamOrdering:
         a.report = 'skip'
         a.multisample_report = False
         a.run_clustering = False
+        a.count_matrix = a.export_h5ad = a.sqanti_reads_tables = False
         for k, v in kw.items():
             setattr(a, k, v)
         return a
 
-    def test_clustering_runs_before_the_report(self, monkeypatch):
-        import filter_pipeline
-        calls = []
-        monkeypatch.setitem(
-            sys.modules, 'sc_clustering',
-            type(sys)('sc_clustering'))
+    def _record(self, monkeypatch, calls):
+        monkeypatch.setitem(sys.modules, 'sc_clustering', type(sys)('sc_clustering'))
         sys.modules['sc_clustering'].run_clustering_analysis = \
             lambda a, r: calls.append('clustering')
         monkeypatch.setitem(sys.modules, 'qc_reports', type(sys)('qc_reports'))
         sys.modules['qc_reports'].generate_report = lambda a, d: calls.append('report')
         sys.modules['qc_reports'].generate_multisample_report = \
             lambda a, d: calls.append('multisample')
+        monkeypatch.setitem(sys.modules, 'qc_outputs', type(sys)('qc_outputs'))
+        sys.modules['qc_outputs'].write_outputs = lambda a, d: calls.append('outputs')
 
+    def test_clustering_runs_before_the_outputs_and_the_report(self, monkeypatch):
+        import filter_pipeline
+        calls = []
+        self._record(monkeypatch, calls)
         df = pd.DataFrame({'sampleID': ['s1'], 'file_acc': ['rep1']})
         filter_pipeline.run_downstream(
-            self._args(run_clustering=True, report='html', multisample_report=True), df,
-            'isoforms', {})
-        assert calls == ['clustering', 'report', 'multisample']
+            self._args(run_clustering=True, report='html', multisample_report=True,
+                       export_h5ad=True), df, 'isoforms', {})
+        assert calls == ['clustering', 'outputs', 'report', 'multisample']
+
+    @pytest.mark.parametrize('flag', ['count_matrix', 'export_h5ad', 'sqanti_reads_tables'])
+    def test_an_output_flag_alone_runs_the_outputs(self, monkeypatch, flag):
+        import filter_pipeline
+        calls = []
+        self._record(monkeypatch, calls)
+        df = pd.DataFrame({'sampleID': ['s1'], 'file_acc': ['rep1']})
+        filter_pipeline.run_downstream(self._args(**{flag: True}), df, 'isoforms', {})
+        assert calls == ['outputs']
 
     def test_clustering_is_skipped_unless_asked(self, monkeypatch):
         import filter_pipeline
