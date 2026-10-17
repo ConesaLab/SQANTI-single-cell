@@ -26,6 +26,21 @@ def add_clustering_args(group):
     return group
 
 
+def add_output_args(group):
+    """Shared by the QC run, both filters and rescue: each writes the same per-sample outputs
+    for the data it leaves."""
+    group.add_argument('--count_matrix', action='store_true', default=False,
+                       help='Write a count matrix per sample in MEX format (matrix.mtx, '
+                            'features.tsv, barcodes.tsv) to <sampleID>_counts/: isoforms x '
+                            'cells in isoforms mode, genes x cells in reads mode.')
+    group.add_argument('--export_h5ad', action='store_true', default=False,
+                       help='Export an AnnData .h5ad file per sample with count matrix and cell '
+                            'QC metadata, compatible with Scanpy and Seurat.')
+    group.add_argument('--sqanti_reads_tables', action='store_true', default=False,
+                       help='Write the SQANTI-reads per-cell tables for each sample: '
+                            'gene_counts.csv, and in reads mode ujc_counts.csv and cv.csv.')
+
+
 def add_cell_metrics_args(group):
     """Shared by the QC parser and the isoform filter, which recomputes the cell
     summary on the models it keeps and must be able to do so with the QC run's settings."""
@@ -78,12 +93,8 @@ def build_parser(version_str: str = '1.2.0'):
                      help='Optional file with one cell-summary column name per line, replacing the curated '
                           'feature set used for the multisample QC overview and PCA. Blank lines and '
                           'lines starting with # are ignored.')
-    apsc.add_argument('--write_per_cell_outputs', action='store_true', default=False,
-                       help='When set, writes per-cell gene_counts.csv, and in reads mode ujc_counts.csv and cv.csv, for each sample.')
-    apsc.add_argument('--export_h5ad', action='store_true', default=False,
-                      help='Export an AnnData .h5ad file per sample with count matrix and cell QC metadata, '
-                           'compatible with Scanpy and Seurat.')
     add_cell_metrics_args(apsc)
+    add_output_args(ap.add_argument_group("SQANTI-sc output options"))
 
     # SQANTI3 Customization and filtering
     apc = ap.add_argument_group("SQANTI3 customization and filtering")

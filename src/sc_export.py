@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from filter_io import classification_path, drop_artifacts
+from filter_io import cell_summary_path, classification_path, drop_artifacts
 
 
 # ---------------------------------------------------------------------------
@@ -211,8 +211,8 @@ def _build_anndata(gene_mat, barcodes, genes, iso_mat=None,
 
     # Embed cell summary as .obs
     if cell_summary_file and os.path.isfile(cell_summary_file):
-        summary = pd.read_csv(cell_summary_file, sep="\t",
-                              compression="gzip")
+        summary = drop_artifacts(pd.read_csv(cell_summary_file, sep="\t",
+                                             compression="gzip"))
         bc_col = summary.columns[0]
         summary = summary.set_index(bc_col)
         common = summary.index.intersection(adata.obs_names)
@@ -249,7 +249,7 @@ def _build_anndata(gene_mat, barcodes, genes, iso_mat=None,
 def export_h5ad(args, df):
     """Export .h5ad files for each sample in the design table.
 
-    Called from qc_pipeline.py when --export_h5ad is set.
+    Called through qc_outputs.write_outputs() when --export_h5ad is set.
     """
     for _, row in df.iterrows():
         file_acc = row["file_acc"]
@@ -283,7 +283,7 @@ def export_h5ad(args, df):
             )
 
         # Locate optional metadata files
-        cell_summary = f"{outputPathPrefix}_SQANTI_cell_summary.txt.gz"
+        cell_summary = cell_summary_path(outputPathPrefix)
         clustering_dir = os.path.join(
             os.path.dirname(outputPathPrefix), "clustering"
         )

@@ -4,6 +4,28 @@ import numpy as np
 import pandas as pd
 
 from cell_metrics import cb_fl_coo
+from filter_io import RESULT_COLUMN, classification_path, drop_artifacts
+
+
+def _read_kept(class_file, columns):
+    """The classification's kept rows: a filter step labels removed models Artifact."""
+    cls = pd.read_csv(class_file, sep='\t', dtype=str, low_memory=False,
+                      usecols=lambda c: c in columns or c == RESULT_COLUMN)
+    return drop_artifacts(cls)
+
+
+def write_outputs(args, df):
+    """The optional per-sample outputs, after clustering so the h5ad carries the UMAP."""
+    if args.sqanti_reads_tables:
+        write_gene_counts_by_cell(args, df)
+        write_ujc_counts_by_cell(args, df)
+        write_cv_by_cell(args, df)
+    if args.count_matrix:
+        from count_matrix import write_count_matrices
+        write_count_matrices(args, df)
+    if args.export_h5ad:
+        from sc_export import export_h5ad
+        export_h5ad(args, df)
 
 ISOFORMS_GENE_TOTALS = ['total_counts', 'unique_isoforms', 'flag_annotated_gene']
 
@@ -47,7 +69,7 @@ def write_gene_counts_by_cell(args, df):
         file_acc = row['file_acc']
         sampleID = row['sampleID']
         outputPathPrefix = os.path.join(args.out_dir, file_acc, sampleID)
-        class_file = f"{outputPathPrefix}_classification.txt"
+        class_file = classification_path(outputPathPrefix)
 
         if not os.path.isfile(class_file):
             print(f"[INFO] Classification file not found for {file_acc}. Skipping gene counts.",
@@ -57,9 +79,8 @@ def write_gene_counts_by_cell(args, df):
         out_file = f"{outputPathPrefix}_gene_counts.csv"
         if args.mode == 'isoforms':
             try:
-                cls = pd.read_csv(class_file, sep='\t', dtype=str, low_memory=False,
-                                  usecols=lambda c: c in ('isoform', 'associated_gene',
-                                                          'structural_category', 'CB', 'FL'))
+                cls = _read_kept(class_file, ('isoform', 'associated_gene',
+                                              'structural_category', 'CB', 'FL'))
             except Exception as e:
                 print(f"[ERROR] Failed reading {class_file}: {e}", file=sys.stderr)
                 continue
@@ -81,8 +102,7 @@ def write_gene_counts_by_cell(args, df):
 
         try:
             needed_cols = ['associated_gene', 'structural_category', 'jxnHash', 'CB']
-            class_df = pd.read_csv(class_file, sep='\t', dtype=str, low_memory=False,
-                                   usecols=lambda c: c in needed_cols or c == 'isoform')
+            class_df = _read_kept(class_file, needed_cols + ['isoform'])
             for col in ['associated_gene', 'structural_category', 'CB']:
                 if col in class_df.columns:
                     try:
@@ -159,7 +179,7 @@ def write_ujc_counts_by_cell(args, df):
         file_acc = row['file_acc']
         sampleID = row['sampleID']
         outputPathPrefix = os.path.join(args.out_dir, file_acc, sampleID)
-        class_file = f"{outputPathPrefix}_classification.txt"
+        class_file = classification_path(outputPathPrefix)
         junc_file = f"{outputPathPrefix}_junctions.txt"
 
         if not os.path.isfile(class_file):
@@ -169,8 +189,7 @@ def write_ujc_counts_by_cell(args, df):
 
         try:
             needed_cls_cols = ['isoform', 'associated_gene', 'structural_category', 'exons', 'jxnHash', 'CB']
-            cls_df = pd.read_csv(class_file, sep='\t', dtype=str, low_memory=False,
-                                 usecols=lambda c: c in needed_cls_cols)
+            cls_df = _read_kept(class_file, needed_cls_cols)
             for col in ['associated_gene', 'structural_category', 'CB']:
                 if col in cls_df.columns:
                     try:
@@ -352,7 +371,7 @@ def write_cv_by_cell(args, df):
         file_acc = row['file_acc']
         sampleID = row['sampleID']
         outputPathPrefix = os.path.join(args.out_dir, file_acc, sampleID)
-        class_file = f"{outputPathPrefix}_classification.txt"
+        class_file = classification_path(outputPathPrefix)
         junc_file = f"{outputPathPrefix}_junctions.txt"
 
         if not os.path.isfile(class_file):
@@ -364,8 +383,7 @@ def write_cv_by_cell(args, df):
 
         try:
             class_needed = ['isoform', 'associated_gene', 'CB']
-            cls_df = pd.read_csv(class_file, sep='\t', dtype=str, low_memory=False,
-                                 usecols=lambda c: c in class_needed)
+            cls_df = _read_kept(class_file, class_needed)
         except Exception as e:
             print(f"[ERROR] Failed reading {class_file}: {e}", file=sys.stderr)
             continue

@@ -117,7 +117,7 @@ usage: sqanti_sc.py [-h] --mode {reads,isoforms} --design DESIGN --refGTF REFGTF
                     [--out_dir OUT_DIR] [--input_dir INPUT_DIR] [--report {pdf,html,both,skip}] 
                     [-@ SAMTOOLS_CPUS] [--verbose] [--skip_hash] [--ignore_cell_summary]
                     [--multisample_report] [--multisample_report_prefix PREFIX]
-                    [--write_per_cell_outputs] [--export_h5ad] [--run_clustering]
+                    [--count_matrix] [--export_h5ad] [--sqanti_reads_tables] [--run_clustering]
                     [--normalization {log1p,sqrt,pearson}] [--n_neighbors N] [--n_pc N]
                     [--resolution RES] [--n_top_genes N] [--clustering_method {leiden,louvain,kmeans}]
                     [--n_clusters N]
@@ -167,10 +167,11 @@ SQANTI-sc specific options:
   --multisample_report  Generate a multisample cohort report
   --multisample_report_prefix PREFIX
                         Prefix for multisample report (Default: SQANTI_sc_multisample_report)
-  --write_per_cell_outputs
-                        Write per-cell gene/UJC counts and CV matrices
+  --count_matrix        Write a count matrix per sample in MEX format to <sampleID>_counts/
   --export_h5ad         Export an AnnData .h5ad file per sample with count matrix and cell QC metadata,
                         compatible with Scanpy and Seurat
+  --sqanti_reads_tables Write the SQANTI-reads per-cell tables (gene counts; UJC counts and junction
+                        CV in reads mode)
   --min_cov MIN_COV     Minimum short read coverage to validate an isoform (default: 1)
   --ratio_TSS RATIO_TSS Minimum ratio_TSS to validate a TSS (default: 2.0)
 
@@ -550,6 +551,8 @@ The filtered data files are written alongside it under their usual names: `*_cla
 
 Note that filtering cells also removes transcript models that were observed **only** in discarded cells. The count is reported as `TranscriptModelsLostAllSupport`.
 
+`--count_matrix`, `--export_h5ad` and `--sqanti_reads_tables` write the same per-sample outputs as the QC run (see [SQANTI-sc Specific Outputs](#3-sqanti-sc-specific-outputs)), for the retained cells and after clustering is refitted. Both filters and rescue take them.
+
 ### Rules and defaults
 
 Criteria live in a JSON file (`--rules`, default `src/filter_assets/cell_filter_default.json`) with the same structure and numeric vocabulary as the SQANTI3 rules filter: a list of two numbers is a `[min, max]` range and a bare number is a minimum. SQANTI3's string forms (`all_canonical: "canonical"`) have no counterpart here — every cell-summary column except `CB` is numeric, so a string rule would match nothing and silently discard every cell. It is rejected with an error instead.
@@ -765,7 +768,7 @@ python sqanti_sc_filter.py cells \
     --out_dir ./filter/final
 ```
 
-`--report`, `--multisample_report` and the clustering options work as for the filters, on the rescued data.
+`--report`, `--multisample_report`, the clustering options and the output options work as for the filters, on the rescued data. The count matrix holds the kept models with the counts moved to them, then the reintroduced references; the residual rows stay in `<sampleID>_rescue_residual.tsv`.
 
 
 <a name="understanding-the-output-of-sqanti-sc"></a>
@@ -795,7 +798,7 @@ Standard SQANTI3 output files are generated for each sample, but they include ad
 <a name="2-sqanti-reads-based-outputs"></a>
 
 ### 2. SQANTI-reads-based Outputs
-The majority of SQANTI-reads-specific otuputs are not output by SQANTI-sc, with the exception of some tables that add the cell barcode dimension. These per-cell matrices follow the logic of **SQANTI-reads** and are generated optionally if the `--write_per_cell_outputs` flag is used. They provide detailed metrics at the single-cell level.
+The majority of SQANTI-reads-specific otuputs are not output by SQANTI-sc, with the exception of some tables that add the cell barcode dimension. These per-cell matrices follow the logic of **SQANTI-reads** and are generated optionally if the `--sqanti_reads_tables` flag is used. They provide detailed metrics at the single-cell level.
 
 *   **`*_gene_counts.csv`**: Counts per gene per cell, broken down by structural category. In reads mode they count reads (`total_read_count`), and `unique_jxnHash_counts` is the number of distinct junction chains among them. In isoforms mode they sum the counts of the gene's isoforms in the cell (`total_counts`), and `unique_isoforms` is the number of distinct isoforms.
 *   **`*_ujc_counts.csv`**: Counts of Unique Junction Chains (UJCs) per cell, including their structural classification and novelty status. Reads mode only: isoforms mode has no junction-chain hashes.
@@ -808,7 +811,8 @@ The majority of SQANTI-reads-specific otuputs are not output by SQANTI-sc, with 
 *   **`*_report.html` / `*.pdf`**: Comprehensive quality control reports summarizing the data at the single-cell level.
 *   **`clustering/umap_results.csv`**: (If `--run_clustering` is active) Contains the UMAP coordinates and cluster assignments for each cell barcode.
 *   **`*_SQANTI_cell_summary.txt.gz`**: A GZIP-compressed tab-delimited file containing a wide array of quality control metrics aggregated per cell. This is the core file for downstream analysis of cellular transcriptome quality.
-*   **`*.h5ad`**: (If `--run_clustering` is active) An [AnnData](https://anndata.readthedocs.io/) object containing the gene × cell count matrix (`.X`), isoform × cell count matrix (`.obsm["isoform_counts"]`, isoforms mode only), per-cell QC metrics (`.obs`), UMAP coordinates (`.obsm["X_umap"]`), and cluster labels (`.obs["cluster"]`). This file is directly compatible with [Scanpy](https://scanpy.readthedocs.io/) (Python) and [Seurat](https://satijalab.org/seurat/) (R, via [SeuratDisk](https://mojaveazure.github.io/seurat-disk/)).
+*   **`<sampleID>_counts/`**: (If `--count_matrix` is set) The sample's count matrix in MEX format, uncompressed: `matrix.mtx` (features × cells, MatrixMarket `integer`, or `real` when a count is fractional), `features.tsv` (ID, gene, `Gene Expression`) and `barcodes.tsv`. In isoforms mode the features are the models of the classification, in its order, so the folder can be given as the `abundance` of a new run. In reads mode they are genes and the values count reads. The cells are those with at least one count.
+*   **`*.h5ad`**: (If `--export_h5ad` is set) An [AnnData](https://anndata.readthedocs.io/) object containing the gene × cell count matrix (`.X`), isoform × cell count matrix (`.obsm["isoform_counts"]`, isoforms mode only), per-cell QC metrics (`.obs`), UMAP coordinates (`.obsm["X_umap"]`), and cluster labels (`.obs["cluster"]`). This file is directly compatible with [Scanpy](https://scanpy.readthedocs.io/) (Python) and [Seurat](https://satijalab.org/seurat/) (R, via [SeuratDisk](https://mojaveazure.github.io/seurat-disk/)).
 
 #### Glossary of Cell Summary columns
 

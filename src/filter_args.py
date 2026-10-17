@@ -1,7 +1,7 @@
 import argparse
 import os
 
-from qc_args import add_cell_metrics_args, add_clustering_args
+from qc_args import add_cell_metrics_args, add_clustering_args, add_output_args
 
 DEFAULT_CELL_RULES = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), 'filter_assets', 'cell_filter_default.json')
@@ -94,6 +94,7 @@ def add_downstream_args(parser, ref_gtf=True):
     # coordinates would place the kept cells in a space the discarded ones shaped.
     add_clustering_args(
         parser.add_argument_group("Clustering and UMAP options (re-run on the filtered data)"))
+    add_output_args(parser.add_argument_group("Output options (written for the filtered data)"))
 
 
 def build_filter_parser(version_str: str = '1.2.0', method: str = 'rules'):
