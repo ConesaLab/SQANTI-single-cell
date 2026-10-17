@@ -2469,3 +2469,82 @@ class TestNeverMeasuredAttributes:
         row = dict(zip(header, values))
         assert row["srjunctions_support_prop"] == "NA"
         assert row["CAGE_peak_support_prop"] == "NA"
+
+
+from qc_outputs import write_gene_counts_by_cell, write_ujc_counts_by_cell, write_cv_by_cell
+
+
+class TestSqantiReadsTablesIsoformsMode:
+    """
+    In isoforms mode a classification row is one model whose CB/FL lists give its counts
+    per cell. The gene table must sum those counts: with whole counts it equals the
+    reads-mode table of the same data written one row per read. The UJC and CV tables
+    describe individual reads and are reads-mode only.
+    """
+
+    ISOFORMS = [
+        # isoform, gene, category, CB, FL
+        ("iso1", "G1", "full-splice_match", "A,B", "5,2"),
+        ("iso2", "G1", "novel_in_catalog", "A", "3"),
+        ("iso3", "G2", "full-splice_match", "A,C", "1,4"),
+        ("iso4", "novelGene_1", "intergenic", "B", "2"),
+    ]
+
+    def _write(self, tmpdir, name, cls_rows):
+        out_dir = str(tmpdir.join(name))
+        os.makedirs(os.path.join(out_dir, "f1"))
+        prefix = os.path.join(out_dir, "f1", "s1")
+        pd.DataFrame(cls_rows).to_csv(f"{prefix}_classification.txt", sep="\t", index=False)
+        return out_dir, prefix
+
+    def _isoforms_input(self, tmpdir, isoforms=None):
+        cls = [{"isoform": i, "associated_gene": g, "structural_category": c, "CB": cb, "FL": fl}
+               for i, g, c, cb, fl in isoforms or self.ISOFORMS]
+        return self._write(tmpdir, "isoforms", cls)
+
+    def _expanded_reads_input(self, tmpdir):
+        cls = [{"isoform": f"{iso}_{cb}_{k}", "associated_gene": gene, "structural_category": cat,
+                "jxnHash": iso, "CB": cb}
+               for iso, gene, cat, cbs, fls in self.ISOFORMS
+               for cb, fl in zip(cbs.split(","), fls.split(",")) for k in range(int(fl))]
+        return self._write(tmpdir, "reads", cls)
+
+    def _gene_table(self, out_dir, prefix, mode):
+        write_gene_counts_by_cell(MagicMock(out_dir=out_dir, mode=mode),
+                                  pd.DataFrame({"file_acc": ["f1"], "sampleID": ["s1"]}))
+        return pd.read_csv(f"{prefix}_gene_counts.csv")
+
+    def test_gene_counts_sum_counts_per_cell(self, tmpdir):
+        t = self._gene_table(*self._isoforms_input(tmpdir), "isoforms")
+        t = t.set_index(["associated_gene", "CB"])
+        assert set(t.index) == {("G1", "A"), ("G1", "B"), ("G2", "A"), ("G2", "C"), ("novelGene_1", "B")}
+        assert t.loc[("G1", "A"), "total_counts"] == 8
+        assert t.loc[("G1", "A"), "full-splice_match"] == 5
+        assert t.loc[("G1", "A"), "novel_in_catalog"] == 3
+        assert t.loc[("G1", "A"), "unique_isoforms"] == 2
+        assert t.loc[("G1", "B"), "total_counts"] == 2
+        assert t.loc[("novelGene_1", "B"), "flag_annotated_gene"] == 0
+        assert "total_read_count" not in t.columns
+
+    def test_gene_counts_equal_expanded_reads(self, tmpdir):
+        iso = self._gene_table(*self._isoforms_input(tmpdir), "isoforms")
+        reads = self._gene_table(*self._expanded_reads_input(tmpdir), "reads")
+        reads = reads.rename(columns={"total_read_count": "total_counts",
+                                      "unique_jxnHash_counts": "unique_isoforms"})
+        pd.testing.assert_frame_equal(iso.reset_index(drop=True), reads[iso.columns].reset_index(drop=True),
+                                      check_dtype=False)
+
+    def test_gene_counts_keep_fractional_counts(self, tmpdir):
+        isoforms = [("iso1", "G1", "full-splice_match", "A", "0.5"),
+                    ("iso2", "G1", "full-splice_match", "A", "1.25")]
+        t = self._gene_table(*self._isoforms_input(tmpdir, isoforms), "isoforms")
+        assert t.loc[0, "total_counts"] == pytest.approx(1.75)
+
+    @pytest.mark.parametrize("write, suffix", [(write_ujc_counts_by_cell, "ujc_counts"),
+                                               (write_cv_by_cell, "cv")])
+    def test_read_level_tables_are_reads_mode_only(self, tmpdir, capsys, write, suffix):
+        out_dir, prefix = self._isoforms_input(tmpdir)
+        write(MagicMock(out_dir=out_dir, mode="isoforms"),
+              pd.DataFrame({"file_acc": ["f1"], "sampleID": ["s1"]}))
+        assert not os.path.exists(f"{prefix}_{suffix}.csv")
+        assert "reads-mode only" in capsys.readouterr().out

@@ -1,6 +1,41 @@
 import os
 import sys
+import numpy as np
 import pandas as pd
+
+from cell_metrics import cb_fl_coo
+
+ISOFORMS_GENE_TOTALS = ['total_counts', 'unique_isoforms', 'flag_annotated_gene']
+
+
+def _flag_annotated(genes):
+    return genes.apply(lambda g: 0 if isinstance(g, str) and g.startswith('novel') else 1)
+
+
+def _gene_counts_isoforms(cls, structural_categories):
+    """Per gene and cell: the counts in each structural category, their total and the
+    distinct isoforms, read from the CB/FL lists as the cell summary reads them."""
+    row, col, data, cells = cb_fl_coo(cls)
+    gene_codes, genes = pd.factorize(cls['associated_gene'])
+    cat_codes, cats = pd.factorize(cls['structural_category'])
+    long = pd.DataFrame({'g': gene_codes[row], 'c': col, 'k': cat_codes[row], 't': row, 'w': data})
+    long = long[long['g'] >= 0]
+    if long.empty:
+        return None
+
+    by_cat = long.groupby(['g', 'c', 'k'])['w'].sum().unstack(fill_value=0)
+    by_cat.columns = [cats[k] if k >= 0 else '' for k in by_cat.columns]
+    out = by_cat.reindex(columns=structural_categories, fill_value=0)
+    out['total_counts'] = long.groupby(['g', 'c'])['w'].sum()
+    # Distinct (isoform, cell) pairs, as Isoforms_in_cell: a barcode can repeat in a row.
+    out['unique_isoforms'] = long.drop_duplicates(['g', 'c', 't']).groupby(['g', 'c']).size()
+    out = out.reset_index()
+    out.insert(0, 'associated_gene', genes.to_numpy()[out['g'].to_numpy()])
+    out.insert(1, 'CB', cells[out['c'].to_numpy()])
+    out['flag_annotated_gene'] = _flag_annotated(out['associated_gene'])
+    out = out.sort_values(['associated_gene', 'CB'], kind='stable')
+    return out[['associated_gene', 'CB'] + structural_categories + ISOFORMS_GENE_TOTALS]
+
 
 def write_gene_counts_by_cell(args, df):
     structural_categories = [
@@ -17,6 +52,31 @@ def write_gene_counts_by_cell(args, df):
         if not os.path.isfile(class_file):
             print(f"[INFO] Classification file not found for {file_acc}. Skipping gene counts.",
                   file=sys.stdout)
+            continue
+
+        out_file = f"{outputPathPrefix}_gene_counts.csv"
+        if args.mode == 'isoforms':
+            try:
+                cls = pd.read_csv(class_file, sep='\t', dtype=str, low_memory=False,
+                                  usecols=lambda c: c in ('isoform', 'associated_gene',
+                                                          'structural_category', 'CB', 'FL'))
+            except Exception as e:
+                print(f"[ERROR] Failed reading {class_file}: {e}", file=sys.stderr)
+                continue
+            for col in ['associated_gene', 'structural_category', 'CB']:
+                if col not in cls.columns:
+                    cls[col] = np.nan
+            agg_df = _gene_counts_isoforms(cls, structural_categories)
+            if agg_df is None:
+                pd.DataFrame(columns=['associated_gene', 'CB'] + structural_categories +
+                             ISOFORMS_GENE_TOTALS).to_csv(out_file, index=False)
+                print(f"[INFO] No valid CB rows for {file_acc}. Wrote empty gene counts.", file=sys.stdout)
+                continue
+            try:
+                agg_df.to_csv(out_file, index=False)
+                print(f"**** Gene counts by cell written: {out_file}", file=sys.stdout)
+            except Exception as e:
+                print(f"[ERROR] Failed writing {out_file}: {e}", file=sys.stderr)
             continue
 
         try:
@@ -41,7 +101,6 @@ def write_gene_counts_by_cell(args, df):
 
         filtered = class_df[(class_df['CB'].notna()) & (class_df['CB'] != '')].copy()
         if filtered.empty:
-            out_file = f"{outputPathPrefix}_gene_counts.csv"
             empty_cols = (['associated_gene', 'CB'] + structural_categories +
                           ['total_read_count', 'unique_jxnHash_counts', 'flag_annotated_gene'])
             pd.DataFrame(columns=empty_cols).to_csv(out_file, index=False)
@@ -78,15 +137,12 @@ def write_gene_counts_by_cell(args, df):
         agg_df = agg_df.merge(unique_jxn_counts, left_index=True, right_index=True)
         agg_df = agg_df.reset_index()
 
-        agg_df['flag_annotated_gene'] = agg_df['associated_gene'].apply(
-            lambda g: 0 if isinstance(g, str) and g.startswith('novel') else 1
-        )
+        agg_df['flag_annotated_gene'] = _flag_annotated(agg_df['associated_gene'])
 
         final_cols = (['associated_gene', 'CB'] + structural_categories +
                       ['total_read_count', 'unique_jxnHash_counts', 'flag_annotated_gene'])
         agg_df = agg_df[final_cols]
 
-        out_file = f"{outputPathPrefix}_gene_counts.csv"
         try:
             agg_df.to_csv(out_file, index=False)
             print(f"**** Gene counts by cell written: {out_file}", file=sys.stdout)
@@ -95,6 +151,10 @@ def write_gene_counts_by_cell(args, df):
 
 
 def write_ujc_counts_by_cell(args, df):
+    if args.mode == 'isoforms':
+        print("[INFO] UJC counts are reads-mode only: isoforms mode has no junction-chain "
+              "hashes. Skipping.", file=sys.stdout)
+        return
     for _, row in df.iterrows():
         file_acc = row['file_acc']
         sampleID = row['sampleID']
@@ -246,7 +306,11 @@ def write_ujc_counts_by_cell(args, df):
 
 
 def write_cv_by_cell(args, df):
-    import numpy as np
+    if args.mode == 'isoforms':
+        print("[INFO] The junction CV table is reads-mode only: it measures how individual "
+              "reads scatter around a splice site, which collapsed models no longer show. "
+              "Skipping.", file=sys.stdout)
+        return
 
     def safe_to_numeric(series):
         return pd.to_numeric(series, errors='coerce')
