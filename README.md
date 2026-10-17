@@ -799,7 +799,7 @@ The majority of SQANTI-reads-specific otuputs are not output by SQANTI-sc, with 
 
 *   **`*_gene_counts.csv`**: Counts per gene per cell, broken down by structural category. In reads mode they count reads (`total_read_count`), and `unique_jxnHash_counts` is the number of distinct junction chains among them. In isoforms mode they sum the counts of the gene's isoforms in the cell (`total_counts`), and `unique_isoforms` is the number of distinct isoforms.
 *   **`*_ujc_counts.csv`**: Counts of Unique Junction Chains (UJCs) per cell, including their structural classification and novelty status. Reads mode only: isoforms mode has no junction-chain hashes.
-*   **`*_cv.csv`**: Coefficient of Variation (CV) metrics for splice junctions per cell, useful for identifying splicing variability. In isoforms mode each junction is weighted by its isoform's counts in the cell, which gives the reads-mode statistics of the same data written one row per read.
+*   **`*_cv.csv`**: Coefficient of Variation (CV) metrics for splice junctions per cell, useful for identifying splicing variability. Reads mode only: it measures how individual reads scatter around a splice site, which collapsed models no longer show.
 
 <a name="3-sqanti-sc-specific-outputs"></a>
 

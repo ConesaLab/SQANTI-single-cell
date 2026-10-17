@@ -2477,71 +2477,47 @@ from qc_outputs import write_gene_counts_by_cell, write_ujc_counts_by_cell, writ
 class TestSqantiReadsTablesIsoformsMode:
     """
     In isoforms mode a classification row is one model whose CB/FL lists give its counts
-    per cell. The gene and CV tables must weight by those counts: with whole counts they
-    equal the reads-mode tables of the same data written one row per read.
+    per cell. The gene table must sum those counts: with whole counts it equals the
+    reads-mode table of the same data written one row per read. The UJC and CV tables
+    describe individual reads and are reads-mode only.
     """
 
     ISOFORMS = [
-        # isoform, gene, category, CB, FL, strand
-        ("iso1", "G1", "full-splice_match", "A,B", "5,2", "+"),
-        ("iso2", "G1", "novel_in_catalog", "A", "3", "+"),
-        ("iso3", "G2", "full-splice_match", "A,C", "1,4", "-"),
-        ("iso4", "novelGene_1", "intergenic", "B", "2", "-"),
-        ("iso5", "G3", "full-splice_match", "A", "2", "+"),
+        # isoform, gene, category, CB, FL
+        ("iso1", "G1", "full-splice_match", "A,B", "5,2"),
+        ("iso2", "G1", "novel_in_catalog", "A", "3"),
+        ("iso3", "G2", "full-splice_match", "A,C", "1,4"),
+        ("iso4", "novelGene_1", "intergenic", "B", "2"),
     ]
-    # isoform -> [(start, end, diff_to_Ref_start_site, diff_to_Ref_end_site)]; the reference
-    # site is start + diff, so (+, 100) holds distances 0, 4 and 1 from two genes in cell A.
-    JUNCTIONS = {
-        "iso1": [(100, 200, 0, 0), (300, 400, 2, -3)],
-        "iso2": [(96, 200, 4, 0), (300, 400, 2, -3)],
-        "iso3": [(102, 200, -2, 0)],
-        "iso4": [(900, 950, 5, 5)],
-        "iso5": [(101, 200, -1, 0)],
-    }
 
-    def _write(self, tmpdir, name, cls_rows, junc_rows):
+    def _write(self, tmpdir, name, cls_rows):
         out_dir = str(tmpdir.join(name))
         os.makedirs(os.path.join(out_dir, "f1"))
         prefix = os.path.join(out_dir, "f1", "s1")
         pd.DataFrame(cls_rows).to_csv(f"{prefix}_classification.txt", sep="\t", index=False)
-        pd.DataFrame(junc_rows).to_csv(f"{prefix}_junctions.txt", sep="\t", index=False)
         return out_dir, prefix
 
-    def _junction(self, isoform, strand, start, end, d_start, d_end):
-        return {"isoform": isoform, "chrom": "chr1", "strand": strand,
-                "genomic_start_coord": start, "genomic_end_coord": end,
-                "diff_to_Ref_start_site": d_start, "diff_to_Ref_end_site": d_end}
-
-    def _isoforms_input(self, tmpdir, isoforms=None, junctions=None):
-        isoforms = isoforms or self.ISOFORMS
-        junctions = junctions or self.JUNCTIONS
-        cls = [{"isoform": i, "associated_gene": g, "structural_category": c, "exons": "3",
-                "CB": cb, "FL": fl} for i, g, c, cb, fl, _ in isoforms]
-        jx = [self._junction(i, s, *j) for i, _, _, _, _, s in isoforms for j in junctions[i]]
-        return self._write(tmpdir, "isoforms", cls, jx)
+    def _isoforms_input(self, tmpdir, isoforms=None):
+        cls = [{"isoform": i, "associated_gene": g, "structural_category": c, "CB": cb, "FL": fl}
+               for i, g, c, cb, fl in isoforms or self.ISOFORMS]
+        return self._write(tmpdir, "isoforms", cls)
 
     def _expanded_reads_input(self, tmpdir):
-        cls, jx = [], []
-        for iso, gene, cat, cbs, fls, strand in self.ISOFORMS:
-            for cb, fl in zip(cbs.split(","), fls.split(",")):
-                for k in range(int(fl)):
-                    read = f"{iso}_{cb}_{k}"
-                    cls.append({"isoform": read, "associated_gene": gene, "structural_category": cat,
-                                "exons": "3", "jxnHash": iso, "CB": cb})
-                    jx += [self._junction(read, strand, *j) for j in self.JUNCTIONS[iso]]
-        return self._write(tmpdir, "reads", cls, jx)
+        cls = [{"isoform": f"{iso}_{cb}_{k}", "associated_gene": gene, "structural_category": cat,
+                "jxnHash": iso, "CB": cb}
+               for iso, gene, cat, cbs, fls in self.ISOFORMS
+               for cb, fl in zip(cbs.split(","), fls.split(",")) for k in range(int(fl))]
+        return self._write(tmpdir, "reads", cls)
 
-    def _table(self, write, out_dir, prefix, mode, suffix):
-        args = MagicMock(out_dir=out_dir, mode=mode)
-        write(args, pd.DataFrame({"file_acc": ["f1"], "sampleID": ["s1"]}))
-        return pd.read_csv(f"{prefix}_{suffix}.csv")
+    def _gene_table(self, out_dir, prefix, mode):
+        write_gene_counts_by_cell(MagicMock(out_dir=out_dir, mode=mode),
+                                  pd.DataFrame({"file_acc": ["f1"], "sampleID": ["s1"]}))
+        return pd.read_csv(f"{prefix}_gene_counts.csv")
 
     def test_gene_counts_sum_counts_per_cell(self, tmpdir):
-        out_dir, prefix = self._isoforms_input(tmpdir)
-        t = self._table(write_gene_counts_by_cell, out_dir, prefix, "isoforms", "gene_counts")
+        t = self._gene_table(*self._isoforms_input(tmpdir), "isoforms")
         t = t.set_index(["associated_gene", "CB"])
-        assert set(t.index) == {("G1", "A"), ("G1", "B"), ("G2", "A"), ("G2", "C"),
-                                ("G3", "A"), ("novelGene_1", "B")}
+        assert set(t.index) == {("G1", "A"), ("G1", "B"), ("G2", "A"), ("G2", "C"), ("novelGene_1", "B")}
         assert t.loc[("G1", "A"), "total_counts"] == 8
         assert t.loc[("G1", "A"), "full-splice_match"] == 5
         assert t.loc[("G1", "A"), "novel_in_catalog"] == 3
@@ -2551,53 +2527,24 @@ class TestSqantiReadsTablesIsoformsMode:
         assert "total_read_count" not in t.columns
 
     def test_gene_counts_equal_expanded_reads(self, tmpdir):
-        iso = self._table(write_gene_counts_by_cell, *self._isoforms_input(tmpdir), "isoforms", "gene_counts")
-        reads = self._table(write_gene_counts_by_cell, *self._expanded_reads_input(tmpdir), "reads", "gene_counts")
+        iso = self._gene_table(*self._isoforms_input(tmpdir), "isoforms")
+        reads = self._gene_table(*self._expanded_reads_input(tmpdir), "reads")
         reads = reads.rename(columns={"total_read_count": "total_counts",
                                       "unique_jxnHash_counts": "unique_isoforms"})
         pd.testing.assert_frame_equal(iso.reset_index(drop=True), reads[iso.columns].reset_index(drop=True),
                                       check_dtype=False)
 
     def test_gene_counts_keep_fractional_counts(self, tmpdir):
-        isoforms = [("iso1", "G1", "full-splice_match", "A", "0.5", "+"),
-                    ("iso2", "G1", "full-splice_match", "A", "1.25", "+")]
-        out_dir, prefix = self._isoforms_input(tmpdir, isoforms, {"iso1": [], "iso2": []})
-        t = self._table(write_gene_counts_by_cell, out_dir, prefix, "isoforms", "gene_counts")
+        isoforms = [("iso1", "G1", "full-splice_match", "A", "0.5"),
+                    ("iso2", "G1", "full-splice_match", "A", "1.25")]
+        t = self._gene_table(*self._isoforms_input(tmpdir, isoforms), "isoforms")
         assert t.loc[0, "total_counts"] == pytest.approx(1.75)
 
-    def test_cv_equals_expanded_reads(self, tmpdir):
-        iso = self._table(write_cv_by_cell, *self._isoforms_input(tmpdir), "isoforms", "cv")
-        reads = self._table(write_cv_by_cell, *self._expanded_reads_input(tmpdir), "reads", "cv")
-        mixed = iso[(iso["strand"] == "+") & (iso["coord"] == 100) & (iso["CB"] == "A")]
-        assert mixed["gene_count"].tolist() == [2] and mixed["cv"].iloc[0] > 0
-        pd.testing.assert_frame_equal(iso, reads, check_dtype=False)
-
-    def test_cv_weights_fractional_counts(self, tmpdir):
-        isoforms = [("iso1", "G1", "full-splice_match", "A", "1.5", "+"),
-                    ("iso2", "G1", "full-splice_match", "A", "0.5", "+")]
-        junctions = {"iso1": [(100, 200, 2, 0)], "iso2": [(98, 200, 4, 0)]}
-        out_dir, prefix = self._isoforms_input(tmpdir, isoforms, junctions)
-        t = self._table(write_cv_by_cell, out_dir, prefix, "isoforms", "cv")
-        start = t[t["coord"] == 102].iloc[0]
-        assert start["count"] == pytest.approx(2.0)
-        assert start["mean_abs_diff"] == pytest.approx(2.5)
-        assert start["cv"] == pytest.approx(0.75 ** 0.5 / 2.5)
-        assert start["std_abs_diff"] == pytest.approx(1.5 ** 0.5)
-
-    def test_cv_identical_distances_have_exactly_zero_spread(self, tmpdir):
-        isoforms = [("iso1", "G1", "full-splice_match", "A", "0.7", "+"),
-                    ("iso2", "G1", "full-splice_match", "A", "0.6", "+"),
-                    ("iso3", "G1", "full-splice_match", "A", "0.1", "+")]
-        junctions = {i: [(100, 200, 3, 0)] for i in ("iso1", "iso2", "iso3")}
-        out_dir, prefix = self._isoforms_input(tmpdir, isoforms, junctions)
-        t = self._table(write_cv_by_cell, out_dir, prefix, "isoforms", "cv")
-        start = t[t["coord"] == 103].iloc[0]
-        assert start["std_abs_diff"] == 0 and start["cv"] == 0
-        assert start["flag_std_0"] == 1 and start["flag_cv_0"] == 1
-
-    def test_ujc_counts_are_reads_mode_only(self, tmpdir, capsys):
+    @pytest.mark.parametrize("write, suffix", [(write_ujc_counts_by_cell, "ujc_counts"),
+                                               (write_cv_by_cell, "cv")])
+    def test_read_level_tables_are_reads_mode_only(self, tmpdir, capsys, write, suffix):
         out_dir, prefix = self._isoforms_input(tmpdir)
-        write_ujc_counts_by_cell(MagicMock(out_dir=out_dir, mode="isoforms"),
-                                 pd.DataFrame({"file_acc": ["f1"], "sampleID": ["s1"]}))
-        assert not os.path.exists(f"{prefix}_ujc_counts.csv")
+        write(MagicMock(out_dir=out_dir, mode="isoforms"),
+              pd.DataFrame({"file_acc": ["f1"], "sampleID": ["s1"]}))
+        assert not os.path.exists(f"{prefix}_{suffix}.csv")
         assert "reads-mode only" in capsys.readouterr().out
