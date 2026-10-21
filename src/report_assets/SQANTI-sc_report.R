@@ -4546,8 +4546,8 @@ gg_rs_categories <- NULL
 gg_rs_goodq <- NULL
 gg_rs_badq <- NULL
 
-RS_OUTCOMES <- c("Automatic rescue", "Mapping to a kept isoform",
-                 "Mapping to a reference transcript", "No target found", "Not eligible")
+RS_OUTCOMES <- c("Automatic rescue", "Mapping to kept isoforms",
+                 "Mapping to reference transcripts", "No target found", "Not eligible")
 rs_outcome_fill <- setNames(c("#2a78d6", "#eb6834", "#1baf7a", "#9a9a9a", "#cfcfcf"),
                             RS_OUTCOMES)
 
