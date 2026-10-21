@@ -354,6 +354,7 @@ class TestLabelledClassificationReaders:
                                method='rules', qc_dir=str(qc_dir))
         assert f'--input_cell_summary "{qc_dir}/rep1/s1_SQANTI_cell_summary.txt.gz"' in cmd
         assert f'--isoform_filter_reasons "{prefix}_filtering_reasons.txt"' in cmd
+        assert '--rescue_input' not in cmd
 
     def test_the_parsed_subcommand_switches_the_report_section_on(self, tmp_path, monkeypatch):
         """qc_reports gates the section on the subcommand's name. The Namespaces above are
@@ -384,6 +385,7 @@ class TestLabelledClassificationReaders:
         cmd = self._report_cmd(tmp_path, monkeypatch, **extra)
         assert '--input_cell_summary' not in cmd
         assert '--isoform_filter_reasons' not in cmd
+        assert '--rescue_input' not in cmd
 
     def test_the_ml_filter_hands_the_report_its_directory_not_reasons(
             self, tmp_path, monkeypatch):

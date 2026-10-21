@@ -40,6 +40,9 @@ LABELLED_CLASSIFICATIONS = {
 }
 # SQANTI3 rescue's name. Kept models and reintroduced references only, so no verdict column.
 RESCUED_CLASSIFICATION = '_rescued_classification.txt'
+RESCUE_TABLE = '_rescue_table.tsv'
+# Full rescue only: the removed models SQANTI3 tried to map to a target.
+RESCUE_CANDIDATES = '_rescue_candidates.tsv'
 
 
 def classification_path(outputPathPrefix):

@@ -43,6 +43,10 @@ cell_filter_reasons_path <- NULL
 input_cell_summary_path <- NULL
 isoform_filter_reasons_path <- NULL
 ml_dir <- NULL
+rescue_input_path <- NULL
+rescue_table_path <- NULL
+rescue_mode <- NULL
+rescue_candidates_path <- NULL
 ref_gtf_path <- NULL
 
 # Check for optional arguments
@@ -113,6 +117,42 @@ if (length(args) > 5) {
         next
       } else {
         stop("--ml_dir requires a path argument")
+      }
+    }
+    if (arg == "--rescue_input") {
+      if ((i + 1) <= length(args)) {
+        rescue_input_path <- args[i + 1]
+        i <- i + 2
+        next
+      } else {
+        stop("--rescue_input requires a path argument")
+      }
+    }
+    if (arg == "--rescue_candidates") {
+      if ((i + 1) <= length(args)) {
+        rescue_candidates_path <- args[i + 1]
+        i <- i + 2
+        next
+      } else {
+        stop("--rescue_candidates requires a path argument")
+      }
+    }
+    if (arg == "--rescue_mode") {
+      if ((i + 1) <= length(args)) {
+        rescue_mode <- args[i + 1]
+        i <- i + 2
+        next
+      } else {
+        stop("--rescue_mode requires a value")
+      }
+    }
+    if (arg == "--rescue_table") {
+      if ((i + 1) <= length(args)) {
+        rescue_table_path <- args[i + 1]
+        i <- i + 2
+        next
+      } else {
+        stop("--rescue_table requires a path argument")
       }
     }
     if (arg == "--clustering") {
@@ -3728,6 +3768,24 @@ generate_sqantisc_plots <- function(SQANTI_cell_summary, Classification_file, Ju
       }
     }
 
+    if (!is.null(rs_counts)) {
+      section_page("Rescue and Requantification")
+      filter_table_page(rs_counts, "Rescue: input and after rescue")
+      filter_table_page(rs_outcome_counts, "Rescue outcomes")
+      for (p in list(gg_rs_category_pct, gg_rs_category_count)) {
+        if (!is.null(p)) print(apply_pdf_theme(p))
+      }
+      if (!is.null(rs_mapping_counts)) filter_table_page(rs_mapping_counts, "Mapping targets")
+      if (!is.null(gg_rs_rescued_per_cell)) {
+        render_pdf_plot_centered("gg_rs_rescued_per_cell", width_frac = 0.5)
+      }
+      if (!is.null(gg_rs_depth)) render_pdf_plot_centered("gg_rs_depth", width_frac = 0.6)
+      for (p in list(gg_rs_outcome_per_cell, gg_rs_regained, gg_rs_by_cluster, gg_rs_umap,
+                     gg_rs_categories, gg_rs_goodq, gg_rs_badq)) {
+        if (!is.null(p)) print(apply_pdf_theme(p))
+      }
+    }
+
     dev.off()
   }
 }
@@ -3898,7 +3956,7 @@ all_bad_features_map <- list(
   "NMD_prop_in_cell" = list(label = "Predicted NMD", color = "#969696")
 )
 
-# ---- Shared by the cell and isoform filter sections ------------------------------
+# ---- Shared by the filter and rescue sections ------------------------------------
 # build_violin_plot() has no dodge dimension, so paired figures are built here with its
 # construction; only alpha differs, and it is what separates the two halves of a pair.
 CF_VIOLIN_ALPHA <- c(Kept = 0.7, Discarded = 0.35)
@@ -3946,6 +4004,16 @@ category_features_map <- list(
   Intergenic_prop = list(label = "Intergenic", color = "darksalmon"),
   Genic_intron_prop = list(label = "Genic intron", color = "#41B6C4")
 )
+
+filter_category_labels <- c(
+  "full-splice_match" = "FSM", "incomplete-splice_match" = "ISM",
+  "novel_in_catalog" = "NIC", "novel_not_in_catalog" = "NNC",
+  "genic" = "Genic genomic", "antisense" = "Antisense", "fusion" = "Fusion",
+  "intergenic" = "Intergenic", "genic_intron" = "Genic intron"
+)
+filter_category_label <- function(x) {
+  ifelse(x %in% names(filter_category_labels), filter_category_labels[x], x)
+}
 
 # One violin pair per feature of `feature_map`, split by `group`. All-NA means the
 # attribute was never measured; all-zero is a real observation and stays.
@@ -4197,10 +4265,25 @@ tf_verdict_plot <- function(d, alphas, alpha_title, title, y_label) {
     labs(title = title, x = NULL, y = y_label)
 }
 
-tf_single_violins <- function(d, title, fills, x_title = "", x_tickangle = 45) {
+tf_single_violins <- function(d, title, fills, x_title = "", x_tickangle = 45, ...) {
   build_violin_plot(d, title = title, x_labels = setNames(levels(d$Variable), levels(d$Variable)),
                     fill_map = fills, x_title = x_title, x_tickangle = x_tickangle,
-                    violin_outline_fill = TRUE, box_alpha = 0.3)
+                    violin_outline_fill = TRUE, box_alpha = 0.3, ...)
+}
+
+depth_pair_scatter <- function(before, after, after_label) {
+  d <- data.frame(before = before, after = after)
+  lims <- range(c(d$before, d$after))
+  ggplot(d, aes(x = before, y = after)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey50") +
+    geom_point(colour = fill_color_orange, alpha = 0.6, size = 1) +
+    scale_x_log10(labels = scales::comma, limits = lims) +
+    scale_y_log10(labels = scales::comma, limits = lims) +
+    coord_fixed() +
+    labs(title = paste(count_label_plural, "per cell, input vs", after_label),
+         x = paste0(count_label_plural, " per cell, input"),
+         y = paste0(count_label_plural, " per cell, ", after_label)) +
+    tf_theme
 }
 
 if (!is.null(tf_removed_models)) {
@@ -4238,17 +4321,7 @@ if (!is.null(tf_removed_models)) {
 
   kept_cells <- tf_cells[!tf_lost, , drop = FALSE]
   if (nrow(kept_cells) > 0) {
-    lims <- range(c(kept_cells$before, kept_cells$after))
-    gg_tf_depth <- ggplot(kept_cells, aes(x = before, y = after)) +
-      geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey50") +
-      geom_point(colour = fill_color_orange, alpha = 0.6, size = 1) +
-      scale_x_log10(labels = scales::comma, limits = lims) +
-      scale_y_log10(labels = scales::comma, limits = lims) +
-      coord_fixed() +
-      labs(title = paste(count_label_plural, "per cell, input vs filtered"),
-           x = paste0(count_label_plural, " per cell, input"),
-           y = paste0(count_label_plural, " per cell, filtered")) +
-      tf_theme
+    gg_tf_depth <- depth_pair_scatter(kept_cells$before, kept_cells$after, "filtered")
   }
 
   if (any(tf_lost) && any(!tf_lost)) {
@@ -4371,17 +4444,10 @@ if (!is.null(tf_removed_models)) {
     }
   }
 
-  tf_category_labels <- c(
-    "full-splice_match" = "FSM", "incomplete-splice_match" = "ISM",
-    "novel_in_catalog" = "NIC", "novel_not_in_catalog" = "NNC",
-    "genic" = "Genic genomic", "antisense" = "Antisense", "fusion" = "Fusion",
-    "intergenic" = "Intergenic", "genic_intron" = "Genic intron"
-  )
   bc <- tf_removed_models$by_category
-  bc <- bc[order(match(bc$category, names(tf_category_labels))), , drop = FALSE]
+  bc <- bc[order(match(bc$category, names(filter_category_labels))), , drop = FALSE]
   tf_category_counts <- data.frame(
-    Category = ifelse(bc$category %in% names(tf_category_labels),
-                      tf_category_labels[bc$category], bc$category),
+    Category = filter_category_label(bc$category),
     stringsAsFactors = FALSE
   )
   if (mode == "isoforms") {
@@ -4404,13 +4470,13 @@ if (!is.null(tf_removed_models)) {
   if (!is.null(ml_r) && nrow(ml_r) > 0) {
     reason_fill <- c("Machine learning" = "#00B0A5", "Intra-priming" = "#E1744E",
                      "Both" = "#FAC24A")
-    cat_label <- function(x) ifelse(x %in% names(tf_category_labels), tf_category_labels[x], x)
     by_reason <- as.data.frame(table(category = factor(ml_r$category, levels = bc$category),
                                      Reason = factor(ml_r$rule, levels = names(reason_fill))),
                                stringsAsFactors = FALSE)
     by_reason <- by_reason[by_reason$Freq > 0, , drop = FALSE]
     by_reason$pct <- 100 * by_reason$Freq / bc$models_before[match(by_reason$category, bc$category)]
-    by_reason$Category <- factor(cat_label(by_reason$category), levels = cat_label(bc$category))
+    by_reason$Category <- factor(filter_category_label(by_reason$category),
+                                 levels = filter_category_label(bc$category))
     by_reason$Reason <- factor(by_reason$Reason,
                                levels = intersect(names(reason_fill), by_reason$Reason))
     unit_title <- tools::toTitleCase(tf_unit)
@@ -4460,6 +4526,248 @@ if (!is.null(tf_removed_models)) {
         "Cells each isoform is found in", "Cells, count")
     }
   }
+}
+
+# ---- Rescue section --------------------------------------------------------------
+# Built only when rescue renders the report. "Input" is the isoform filter's output,
+# whose labelled classification still holds the removed models and their cells.
+rs_counts <- NULL
+rs_outcome_counts <- NULL
+rs_mapping_counts <- NULL
+gg_rs_category_pct <- NULL
+gg_rs_category_count <- NULL
+gg_rs_rescued_per_cell <- NULL
+gg_rs_outcome_per_cell <- NULL
+gg_rs_depth <- NULL
+gg_rs_regained <- NULL
+gg_rs_by_cluster <- NULL
+gg_rs_umap <- NULL
+gg_rs_categories <- NULL
+gg_rs_goodq <- NULL
+gg_rs_badq <- NULL
+
+RS_OUTCOMES <- c("Automatic rescue", "Mapping to kept isoforms",
+                 "Mapping to reference transcripts", "No target found", "Not eligible")
+rs_outcome_fill <- setNames(c("#2a78d6", "#eb6834", "#1baf7a", "#9a9a9a", "#cfcfcf"),
+                            RS_OUTCOMES)
+
+# A model's cells and counts as rescue reads them (transcript_rescue._cell_counts):
+# placeholder barcodes hold no cell, and a count that is not a number counts as one.
+rs_cell_pairs <- function(cls) {
+  cbs <- strsplit(as.character(cls$CB), ",", fixed = TRUE)
+  fls <- strsplit(as.character(cls$FL), ",", fixed = TRUE)
+  off <- lengths(fls) != lengths(cbs)
+  fls[off] <- lapply(cbs[off], function(x) rep(NA_character_, length(x)))
+  count <- suppressWarnings(as.numeric(unlist(fls)))
+  count[is.na(count)] <- 1
+  d <- data.table::data.table(isoform = rep(as.character(cls$isoform), lengths(cbs)),
+                              CB = as.character(unlist(cbs)), count = count)
+  d[!is.na(d$CB) & !(d$CB %in% c("", "NA", "unassigned", "-", "*"))]
+}
+
+if (mode == "isoforms" && !is.null(rescue_input_path) && !is.null(rescue_table_path) &&
+    !is.null(rescue_mode) && !is.null(input_cell_summary_path)) {
+  rs_in <- data.table::fread(
+    rescue_input_path, header = TRUE, sep = "\t", colClasses = "character",
+    select = c("isoform", "structural_category", "associated_gene", "CB", "FL",
+               "filter_result"),
+    data.table = FALSE)
+  rs_table <- data.table::fread(rescue_table_path, header = TRUE, sep = "\t",
+                                colClasses = "character", data.table = FALSE)
+  rs_before <- drop_filtered_cells(data.table::fread(
+    input_cell_summary_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE,
+    data.table = FALSE))
+
+  rs_removed <- rs_in$filter_result == "Artifact"
+  art <- rs_in[rs_removed, , drop = FALSE]
+  # SQANTI3 keeps a removed model's mapping targets of one origin only (kept models
+  # first), so the first row of each says how all its counts were rescued.
+  first <- !duplicated(rs_table$artifact)
+  outcome_of <- setNames(
+    ifelse(rs_table$rescue_mode[first] == "automatic", RS_OUTCOMES[1],
+           ifelse(rs_table$origin[first] == "lr_defined", RS_OUTCOMES[2], RS_OUTCOMES[3])),
+    rs_table$artifact[first])
+  art_outcome <- unname(outcome_of[art$isoform])
+  # Only full rescue's mapping can fail: automatic rescue gives every model it takes its
+  # reference. Any other model without a target was never tried.
+  rs_full <- rescue_mode == "full"
+  tried <- if (rs_full) {
+    data.table::fread(rescue_candidates_path, select = "isoform", colClasses = "character")$isoform
+  } else character(0)
+  no_target <- is.na(art_outcome)
+  art_outcome[no_target] <- ifelse(art$isoform[no_target] %in% tried, RS_OUTCOMES[4],
+                                   RS_OUTCOMES[5])
+  outcomes <- if (rs_full) RS_OUTCOMES else RS_OUTCOMES[c(1, 5)]
+
+  rp <- rs_cell_pairs(art)
+  at <- match(rp$isoform, art$isoform)
+  rp$outcome <- art_outcome[at]
+  rp$category <- art$structural_category[at]
+
+  rs_counts <- data.frame(
+    Measure = c("Isoforms", count_label_plural, "Genes", "Cells"),
+    Input = c(sum(!rs_removed), sum(as.numeric(rs_before[[count_col]]), na.rm = TRUE),
+              length(unique(rs_in$associated_gene[!rs_removed])), nrow(rs_before)),
+    `After rescue` = c(nrow(Classification),
+                       sum(as.numeric(SQANTI_cell_summary[[count_col]]), na.rm = TRUE),
+                       length(unique(Classification$associated_gene)),
+                       nrow(SQANTI_cell_summary)),
+    check.names = FALSE, stringsAsFactors = FALSE
+  )
+  rs_counts$Rescued <- rs_counts$`After rescue` - rs_counts$Input
+  rs_counts$`Rescued (%)` <- round(100 * rs_counts$Rescued / pmax(rs_counts$Input, 1), 2)
+  rs_counts[, c("Input", "After rescue", "Rescued")] <-
+    round(rs_counts[, c("Input", "After rescue", "Rescued")], 2)
+
+  n_models <- c(nrow(art), as.integer(table(factor(art_outcome, levels = outcomes))))
+  by_outcome <- tapply(rp$count, factor(rp$outcome, levels = outcomes), sum)
+  n_counts <- c(sum(rp$count), ifelse(is.na(by_outcome), 0, by_outcome))
+  rs_outcome_counts <- data.frame(Outcome = c("Removed by the isoform filter", outcomes),
+                                  stringsAsFactors = FALSE)
+  rs_outcome_counts$Isoforms <- n_models
+  rs_outcome_counts$`Isoforms (%)` <- round(100 * n_models / max(n_models[1], 1), 2)
+  rs_outcome_counts[[count_label_plural]] <- round(n_counts, 2)
+  rs_outcome_counts[[paste0(count_label_plural, " (%)")]] <-
+    round(100 * n_counts / max(n_counts[1], 1), 2)
+
+  if (rs_full) {
+    mp <- rs_table[rs_table$rescue_mode != "automatic", , drop = FALSE]
+    # Tied targets share a model's counts by their own counts across the sample, evenly
+    # when none has any, as rescue splits them.
+    targets <- rs_in[!rs_removed & rs_in$isoform %in% mp$assigned_transcript, , drop = FALSE]
+    weight <- rs_cell_pairs(targets)[, list(w = sum(count)), by = "isoform"]
+    mp$w <- weight$w[match(mp$assigned_transcript, weight$isoform)]
+    mp$w[is.na(mp$w)] <- 0
+    w_sum <- ave(mp$w, mp$artifact, FUN = sum)
+    mp$share <- ifelse(w_sum > 0, mp$w / w_sum, 1 / ave(mp$w, mp$artifact, FUN = length))
+    art_total <- rp[, list(total = sum(count)), by = "isoform"]
+    mp$moved <- mp$share * art_total$total[match(mp$artifact, art_total$isoform)]
+    mp$moved[is.na(mp$moved)] <- 0
+    target_gene <- Classification$associated_gene[match(mp$assigned_transcript,
+                                                        Classification$isoform)]
+    mp$other_gene <- (target_gene != art$associated_gene[match(mp$artifact, art$isoform)]) %in% TRUE
+
+    n_mapped <- length(unique(mp$artifact))
+    counts_mapped <- sum(mp$moved)
+    tied <- unique(mp$artifact[duplicated(mp$artifact)])
+    n_iso <- c(length(tied), length(unique(mp$artifact[mp$other_gene])))
+    n_cts <- c(sum(mp$moved[mp$artifact %in% tied]), sum(mp$moved[mp$other_gene]))
+    rs_mapping_counts <- data.frame(
+      Measure = c("Split between tied targets", "Target in another gene"),
+      stringsAsFactors = FALSE)
+    rs_mapping_counts$Isoforms <- n_iso
+    rs_mapping_counts$`Isoforms (% of mapped)` <- round(100 * n_iso / max(n_mapped, 1), 2)
+    rs_mapping_counts[[count_label_plural]] <- round(n_cts, 2)
+    rs_mapping_counts[[paste0(count_label_plural, " (% of mapped)")]] <-
+      round(100 * n_cts / max(counts_mapped, 1e-12), 2)
+  }
+
+  if (nrow(rp) > 0) {
+    by_cat <- rp[, list(n = sum(count)), by = c("category", "outcome")]
+    cat_order <- intersect(names(filter_category_labels), by_cat$category)
+    cat_order <- c(cat_order, setdiff(unique(by_cat$category), cat_order))
+    cat_total <- by_cat[, list(total = sum(n)), by = "category"]
+    by_cat$pct <- 100 * by_cat$n / cat_total$total[match(by_cat$category, cat_total$category)]
+    by_cat$Category <- factor(filter_category_label(by_cat$category),
+                              levels = filter_category_label(cat_order))
+    by_cat$Outcome <- factor(by_cat$outcome, levels = outcomes)
+    outcome_bars <- function(y, y_label) {
+      ggplot(by_cat, aes(x = Category, y = .data[[y]], fill = Outcome)) +
+        geom_col(width = 0.7, colour = "white", linewidth = 0.3) +
+        scale_fill_manual(values = rs_outcome_fill, breaks = outcomes) +
+        labs(title = "Rescue outcome by structural category", x = NULL, y = y_label) +
+        tf_theme +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1),
+              legend.text = element_text(size = 14),
+              legend.title = element_text(size = 16, face = "bold"))
+    }
+    gg_rs_category_pct <- outcome_bars("pct", paste0("% of removed ", count_label_plural_lower))
+    gg_rs_category_count <- outcome_bars("n", paste("Removed", count_label_plural_lower)) +
+      scale_y_continuous(labels = scales::comma)
+  }
+
+  per_cell <- rp[, list(removed = sum(count),
+                        unrescued = sum(count[outcome %in% RS_OUTCOMES[4:5]])), by = "CB"]
+  per_cell <- per_cell[per_cell$removed > 0]
+  per_cell$rescued_pct <- 100 * (per_cell$removed - per_cell$unrescued) / per_cell$removed
+  share_label <- paste0("% of the cell's removed ", count_label_plural_lower)
+
+  if (nrow(per_cell) > 0) {
+    gg_rs_rescued_per_cell <- tf_single_violins(
+      data.frame(Variable = factor("All cells"), Value = per_cell$rescued_pct),
+      "Rescued share per cell", c("All cells" = fill_color_orange), x_tickangle = 0,
+      y_label = share_label)
+
+    by_cell_outcome <- rp[, list(n = sum(count)), by = c("CB", "outcome")]
+    d <- do.call(rbind, lapply(outcomes, function(o) {
+      sub_o <- by_cell_outcome[by_cell_outcome$outcome == o]
+      v <- sub_o$n[match(per_cell$CB, sub_o$CB)]
+      v[is.na(v)] <- 0
+      data.frame(Variable = o, Value = 100 * v / per_cell$removed, stringsAsFactors = FALSE)
+    }))
+    d$Variable <- factor(d$Variable, levels = outcomes)
+    gg_rs_outcome_per_cell <- tf_single_violins(
+      d, "Rescue outcome per cell", rs_outcome_fill[outcomes], y_label = share_label)
+
+    if (exists("umap_df")) {
+      by_cluster <- merge(umap_df, as.data.frame(per_cell), by.x = "Barcode", by.y = "CB")
+      if (nrow(by_cluster) > 0) {
+        clusters <- levels(droplevels(by_cluster$Cluster))
+        gg_rs_by_cluster <- tf_single_violins(
+          data.frame(Variable = factor(by_cluster$Cluster, levels = clusters),
+                     Value = by_cluster$rescued_pct),
+          "Rescued share per cell, by cluster",
+          setNames(scales::hue_pal()(length(clusters)), clusters),
+          x_title = "Cluster", x_tickangle = 0, y_label = share_label)
+        if (max(by_cluster$rescued_pct) > 0) {
+          gg_rs_umap <- build_continuous_umap(
+            by_cluster, "rescued_pct", "Rescued share per cell")
+        }
+      }
+    }
+  }
+
+  depth_in <- as.numeric(rs_before[[count_col]])
+  depth_after <- as.numeric(SQANTI_cell_summary[[count_col]])[
+    match(rs_before$CB, SQANTI_cell_summary$CB)]
+  both <- !is.na(depth_after) & depth_in > 0
+  if (any(both)) {
+    gg_rs_depth <- depth_pair_scatter(depth_in[both], depth_after[both], "after rescue")
+  }
+
+  regained <- !(SQANTI_cell_summary$CB %in% rs_before$CB)
+  if (any(regained) && any(!regained)) {
+    cell_groups <- c("Input cells", "Rescued cells")
+    gg_rs_regained <- tf_verdict_plot(
+      data.frame(Verdict = factor(ifelse(regained, cell_groups[2], cell_groups[1]),
+                                  levels = cell_groups),
+                 Value = as.numeric(SQANTI_cell_summary[[count_col]])),
+      setNames(c(0.7, 0.35), cell_groups), "Cells",
+      paste(count_label_plural, "per cell after rescue"),
+      count_axis_label) +
+      theme(legend.position = "none", axis.text.x = element_text(angle = 0, hjust = 0.5))
+  }
+
+  # Same cells on both sides, so a shift is what rescue added to them.
+  surv <- intersect(rs_before$CB, SQANTI_cell_summary$CB)
+  pair_cols <- intersect(
+    c(names(category_features_map), names(all_goodq_features_map), names(all_bad_features_map)),
+    intersect(colnames(rs_before), colnames(SQANTI_cell_summary)))
+  rs_pairs <- rbind(rs_before[match(surv, rs_before$CB), pair_cols, drop = FALSE],
+                    SQANTI_cell_summary[match(surv, SQANTI_cell_summary$CB), pair_cols,
+                                        drop = FALSE])
+  rs_stage <- factor(rep(c("Input", "After rescue"), each = length(surv)),
+                     levels = c("Input", "After rescue"))
+  rs_stage_alpha <- c(Input = 0.7, `After rescue` = 0.35)
+  gg_rs_categories <- filter_pair_plot(
+    rs_pairs, rs_stage, category_features_map,
+    "Structural categories per cell, input vs after rescue", rs_stage_alpha, "Rescue")
+  gg_rs_goodq <- filter_pair_plot(
+    rs_pairs, rs_stage, all_goodq_features_map,
+    "Good-quality attributes per cell, input vs after rescue", rs_stage_alpha, "Rescue")
+  gg_rs_badq <- filter_pair_plot(
+    rs_pairs, rs_stage, all_bad_features_map,
+    "Bad-quality attributes per cell, input vs after rescue", rs_stage_alpha, "Rescue")
 }
 
 # Generate reports based on format

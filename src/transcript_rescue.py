@@ -11,8 +11,9 @@ import pandas as pd
 import cell_context
 import filter_io
 from cell_metrics import calculate_metrics_per_cell
-from filter_io import (CHUNKSIZE, LABELLED_CLASSIFICATIONS, READ_KW, RESCUED_CLASSIFICATION,
-                       RESULT_ARTIFACT, RESULT_COLUMN, SENTINEL_BARCODES)
+from filter_io import (CHUNKSIZE, LABELLED_CLASSIFICATIONS, READ_KW, RESCUE_CANDIDATES,
+                       RESCUE_TABLE, RESCUED_CLASSIFICATION, RESULT_ARTIFACT,
+                       RESULT_COLUMN, SENTINEL_BARCODES)
 from paths import sqantiqcPath
 from qc_io import coverage_argument
 from isoform_filter import _cells_in, detect_run_mode
@@ -22,7 +23,6 @@ FSM = 'full-splice_match'
 # lists, which SQANTI3 would otherwise load whole.
 RESCUE_INPUT_COLUMNS = ('isoform', 'structural_category', 'associated_gene',
                         'associated_transcript', 'exons', RESULT_COLUMN)
-RESCUE_TABLE = '_rescue_table.tsv'
 INCLUSION_LIST = '_rescue_inclusion_list.tsv'
 RESIDUAL = '_rescue_residual.tsv'
 TABLE_COLUMNS = ('artifact', 'assigned_transcript', 'rescue_mode', 'origin', 'reintroduced')
@@ -502,7 +502,9 @@ def rescue_sample(args, row, reference, log):
                             out_prefix + '_junctions.txt', new_cb, appended)
     write_model_files(prefix, reference, out_prefix, appended)
     cell_context.refresh(out_class)
-    for suffix in (RESCUE_TABLE, INCLUSION_LIST):
+    kept = (RESCUE_TABLE, INCLUSION_LIST) + ((RESCUE_CANDIDATES,)
+                                            if args.rescue_mode == 'full' else ())
+    for suffix in kept:
         shutil.move(work_prefix + suffix, out_prefix + suffix)
     if os.path.isdir(os.path.join(work_dir, 'logs')):
         os.makedirs(os.path.join(out_dir, 'logs'), exist_ok=True)

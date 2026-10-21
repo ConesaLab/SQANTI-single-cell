@@ -418,6 +418,140 @@ print(gg_tf_cells_per_model)
 cat("</div>\n")
 ```
 
+```{r rs-check, include=FALSE}
+show_rs <- exists("rs_counts") && !is.null(rs_counts)
+show_rs_category <- show_rs && !is.null(gg_rs_category_pct)
+show_rs_mapping <- show_rs && !is.null(rs_mapping_counts)
+show_rs_cells <- show_rs && (!is.null(gg_rs_rescued_per_cell) || !is.null(gg_rs_depth))
+show_rs_outcome <- show_rs && !is.null(gg_rs_outcome_per_cell)
+show_rs_regained <- show_rs && !is.null(gg_rs_regained)
+show_rs_cluster <- show_rs && !is.null(gg_rs_by_cluster)
+show_rs_umap <- show_rs && !is.null(gg_rs_umap)
+show_rs_categories <- show_rs && !is.null(gg_rs_categories)
+show_rs_goodq <- show_rs && !is.null(gg_rs_goodq)
+show_rs_badq <- show_rs && !is.null(gg_rs_badq)
+```
+
+```{r rs-header, results='asis', eval=show_rs}
+cat("# Rescue and Requantification\n\n")
+```
+
+```{r rs-counts, eval=show_rs}
+render_sqanti_table(rs_counts)
+```
+
+```{r rs-outcomes-header, results='asis', eval=show_rs}
+cat("## Rescue outcomes\n\n")
+```
+
+```{r rs-outcomes, eval=show_rs}
+render_sqanti_table(rs_outcome_counts)
+```
+
+```{r rs-category-header, results='asis', eval=show_rs_category}
+cat("## Outcome by structural category {.tabset .tabset-fade}\n\n")
+cat("### % of category\n\n")
+```
+
+```{r rs-category-pct, fig.height=8, fig.width=12, eval=show_rs_category}
+print(gg_rs_category_pct)
+```
+
+```{r rs-category-count-tab, results='asis', eval=show_rs_category}
+cat("\n### Count\n\n")
+```
+
+```{r rs-category-count, fig.height=8, fig.width=12, eval=show_rs_category}
+print(gg_rs_category_count)
+```
+
+```{r rs-mapping-header, results='asis', eval=show_rs_mapping}
+cat("## Mapping targets\n\n")
+```
+
+```{r rs-mapping, eval=show_rs_mapping}
+render_sqanti_table(rs_mapping_counts)
+```
+
+```{r rs-per-cell-header, results='asis', eval=show_rs_cells}
+cat("## Rescued per cell\n\n")
+cat('<div class="narrow-plot">\n')
+```
+
+```{r rs-per-cell, fig.height=7, fig.width=5, match_12in=TRUE, eval=show_rs && !is.null(gg_rs_rescued_per_cell)}
+print(gg_rs_rescued_per_cell)
+```
+
+```{r rs-depth, fig.height=6, fig.width=6, match_12in=TRUE, eval=show_rs && !is.null(gg_rs_depth)}
+print(gg_rs_depth)
+```
+
+```{r rs-per-cell-div-end, results='asis', eval=show_rs_cells}
+cat("</div>\n")
+```
+
+```{r rs-outcome-per-cell, fig.height=8, fig.width=12, eval=show_rs_outcome}
+print(gg_rs_outcome_per_cell)
+```
+
+```{r rs-regained-header, results='asis', eval=show_rs_regained}
+cat("## Rescued cells\n\n")
+cat('<div class="narrow-plot">\n')
+```
+
+```{r rs-regained, fig.height=7, fig.width=6, match_12in=TRUE, eval=show_rs_regained}
+print(gg_rs_regained)
+```
+
+```{r rs-regained-div-end, results='asis', eval=show_rs_regained}
+cat("</div>\n")
+```
+
+```{r rs-cluster-header, results='asis', eval=show_rs_cluster}
+cat("## Rescue by cluster {.tabset .tabset-fade}\n\n")
+cat("### Per cluster\n\n")
+```
+
+```{r rs-cluster, fig.height=8, fig.width=12, eval=show_rs_cluster}
+print(gg_rs_by_cluster)
+```
+
+```{r rs-umap-tab, results='asis', eval=show_rs_umap}
+cat("\n### On the UMAP\n\n")
+```
+
+```{r rs-umap, fig.height=6, fig.width=8, eval=show_rs_umap}
+print(gg_rs_umap)
+```
+
+```{r rs-categories-header, results='asis', eval=show_rs_categories}
+cat("## Structural categories, input vs after rescue\n\n")
+```
+
+```{r rs-categories, fig.height=8, fig.width=12, eval=show_rs_categories}
+print(gg_rs_categories)
+```
+
+```{r rs-quality-header, results='asis', eval=show_rs_goodq || show_rs_badq}
+cat("## Quality attributes, input vs after rescue {.tabset .tabset-fade}\n\n")
+```
+
+```{r rs-goodq-tab, results='asis', eval=show_rs_goodq}
+cat("\n### Good quality\n")
+```
+
+```{r rs-goodq, fig.height=8, fig.width=12, eval=show_rs_goodq}
+print(gg_rs_goodq)
+```
+
+```{r rs-badq-tab, results='asis', eval=show_rs_badq}
+cat("\n### Bad quality\n")
+```
+
+```{r rs-badq, fig.height=8, fig.width=12, eval=show_rs_badq}
+print(gg_rs_badq)
+```
+
 
 # Overview
 
