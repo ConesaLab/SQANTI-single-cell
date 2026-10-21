@@ -70,6 +70,7 @@ RESCUE_TABLE = [
     ('X5', 'ENST9', 'rules_mapping', 'reference', 'yes'),
 ]
 INCLUSION = ('ENST1', 'ENST7', 'ENST8', 'ENST9')
+CANDIDATES = ('X1', 'X2', 'X3', 'X4', 'X5')
 REFERENCES = ('ENST1', 'ENST7', 'ENST8', 'ENST9', 'ENST_unused')
 
 
@@ -153,6 +154,10 @@ def fake_sqanti3(monkeypatch):
             pd.DataFrame({'isoform': INCLUSION}).to_csv(
                 os.path.join(out_dir, prefix + '_rescue_inclusion_list.tsv'), sep='\t',
                 index=False)
+            if cmd[cmd.index('--mode') + 1] == 'full':
+                pd.DataFrame({'isoform': CANDIDATES}).to_csv(
+                    os.path.join(out_dir, prefix + '_rescue_candidates.tsv'), sep='\t',
+                    index=False)
         calls.append(entry)
         return subprocess.CompletedProcess(cmd, 0)
 
@@ -279,10 +284,18 @@ class TestOtherOutputs:
         out, _ = _rescue(tmp_path, tf, pre, design, '--mode', 'full')
         assert len(pd.read_csv(out + '_rescue_table.tsv', sep='\t')) == len(RESCUE_TABLE)
         assert os.path.isfile(out + '_rescue_inclusion_list.tsv')
+        candidates = pd.read_csv(out + '_rescue_candidates.tsv', sep='\t')['isoform']
+        assert tuple(candidates) == CANDIDATES
         sample_dir = os.path.dirname(out)
         assert not os.path.exists(os.path.join(sample_dir, 'sqanti3_rescue'))
         assert os.path.isdir(os.path.join(sample_dir, 'logs', 'rescue'))
         assert os.path.isfile(out + '_SQANTI_cell_summary.txt.gz')
+
+    def test_automatic_rescue_keeps_no_candidates(self, runs, fake_sqanti3):
+        tmp_path, tf, pre, design = runs
+        out, _ = _rescue(tmp_path, tf, pre, design)
+        assert os.path.isfile(out + '_rescue_table.tsv')
+        assert not os.path.exists(out + '_rescue_candidates.tsv')
 
     def test_readers_find_the_rescued_classification(self, runs, fake_sqanti3):
         tmp_path, tf, pre, design = runs
@@ -470,6 +483,46 @@ class TestParser:
         i = argv.index(missing)
         with pytest.raises(SystemExit):
             rescue_args.build_rescue_parser().parse_args(argv[:i] + argv[i + 2:])
+
+
+class TestReport:
+    def _cmd(self, runs, monkeypatch, *extra):
+        import qc_reports
+        tmp_path, tf, pre, design = runs
+        calls = []
+        monkeypatch.setattr(qc_reports.subprocess, 'run', lambda cmd, **kw: calls.append(cmd))
+        # The real parser, not a hand-built Namespace: the gate is an option it defines.
+        args = _args(tf, pre, tmp_path / 'rescue', '--report', 'html', *extra)
+        args.mode = 'isoforms'
+        qc_reports.generate_report(args, pd.DataFrame({'sampleID': ['s1'], 'file_acc': ['rep1']}))
+        return calls[0]
+
+    def test_rescue_hands_the_report_its_input_and_table(self, runs, fake_sqanti3, monkeypatch):
+        tmp_path, tf, pre, design = runs
+        out, _ = _rescue(tmp_path, tf, pre, design, '--mode', 'full')
+        cmd = self._cmd(runs, monkeypatch, '--mode', 'full')
+        tf_prefix = filter_io.sample_prefix(str(tf), 'rep1', 's1')
+        assert f'"{out}_rescued_classification.txt"' in cmd
+        assert f'--input_cell_summary "{tf_prefix}_SQANTI_cell_summary.txt.gz"' in cmd
+        assert f'--rescue_input "{tf_prefix}_RulesFilter_classification.txt"' in cmd
+        assert f'--rescue_table "{out}_rescue_table.tsv"' in cmd
+        assert '--rescue_mode full' in cmd
+        assert f'--rescue_candidates "{out}_rescue_candidates.tsv"' in cmd
+
+    def test_automatic_rescue_hands_the_report_no_candidates(self, runs, fake_sqanti3,
+                                                             monkeypatch):
+        tmp_path, tf, pre, design = runs
+        _rescue(tmp_path, tf, pre, design)
+        cmd = self._cmd(runs, monkeypatch)
+        assert '--rescue_mode automatic' in cmd
+        assert '--rescue_candidates' not in cmd
+
+    def test_rescue_gets_no_isoform_filter_inputs(self, runs, fake_sqanti3, monkeypatch):
+        tmp_path, tf, pre, design = runs
+        _rescue(tmp_path, tf, pre, design, '--mode', 'full')
+        cmd = self._cmd(runs, monkeypatch)
+        assert '--isoform_filter_reasons' not in cmd
+        assert '--ml_dir' not in cmd
 
 
 class TestEntryPoint:

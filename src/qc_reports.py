@@ -3,7 +3,8 @@ import sys
 import subprocess
 import pandas as pd
 from paths import reportAssetsPath
-from filter_io import cell_summary_path, classification_path, sample_prefix
+from filter_io import (RESCUE_CANDIDATES, RESCUE_TABLE, cell_summary_path,
+                       classification_path, sample_prefix)
 
 
 def generate_report(args, df):
@@ -56,6 +57,18 @@ def generate_report(args, df):
                         flags.extend(["--ml_dir", f'"{os.path.dirname(outputPathPrefix)}"'])
                     elif os.path.isfile(tx_reasons):
                         flags.extend(["--isoform_filter_reasons", f'"{tx_reasons}"'])
+                # Likewise only rescue's own render. Its input is the isoform filter's
+                # output, whose labelled classification still holds the removed models.
+                elif getattr(args, 'rescue_mode', None):
+                    input_prefix = sample_prefix(args.qc_dir, file_acc, sampleID)
+                    flags.extend([
+                        "--input_cell_summary", f'"{cell_summary_path(input_prefix)}"',
+                        "--rescue_input", f'"{classification_path(input_prefix)}"',
+                        "--rescue_table", f'"{outputPathPrefix}{RESCUE_TABLE}"',
+                        "--rescue_mode", args.rescue_mode])
+                    if args.rescue_mode == 'full':
+                        flags.extend(["--rescue_candidates",
+                                      f'"{outputPathPrefix}{RESCUE_CANDIDATES}"'])
 
                 # Check for clustering results
                 # Clustering is usually one level up from sampleID if run per file_acc

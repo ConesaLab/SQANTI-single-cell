@@ -704,7 +704,7 @@ A classification that already carries `filter_result` is refused as input: filte
 
 ## Rescue (`sqanti_sc_rescue.py`)
 
-`sqanti_sc_rescue.py` runs [SQANTI3 rescue](https://github.com/ConesaLab/SQANTI3/wiki/Running-SQANTI3-rescue) on the output of the isoform filter. Like `sqanti3_rescue.py` in SQANTI3, it is its own entry point, next to the QC run (`sqanti_sc.py`) and the filters (`sqanti_sc_filter.py`). Some of the models the filter removes are artifacts of a real transcript: a full-splice match with an intra-primed end, or a fragment of a known isoform. Rescue finds that transcript and gives it the removed model's counts. Isoforms mode only: in reads mode each row is one read, so a removed row has no count to move.
+`sqanti_sc_rescue.py` runs [SQANTI3 rescue](https://github.com/ConesaLab/SQANTI3/blob/master/docs/Running-SQANTI3-rescue.md) on the output of the isoform filter. Like `sqanti3_rescue.py` in SQANTI3, it is its own entry point, next to the QC run (`sqanti_sc.py`) and the filters (`sqanti_sc_filter.py`). Some of the models the filter removes are artifacts of a real transcript: a full-splice match with an intra-primed end, or a fragment of a known isoform. Rescue finds that transcript and gives it the removed model's counts. Isoforms mode only: in reads mode each row is one read, so a removed row has no count to move.
 
 ```bash
 python sqanti_sc_rescue.py \
@@ -719,12 +719,18 @@ python sqanti_sc_rescue.py \
 
 ### Modes
 
-* **`--mode automatic`** (default) puts back a reference transcript when the filter removed every full-splice match (FSM) to it. That reference's removed FSM and ISM models give it their counts.
-* **`--mode full`** also aligns the removed NIC and NNC models, and the ISMs of a reference transcript that has no FSM at all, to the kept models and reference transcripts of their genes. A reference transcript is a target only if it passes the filter itself (`-j`, or SQANTI3's `filter_default.json`). The best alignment wins, and a kept model beats a reference with the same score. Equal scores keep every tied target.
+* **`--mode automatic`** (default) puts back a reference transcript when the filter removed every full-splice match (FSM) to it. Every removed FSM and ISM of that reference gives it their counts. The reference transcript is put back without being checked by the filter.
+* **`--mode full`** does the same, then tries to map SQANTI3's rescue candidates: every removed NIC and NNC, and each removed ISM whose reference transcript has no FSM at all and no kept model. They are aligned with minimap2 against one pool: the kept models and the reference transcripts of every gene that has a candidate, so a candidate can land on a target in another gene. A kept model is always a valid target; a reference transcript is one only if it passes the filter itself (`-j`, or SQANTI3's `filter_default.json`). Among the valid alignments the best wins, a kept model beats a reference with the same score, and equal scores keep every tied target. minimap2 reports a candidate's best alignment and at most five others scoring at least 80% of it, so a valid target that aligns much worse than a rejected reference transcript is never seen.
 
-A removed FSM or ISM whose reference transcript still has a kept model is not considered in either mode, as in SQANTI3.
+A removed model that rescue never tries is **not eligible**:
+* an FSM or ISM whose reference transcript still has a kept FSM, in either mode;
+* in automatic mode, every NIC and NNC, and every ISM of a reference transcript with no FSM;
+* in full mode, an ISM of a reference transcript with no FSM when another model of that reference was kept;
+* in either mode, every model of the other categories: genic genomic, antisense, fusion, intergenic and genic intron.
 
-`-e`/`--rescue_mono_exonic` is SQANTI3's choice of which removed mono-exonic models can be rescued: `all` (SQANTI3's default), `fsm` (mono-exonic FSMs only, by automatic rescue) or `none`. Those it excludes give their counts to the residual rows.
+A candidate that full rescue tried but could not place has **no target found**: minimap2 reported no alignment to a valid target. Both give their counts to the residual rows.
+
+`-e`/`--rescue_mono_exonic` is SQANTI3's choice of which removed mono-exonic models can be rescued: `all` (SQANTI3's default), `fsm` or `none`. With `fsm` or `none`, mono-exonic candidates are not aligned in full rescue. With `none`, mono-exonic FSMs also do not count when deciding whether a reference transcript lost all its FSMs, so a reference whose FSMs are all mono-exonic is never put back. The models it excludes are not eligible.
 
 Full rescue on ML filter output checks the reference transcripts with the rules rather than the random forest: the forest was trained on count and cell columns that a reference transcript does not have. Targets are then chosen by alignment alone, and the log says so.
 
@@ -749,6 +755,7 @@ A removed model with no target gives its counts to a residual row for its gene, 
 | `<sampleID>_rescued_classification.txt` | The kept models, with the counts moved to them, then the reintroduced references (SQANTI3's file name). No removed model and no `filter_result` column |
 | `<sampleID>_rescue_table.tsv` | SQANTI3's: each removed model that has a target, the target, and how it was found |
 | `<sampleID>_rescue_inclusion_list.tsv` | SQANTI3's: the reintroduced reference transcripts |
+| `<sampleID>_rescue_candidates.tsv` | SQANTI3's, full rescue only: the removed models it tried to map to a target |
 | `<sampleID>_rescue_residual.tsv` | The counts of removed models without a target, one row per gene (`isoform`, `CB`, `FL`, as in the classification) |
 | `<sampleID>_junctions.txt` | The kept models' junctions, then the references'. Barcodes follow the moved counts |
 | `<sampleID>_corrected.gtf`, `<sampleID>_corrected.fasta` | The kept models, then the references from the reference QC |
@@ -768,7 +775,7 @@ python sqanti_sc_filter.py cells \
     --out_dir ./filter/final
 ```
 
-`--report`, `--multisample_report`, the clustering options and the output options work as for the filters, on the rescued data. The count matrix holds the kept models with the counts moved to them, then the reintroduced references; the residual rows stay in `<sampleID>_rescue_residual.tsv`.
+`--report`, `--multisample_report`, the clustering options and the output options work as for the filters, on the rescued data. The per-sample report opens with a Rescue and Requantification section. It compares the isoforms, counts, genes and cells of the input with those after rescue. It gives the rescue outcome of the removed models and their counts: automatic rescue, mapping to a kept isoform, mapping to a reference transcript, no target found, or not eligible (see [Modes](#modes)). The outcomes are shown overall, by structural category, per cell, and by cluster when clustering ran. After full rescue the section also counts the models split between tied targets and those whose target is in another gene. Last, it compares each cell's structural categories and quality attributes before and after rescue. The section is in rescue's own report only: a cell filter run on the rescue output reports the cell filter alone. The count matrix holds the kept models with the counts moved to them, then the reintroduced references; the residual rows stay in `<sampleID>_rescue_residual.tsv`.
 
 
 <a name="understanding-the-output-of-sqanti-sc"></a>
